@@ -32,7 +32,7 @@ public sealed class PlayPage : ContentPage
 
         _timer = Dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(15);
-        _timer.Tick += (_, _) => Frame();
+        _timer.Tick += (_, _) => OnFrame();
 
         _host.Engine.GrownUpRequested += OnGrownUp;
     }
@@ -55,7 +55,7 @@ public sealed class PlayPage : ContentPage
         base.OnDisappearing();
     }
 
-    private void Frame()
+    private void OnFrame()
     {
         var now = _clock.Elapsed;
         var dt = Math.Min((now - _last).TotalSeconds, 0.1);
