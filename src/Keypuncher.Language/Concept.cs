@@ -24,6 +24,19 @@ public static class StarterConcepts
         new("moon", "a soft crescent moon",      new Dictionary<string, string> { ["is"] = "tungl",  ["en"] = "moon", ["bg"] = "луна" }),
         new("flower", "a big friendly flower",   new Dictionary<string, string> { ["is"] = "blóm",   ["en"] = "flower", ["bg"] = "цвете" }),
         new("house", "a cosy little house",      new Dictionary<string, string> { ["is"] = "hús",    ["en"] = "house", ["bg"] = "къща" }),
+        // Added in Phase 1 so that more letters have a word; Vanya and Stephen to check before recording.
+        new("tree", "a tall leafy tree",         new Dictionary<string, string> { ["is"] = "tré",    ["en"] = "tree", ["bg"] = "дърво" }),
+        new("ball", "a bouncy round ball",       new Dictionary<string, string> { ["is"] = "bolti",  ["en"] = "ball", ["bg"] = "топка" }),
+        new("dog", "a happy fluffy dog",         new Dictionary<string, string> { ["is"] = "hundur", ["en"] = "dog",  ["bg"] = "куче" }),
+        new("egg", "a smooth speckled egg",      new Dictionary<string, string> { ["is"] = "egg",    ["en"] = "egg",  ["bg"] = "яйце" }),
+        new("star", "a twinkling star",          new Dictionary<string, string> { ["is"] = "stjarna", ["en"] = "star", ["bg"] = "звезда" }),
+        new("apple", "a shiny red apple",        new Dictionary<string, string> { ["is"] = "epli",   ["en"] = "apple", ["bg"] = "ябълка" }),
+        new("bear", "a big gentle bear",         new Dictionary<string, string> { ["is"] = "björn",  ["en"] = "bear", ["bg"] = "мечка" }),
+        new("duck", "a little yellow duck",      new Dictionary<string, string> { ["is"] = "önd",    ["en"] = "duck", ["bg"] = "патица" }),
+        new("mouse", "a tiny quick mouse",       new Dictionary<string, string> { ["is"] = "mús",    ["en"] = "mouse", ["bg"] = "мишка" }),
+        new("cloud", "a soft white cloud",       new Dictionary<string, string> { ["is"] = "ský",    ["en"] = "cloud", ["bg"] = "облак" }),
+        new("boat", "a little bobbing boat",     new Dictionary<string, string> { ["is"] = "bátur",  ["en"] = "boat", ["bg"] = "лодка" }),
+        new("butterfly", "a bright fluttering butterfly", new Dictionary<string, string> { ["is"] = "fiðrildi", ["en"] = "butterfly", ["bg"] = "пеперуда" }),
     ];
 
     /// <summary>Concepts whose word in <paramref name="languageTag"/> starts with <paramref name="letter"/>.

@@ -1,7 +1,16 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Keypuncher.Core\Keypuncher.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Andika, SIL's font for early readers: full Icelandic and Cyrillic. OFL, see Fonts/OFL.txt. -->
+    <EmbeddedResource Include="Fonts\Andika-Bold.ttf" LogicalName="Andika-Bold.ttf" />
   </ItemGroup>
 
   <PropertyGroup>

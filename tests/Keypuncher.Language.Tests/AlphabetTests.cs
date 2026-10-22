@@ -38,7 +38,6 @@ public class AlphabetTests
     public void Eth_falls_back_to_a_word_containing_it()
     {
         Assert.Empty(StarterConcepts.StartingWith("is", 'Ð'));
-        // No starter word contains ð yet either; this documents the gap for the parent screen.
-        Assert.Empty(StarterConcepts.Containing("is", 'ð'));
+        Assert.Contains(StarterConcepts.Containing("is", 'ð'), c => c.Id == "butterfly"); // fiðrildi
     }
 }

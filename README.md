@@ -20,18 +20,50 @@ The full architecture and tech plan is in the project's
 
 | Project | Purpose |
 | --- | --- |
-| `src/Keypuncher.Core` | World model, recipes, input events |
-| `src/Keypuncher.Language` | Icelandic alphabet, Bulgarian phonetic key map, parent-approved concept list |
-| `src/Keypuncher.Director` | Recipe JSON schema, validator, prompts |
+| `src/Keypuncher.App` | The .NET MAUI app (Windows): play page, grown-ups' page, recording page |
+| `src/Keypuncher.Toy` | The reflex loop: what every key, mash and tap does; speech lookup; grown-up exit |
+| `src/Keypuncher.Core` | World model, recipes, input events, keyboard geometry, mash grouping, built-in recipes |
+| `src/Keypuncher.Language` | Icelandic alphabet, Bulgarian phonetic key map, accent key, letter/number meanings, concept list, recording list |
+| `src/Keypuncher.Rendering` | SkiaSharp scene and recipe shapes; embeds the Andika font |
+| `src/Keypuncher.Audio` | Synth and mixer with volume cap and limiter, WAV files, recording clean-up |
+| `src/Keypuncher.Storage` | The world in SQLite, recordings as WAV files, settings |
+| `src/Keypuncher.Platform.Windows` | Keyboard hook (Icelandic layout forced), WASAPI output, microphone, Windows voices |
+| `src/Keypuncher.Director` | Recipe JSON schema, validator, prompts (Phase 2) |
 | `src/Keypuncher.Inference` | `ILanguageModel`, `IImageGenerator`, `IAudioGenerator`, `ISpeech` |
 | `src/Keypuncher.Inference.Ollama` | `ILanguageModel` over a local Ollama server with structured output |
-| `src/Keypuncher.Rendering`, `.Audio`, `.Storage` | Empty until Phase 1 |
+| `tools/Keypuncher.Preview` | Plays a scripted session with no window and writes PNG frames and a WAV |
 | `tools/Keypuncher.Bench` | Phase 0: tokens/s and valid-recipe rate per model on this PC |
 | `tools/Keypuncher.Sandbox` | Ask the director for one recipe and print it |
 | `tools/Keypuncher.KeySpike` | Phase 0: Windows low-level keyboard hook + Icelandic layout reading (Windows only) |
-| `tests/` | xUnit tests for Core, Language and Director |
+| `tests/` | xUnit tests; everything except the app and the Windows pieces also runs on Linux |
 
-The MAUI app (`Keypuncher.App`) arrives in Phase 1 once the Phase 0 spikes pass.
+## Phase 1: the toy, no model yet
+
+Needs the .NET 10 SDK with the MAUI workload (`dotnet workload install maui-windows`).
+
+```powershell
+dotnet test
+dotnet run --project src/Keypuncher.App
+```
+
+- Every key answers at once: a creature or plant from that key's family (the same key always makes
+  the same family), a note whose pitch rises from left to right, and for letters and digits the
+  glyph, large. Three or more keys at once make one big burst instead.
+- Letters are said by their sound, in Icelandic most of the time and English or Bulgarian sometimes
+  (Bulgarian through the phonetic key map). If the child pauses, a word starting with that letter
+  follows, with its picture. Digits make that many things and count them aloud.
+- The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
+- Clicks and taps work too; three fingers make a burst.
+- **Grown-up exit:** Ctrl+Shift+Q shows a short word at the top left; type it within 20 seconds to
+  reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
+- **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
+  levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
+  Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and
+  words if one is installed for that language.
+- Data lives in `%LOCALAPPDATA%\Keypuncher` (`world.db`, `recordings\`, `settings.json`). Set
+  `KEYPUNCHER_DATA` to another folder to share recordings between the child's account and yours.
+
+To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`.
 
 ## Phase 0 on the desktop
 

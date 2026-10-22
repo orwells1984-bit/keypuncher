@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Keypuncher.Audio\Keypuncher.Audio.csproj" />
+    <ProjectReference Include="..\Keypuncher.Core\Keypuncher.Core.csproj" />
+    <ProjectReference Include="..\Keypuncher.Inference\Keypuncher.Inference.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="3.3.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Windows-only code kept out of the MAUI project so it builds (and type-checks) anywhere. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
