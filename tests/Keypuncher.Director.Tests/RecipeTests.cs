@@ -31,11 +31,25 @@ public class RecipeTests
         Assert.Equal("puffbird-adult", recipe.GrowsInto);
     }
 
+    [Fact]
+    public void Out_of_range_numbers_are_clamped_not_rejected()
+    {
+        // What gemma3:4b actually returned on the desktop bench: Ollama ignores min/max.
+        var loose = Sample.Replace("\"size\":0.6", "\"size\":8")
+                          .Replace("\"speed\":0.4", "\"speed\":3")
+                          .Replace("\"attack\":0.01", "\"attack\":2")
+                          .Replace("\"hue\":32", "\"hue\":400");
+        Assert.True(RecipeValidator.TryParse(JsonDocument.Parse(loose), out var recipe, out var error), error);
+        Assert.Equal(1.0, recipe!.Body.Size);
+        Assert.Equal(1.0, recipe.Motion.Speed);
+        Assert.Equal(0.5, recipe.Voice.Attack);
+        Assert.Equal(40, recipe.Body.Hue);
+    }
+
     [Theory]
-    [InlineData("\"hue\":32", "\"hue\":400", "hue")]
     [InlineData("\"root\":\"C5\"", "\"root\":\"H9\"", "root")]
-    [InlineData("\"size\":0.6", "\"size\":3", "size")]
-    public void Out_of_range_values_are_rejected(string from, string to, string expectedError)
+    [InlineData("\"name\":\"puffbird\"", "\"name\":\"x\"", "name length")]
+    public void Unusable_values_are_rejected(string from, string to, string expectedError)
     {
         var bad = Sample.Replace(from, to);
         Assert.False(RecipeValidator.TryParse(JsonDocument.Parse(bad), out _, out var error));
