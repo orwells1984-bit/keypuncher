@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Keypuncher.Audio/Keypuncher.Audio.csproj" />
+    <Project Path="src/Keypuncher.Core/Keypuncher.Core.csproj" />
+    <Project Path="src/Keypuncher.Director/Keypuncher.Director.csproj" />
+    <Project Path="src/Keypuncher.Inference.Ollama/Keypuncher.Inference.Ollama.csproj" />
+    <Project Path="src/Keypuncher.Inference/Keypuncher.Inference.csproj" />
+    <Project Path="src/Keypuncher.Language/Keypuncher.Language.csproj" />
+    <Project Path="src/Keypuncher.Rendering/Keypuncher.Rendering.csproj" />
+    <Project Path="src/Keypuncher.Storage/Keypuncher.Storage.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Keypuncher.Core.Tests/Keypuncher.Core.Tests.csproj" />
+    <Project Path="tests/Keypuncher.Director.Tests/Keypuncher.Director.Tests.csproj" />
+    <Project Path="tests/Keypuncher.Language.Tests/Keypuncher.Language.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Keypuncher.Bench/Keypuncher.Bench.csproj" />
+    <Project Path="tools/Keypuncher.KeySpike/Keypuncher.KeySpike.csproj" />
+    <Project Path="tools/Keypuncher.Sandbox/Keypuncher.Sandbox.csproj" />
+  </Folder>
+</Solution>
