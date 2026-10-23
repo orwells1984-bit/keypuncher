@@ -22,6 +22,13 @@ public sealed class ParentPage : ContentPage
         var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 720 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
 
+        // The two ways out first, where nobody has to look for them.
+        var play = Button("Back to play", Play);
+        play.BackgroundColor = Color.FromArgb("#2E7D32");
+        var quit = Button("Quit Keypuncher", Quit);
+        quit.BackgroundColor = Color.FromArgb("#C62828");
+        layout.Add(new HorizontalStackLayout { Spacing = 12, Children = { play, quit } });
+
         layout.Add(Heading("Languages"));
         layout.Add(new Label { Text = "How often each language is used for a key. Icelandic leads." });
         foreach (var (tag, name) in new[] { ("is", "Icelandic"), ("en", "English"), ("bg", "Bulgarian") })
@@ -55,11 +62,7 @@ public sealed class ParentPage : ContentPage
         });
         layout.Add(new Label { Text = $"Data folder: {host.DataFolder}", FontSize = 12 });
 
-        var buttons = new HorizontalStackLayout { Spacing = 12, Margin = new Thickness(0, 20, 0, 0) };
-        buttons.Add(Button("Back to play", Play));
-        buttons.Add(Button("Start a fresh world", FreshWorld));
-        buttons.Add(Button("Quit", Quit));
-        layout.Add(buttons);
+        layout.Add(Button("Start a fresh world", FreshWorld));
 
         Content = new ScrollView { Content = layout };
     }

@@ -25,7 +25,9 @@ public sealed class PlayPage : ContentPage
     {
         _host = host;
         BackgroundColor = Colors.LightBlue;
-        _canvas = new SKCanvasView { EnableTouchEvents = true, IgnorePixelScaling = false };
+        // Draw at layout size rather than device pixels: on a 4K screen at 200% that is a quarter of the
+        // pixels (17 frames a second at full resolution on the desktop), and the soft shapes don't need more.
+        _canvas = new SKCanvasView { EnableTouchEvents = true, IgnorePixelScaling = true };
         _canvas.PaintSurface += OnPaint;
         _canvas.Touch += OnTouch;
         Content = _canvas;
