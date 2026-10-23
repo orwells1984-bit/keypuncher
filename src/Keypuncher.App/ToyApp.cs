@@ -8,6 +8,24 @@ public sealed class ToyApp : Application
 {
     private readonly ToyHost _host = new();
 
+    public ToyApp()
+    {
+        // The grown-up pages are drawn on a light background, so they must not follow Windows' dark mode
+        // (white text on cream was unreadable). Explicit colours as well, in case a control ignores the theme.
+        UserAppTheme = AppTheme.Light;
+        var ink = Color.FromArgb("#222222");
+        Resources.Add(new Style(typeof(Label)) { Setters = { new Setter { Property = Label.TextColorProperty, Value = ink } } });
+        Resources.Add(new Style(typeof(Button))
+        {
+            Setters =
+            {
+                new Setter { Property = Button.TextColorProperty, Value = Colors.White },
+                new Setter { Property = Button.BackgroundColorProperty, Value = Color.FromArgb("#3B5BA5") },
+            },
+        });
+        Resources.Add(new Style(typeof(Picker)) { Setters = { new Setter { Property = Picker.TextColorProperty, Value = ink } } });
+    }
+
     protected override Window CreateWindow(IActivationState? activationState)
     {
         var window = new Window(new PlayPage(_host)) { Title = "Keypuncher" };
