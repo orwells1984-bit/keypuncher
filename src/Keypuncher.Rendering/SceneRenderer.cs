@@ -15,7 +15,10 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
     /// <summary>How fast a thing eases between moving and still, in full swings a second.</summary>
     private const double MotionEase = 1.5;
     /// <summary>History is drawn with this much of its colour, so it stays a quiet backdrop.</summary>
-    private const float HistorySaturation = 0.35f;
+    private const float HistorySaturation = 0.3f;
+    /// <summary>History keeps this share of its contrast and is lifted towards white for the rest, so dark
+    /// outlines become pale ghosts that read as part of the sky, not as more things.</summary>
+    private const float HistoryContrast = 0.45f;
     /// <summary>Bigger moves are capped at this share of the shorter screen side.</summary>
     private const double MaxMotionAmplitude = 0.03;
     /// <summary>A word label's height as a share of the screen height; it is for the grown-up, so it stays small.</summary>
@@ -135,12 +138,13 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         _background = null;
         _baked?.Dispose();
         _baked = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
-        _historyFilter ??= Desaturate(HistorySaturation);
+        _historyFilter ??= Ghost(HistorySaturation, HistoryContrast);
         _bakedGeneration = -1;
     }
 
     /// <summary>Repaints the history layer when something joins it or the style changes: only the most
-    /// recent few, drawn still.</summary>
+    /// recent few, drawn still, each one fainter the older it is, so the oldest fades away rather than
+    /// dropping out.</summary>
     private void UpdateBaked(World world)
     {
         var shown = Math.Max(0, world.Limits.HistoryShown);
@@ -153,7 +157,8 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         for (var i = Math.Max(0, world.Baked.Count - shown); i < world.Baked.Count; i++)
         {
             var e = world.Baked[i];
-            DrawThing(canvas, e, 1000, e.Phase * 10, 0, 255, 0, _width, _height, unit, world.Style);
+            var rank = world.Baked.Count - 1 - i;   // 0 for the most recently retired
+            DrawThing(canvas, e, 1000, e.Phase * 10, 0, HistoryFade(rank, shown), 0, _width, _height, unit, world.Style);
         }
     }
 
@@ -368,15 +373,24 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
     }
 
     /// <summary>Keeps <paramref name="saturation"/> of each colour's saturation (Rec. 709 luminance weights).</summary>
-    private static SKColorFilter Desaturate(float saturation)
+    /// <summary>The opacity of the history item <paramref name="rank"/> places from the newest, out of
+    /// <paramref name="shown"/>: full for the newest, falling evenly towards nothing for the oldest.</summary>
+    private static byte HistoryFade(int rank, int shown) =>
+        shown <= 0 ? (byte)0 : (byte)Math.Round(255 * Math.Clamp(1 - ((double)rank / shown), 0, 1));
+
+    /// <summary>Keeps <paramref name="saturation"/> of each colour's saturation (Rec. 709 luminance weights),
+    /// then keeps <paramref name="contrast"/> of its distance from white.</summary>
+    private static SKColorFilter Ghost(float saturation, float contrast)
     {
         const float r = 0.213f, g = 0.715f, b = 0.072f;
         var s = saturation;
+        var k = contrast;
+        var lift = 1 - k;
         return SKColorFilter.CreateColorMatrix(
         [
-            r + ((1 - r) * s), g - (g * s), b - (b * s), 0, 0,
-            r - (r * s), g + ((1 - g) * s), b - (b * s), 0, 0,
-            r - (r * s), g - (g * s), b + ((1 - b) * s), 0, 0,
+            k * (r + ((1 - r) * s)), k * (g - (g * s)), k * (b - (b * s)), 0, lift,
+            k * (r - (r * s)), k * (g + ((1 - g) * s)), k * (b - (b * s)), 0, lift,
+            k * (r - (r * s)), k * (g - (g * s)), k * (b + ((1 - b) * s)), 0, lift,
             0, 0, 0, 1, 0,
         ]);
     }

@@ -410,6 +410,52 @@ public sealed class ToyEngineTests : IDisposable
         Assert.InRange(faintDelta, 1, fullDelta * 0.5);
     }
 
+    [Fact]
+    public void History_is_a_pale_ghost_with_no_dark_outlines()
+    {
+        // Dark outlines piled up in the background were what made the screen look busy, so even right
+        // on top of a retired thing no pixel may differ much from the bare sky.
+        var bare = RenderAll(new World());
+        var history = new World();
+        history.Load(100, [], [Thing(1, BuiltInRecipes.Palette[0], 0.5, 0.4)]);
+        var ghost = RenderAll(history);
+        var worst = Enumerable.Range(0, bare.Length).Max(i => Delta(bare[i], ghost[i]));
+        Assert.InRange(worst, 1, 40);
+    }
+
+    [Fact]
+    public void Only_the_last_few_retired_things_are_drawn_and_older_ones_fade_more()
+    {
+        var shown = CalmLimits.Toddler.HistoryShown;
+        // One more than are shown, spread across the screen, oldest on the left.
+        var baked = Enumerable.Range(0, shown + 1)
+            .Select(i => Thing(i + 1, BuiltInRecipes.Palette[0], 0.08 + (i * 0.84 / shown), 0.3))
+            .ToList();
+        var world = new World { Limits = CalmLimits.Toddler };
+        world.Load(100, [], baked);
+        var bare = RenderAll(new World());
+        var ghost = RenderAll(world);
+        int At(Entity e) => Delta(bare[Index(e.X, e.Y)], ghost[Index(e.X, e.Y)]);
+
+        Assert.Equal(0, At(baked[0]));            // past the cap: not drawn at all
+        Assert.True(At(baked[1]) < At(baked[^1])); // oldest shown is fainter than the newest
+        Assert.True(At(baked[^1]) > 0);
+    }
+
+    private static Entity Thing(long id, Recipe recipe, double x, double y) =>
+        new() { Id = id, Role = EntityRole.Thing, Recipe = recipe, X = x, Y = y, Born = 0 };
+
+    private static int Index(double x, double y) => ((int)(y * 300) * 400) + (int)(x * 400);
+
+    private static SKColor[] RenderAll(World world)
+    {
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        using var surface = SKSurface.Create(new SKImageInfo(400, 300));
+        renderer.Draw(surface.Canvas, 400, 300, world);
+        using var bitmap = SKBitmap.FromImage(surface.Snapshot());
+        return bitmap.Pixels;
+    }
+
     private static SKColor Render(World world)
     {
         using var renderer = new SceneRenderer(Fonts.LoadAndika());
