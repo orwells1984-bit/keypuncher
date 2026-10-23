@@ -5,7 +5,7 @@
 //   dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "kisa 3 mjá" --mash 4
 //
 // Each character in --keys is one press, 0.35 s apart (a space is a pause); ´ is the accent key.
-// --mash N adds N palm mashes at the end. Frames are written after every press and at the end.
+// --mash N adds N palm mashes at the end. --calm Baby|Toddler|BigToddler picks the calm level (default Toddler). Frames are written after every press and at the end.
 
 using Keypuncher.Audio;
 using Keypuncher.Core;
@@ -19,12 +19,13 @@ var keys = Get("--keys", "sól 3 köttur");
 var mashes = int.Parse(Get("--mash", "2"));
 var width = int.Parse(Get("--width", "1280"));
 var height = int.Parse(Get("--height", "720"));
+var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
 Directory.CreateDirectory(outDir);
 
 var world = new World();
 var mixer = new Mixer();
 var speech = new SpeechLibrary(new ClipStore(Path.Combine(outDir, "clips")), null);
-var engine = new ToyEngine(world, mixer, speech, ToySettings.Default, new Random(1));
+var engine = new ToyEngine(world, mixer, speech, ToySettings.Default with { Calm = calm }, new Random(1));
 using var renderer = new SceneRenderer(Fonts.LoadAndika());
 var audio = new List<float>();
 var clock = DateTimeOffset.UnixEpoch;

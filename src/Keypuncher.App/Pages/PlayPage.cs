@@ -46,6 +46,7 @@ public sealed class PlayPage : ContentPage
     {
         base.OnAppearing();
         _host.Mode = HostMode.Play;
+        _host.Engine.StartSession();
         _last = _clock.Elapsed;
         _timer.Start();
     }

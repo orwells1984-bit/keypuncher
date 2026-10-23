@@ -15,6 +15,8 @@ public enum EntityRole
 /// <summary>One placed thing in the world. Positions are 0..1 of the screen; times are world seconds.</summary>
 public sealed class Entity
 {
+    private double? _woken;
+
     public required long Id { get; init; }
     public required EntityRole Role { get; init; }
     /// <summary>What to draw and how it sounds; null for <see cref="EntityRole.Letter"/> and <see cref="EntityRole.Word"/>.</summary>
@@ -32,7 +34,15 @@ public sealed class Entity
     public double Phase { get; init; }
     /// <summary>1 when new or touched, decaying towards a floor; drawn as liveliness and opacity.</summary>
     public double Energy { get; set; } = 1;
+    /// <summary>World time it was last born, touched or woken; the most recent few are the ones that move.</summary>
+    public double Woken { get => _woken ?? Born; set => _woken = value; }
+    /// <summary>World time when the cap pushed this thing out; it fades for <see cref="World.RetireSeconds"/>
+    /// and then joins the background. Null while it is a full member of the scene.</summary>
+    public double? RetiredAt { get; set; }
+    /// <summary>Set by <see cref="World.Tick"/>: one of the few things allowed to move right now.</summary>
+    public bool Awake { get; set; }
 
     public double Age(double worldTime) => worldTime - Born;
     public bool IsPersistent => Role == EntityRole.Thing;
+    public bool IsRetiring => RetiredAt is not null;
 }

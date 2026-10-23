@@ -71,32 +71,118 @@ public class ReflexInputTests
     }
 
     [Fact]
-    public void World_bakes_the_oldest_things_past_the_cap_and_drops_effects_when_done()
+    public void World_retires_the_oldest_things_past_the_cap_with_a_fade_and_drops_effects_when_done()
     {
         var w = new World();
-        for (var i = 0; i < World.MaxLiveThings + 5; i++)
-            w.Add(new Entity { Id = w.NextId(), Role = EntityRole.Thing, Recipe = BuiltInRecipes.Palette[0], X = 0.5, Y = 0.5, Born = i });
+        var cap = w.Limits.LiveThings;
+        for (var i = 0; i < cap + 3; i++) AddThing(w, born: i);
         w.Add(new Entity { Id = w.NextId(), Role = EntityRole.Effect, Recipe = BuiltInRecipes.Burst, X = 0.5, Y = 0.5, Born = 0, Lifetime = 1 });
+        w.Tick(1.5);
 
-        w.Tick(2);
-
-        Assert.Equal(World.MaxLiveThings, w.LiveThingCount);
-        Assert.Equal(5, w.Baked.Count);
-        Assert.Equal(1, w.Baked[0].Id);
+        // Still on screen while they fade, but no longer counted.
+        Assert.Equal(cap, w.LiveThingCount);
+        Assert.Equal([1L, 2, 3], w.Live.Where(e => e.IsRetiring).Select(e => e.Id));
+        Assert.Empty(w.Baked);
         Assert.DoesNotContain(w.Live, e => e.Role == EntityRole.Effect);
+
+        w.Tick(World.RetireSeconds);
+        Assert.Equal([1L, 2, 3], w.Baked.Select(e => e.Id));
+        Assert.DoesNotContain(w.Live, e => e.IsRetiring);
+        Assert.Contains(w.Live, e => e.Id == cap + 3);   // the newest is never the one pushed out
         Assert.True(w.Dirty);
     }
 
     [Fact]
-    public void Untouched_things_fade_to_the_floor_and_a_touch_wakes_them()
+    public void Untouched_things_settle_to_still_and_a_touch_wakes_them()
     {
-        var w = new World();
-        var e = w.Add(new Entity { Id = w.NextId(), Role = EntityRole.Thing, Recipe = BuiltInRecipes.Palette[0], X = 0.5, Y = 0.5, Born = 0 });
-        for (var i = 0; i < 1200; i++) w.Tick(1);
-        Assert.Equal(World.EnergyFloor, e.Energy, 3);
+        var w = new World { Limits = CalmLimits.Toddler };
+        var e = AddThing(w, born: 0);
+        w.Tick(CalmLimits.Toddler.SettleSeconds / 2);
+        Assert.InRange(e.Energy, 0.45, 0.55);
+        Assert.True(e.Awake);
+        w.Tick(CalmLimits.Toddler.SettleSeconds / 2 + 0.01);
+        Assert.Equal(0, e.Energy);
+        Assert.False(e.Awake);
+
         w.Touch(0.51, 0.5, 0.05);
         Assert.Equal(1, e.Energy);
+        Assert.True(e.Awake);
     }
+
+    [Fact]
+    public void Quiet_settles_things_faster()
+    {
+        var w = new World { Quiet = true };
+        var e = AddThing(w, born: 0);
+        w.Tick((w.Limits.SettleSeconds / 3) + 0.01);
+        Assert.Equal(0, e.Energy);
+    }
+
+    [Fact]
+    public void Only_the_most_recently_woken_few_move()
+    {
+        var w = new World { Limits = CalmLimits.Toddler };
+        var things = Enumerable.Range(0, 5).Select(i => AddThing(w, born: i * 0.1)).ToList();
+        w.Tick(0.6);
+        Assert.Equal([things[3], things[4]], things.Where(e => e.Awake));
+
+        w.Wake(things[0]);
+        Assert.Equal([things[0], things[4]], things.Where(e => e.Awake));
+    }
+
+    [Fact]
+    public void The_goodnight_puts_every_thing_to_sleep()
+    {
+        var w = new World { Limits = CalmLimits.BigToddler };
+        for (var i = 0; i < 4; i++) AddThing(w, born: 0);
+        w.Tick(0.1);
+        Assert.Equal(4, w.Live.Count(e => e.Awake));
+        w.Night = 0.5;
+        w.Tick(0.1);
+        Assert.Equal(2, w.Live.Count(e => e.Awake));
+        w.Night = 1;
+        w.Tick(0.1);
+        Assert.DoesNotContain(w.Live, e => e.Awake);
+    }
+
+    [Fact]
+    public void Newest_prefers_the_same_recipe()
+    {
+        var w = new World();
+        var a = AddThing(w, born: 0, BuiltInRecipes.Palette[0]);
+        AddThing(w, born: 1, BuiltInRecipes.Palette[1]);
+        Assert.Same(a, w.Newest(BuiltInRecipes.Palette[0]));
+        Assert.Equal(2, w.Newest(BuiltInRecipes.Palette[5])!.Id);
+        Assert.Null(new World().Newest(BuiltInRecipes.Palette[0]));
+    }
+
+    [Fact]
+    public void Calm_levels_get_busier_with_age()
+    {
+        CalmLimits[] levels = [CalmLimits.For(CalmLevel.Baby), CalmLimits.For(CalmLevel.Toddler), CalmLimits.For(CalmLevel.BigToddler)];
+        foreach (var (calmer, busier) in levels.Zip(levels.Skip(1)))
+        {
+            Assert.True(calmer.LiveThings < busier.LiveThings);
+            Assert.True(calmer.Moving < busier.Moving);
+            Assert.True(calmer.SettleSeconds < busier.SettleSeconds);
+            Assert.True(calmer.NewThingsPerSecond < busier.NewThingsPerSecond);
+            Assert.True(calmer.HistoryOpacity < busier.HistoryOpacity);
+            Assert.True(calmer.SessionMinutes < busier.SessionMinutes);
+        }
+        Assert.All(levels, l => Assert.InRange(l.MaxMotionHz, 0.1, 1));
+        Assert.All(levels, l => Assert.InRange(l.CountUpTo, 1, 9));
+    }
+
+    [Fact]
+    public void Effects_avoid_saturated_red()
+    {
+        // Bursts flash in and out; red flashes are the riskiest kind (WCAG 2.3.1).
+        foreach (var r in new[] { BuiltInRecipes.Burst, BuiltInRecipes.Sparkle })
+            Assert.InRange(r.Body.Hue, 20, 340);
+    }
+
+    private static Entity AddThing(World w, double born, Recipe? recipe = null) =>
+        w.Add(new Entity { Id = w.NextId(), Role = EntityRole.Thing, Recipe = recipe ?? BuiltInRecipes.Palette[0], X = 0.5, Y = 0.5, Born = born });
 
     [Fact]
     public void Every_concept_and_palette_recipe_is_in_range()

@@ -8,6 +8,7 @@ namespace Keypuncher.Toy;
 /// <summary>
 /// The reflex loop. Every key or tap gets an answer in the same frame: a thing from the key's family,
 /// a note whose pitch follows the key's column, and for letters and digits the glyph and its sound.
+/// How much appears, and for how long play lasts, comes from the calm level in <see cref="Settings"/>.
 /// No model runs here. Call everything from one thread (the UI thread); the mixer is the only thing
 /// shared with another thread, and it is built for that.
 /// </summary>
@@ -21,17 +22,27 @@ public sealed class ToyEngine
     /// <summary>Letters no word begins with; these borrow a word that contains them (Ð: fiðrildi).
     /// Any other letter without a word just says its sound.</summary>
     private static readonly HashSet<char> NeverStartsAWord = ['Ð', 'Ъ', 'Ь'];
+    /// <summary>Mash bursts are at least this far apart, well under the three-flashes-a-second limit.</summary>
+    private const double MinBurstGap = 0.7;
+    private const double MaxBurstScale = 1.6;
+    /// <summary>With no input for this long the scene settles faster.</summary>
+    public const double QuietAfter = 20;
+    /// <summary>The goodnight dims the sky and puts things to sleep over this many seconds.</summary>
+    public const double GoodnightSeconds = 8;
 
     private readonly World _world;
     private readonly Mixer _mixer;
     private readonly SpeechLibrary _speech;
     private readonly Random _random;
     private readonly MashGrouper _mash = new();
-    private readonly SpawnLimiter _limiter = new();
     private readonly DeadKeyComposer _composer = new();
     private readonly List<(double At, Action Do)> _scheduled = [];
     private ToySettings _settings;
     private LanguageMix _mix;
+    private SpawnLimiter _limiter;
+    private double _lastBurst = double.NegativeInfinity;
+    private double _sessionStart, _lastInput;
+    private double? _asleepSince;
 
     public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null)
     {
@@ -43,10 +54,15 @@ public sealed class ToyEngine
         _settings = settings;
         _mix = new LanguageMix(settings.LanguageWeights);
         _mixer.Volume = settings.Volume;
+        _limiter = LimiterFor(settings.Limits);
+        _world.Limits = settings.Limits;
+        StartSession();
     }
 
     public World World => _world;
     public GrownUpGate Gate { get; }
+    /// <summary>True once the session timer has run out; presses only make soft notes until a new session.</summary>
+    public bool IsAsleep => _asleepSince is not null;
 
     /// <summary>Raised when the grown-up challenge is answered.</summary>
     public event Action? GrownUpRequested;
@@ -59,7 +75,18 @@ public sealed class ToyEngine
             _settings = value;
             _mix = new LanguageMix(value.LanguageWeights);
             _mixer.Volume = value.Volume;
+            _limiter = LimiterFor(value.Limits);
+            _world.Limits = value.Limits;
         }
+    }
+
+    /// <summary>Starts the session timer again and wakes the scene from a goodnight; call when play starts.</summary>
+    public void StartSession()
+    {
+        _sessionStart = _lastInput = _world.Time;
+        _asleepSince = null;
+        _world.Night = 0;
+        _world.Quiet = false;
     }
 
     public void OnKey(KeyPress press)
@@ -72,6 +99,12 @@ public sealed class ToyEngine
         if (!press.IsDown)
         {
             _mash.Feed(press);
+            return;
+        }
+        _lastInput = _world.Time;
+        if (IsAsleep)
+        {
+            if (_mash.Feed(press).Kind is PressKind.Single or PressKind.Mash) SleepyNote(KeyboardGeometry.Position(press.ScanCode).X);
             return;
         }
 
@@ -110,6 +143,12 @@ public sealed class ToyEngine
     /// <summary>A tap or press on the screen at 0..1 coordinates.</summary>
     public void OnTouch(double x, double y, int fingers)
     {
+        _lastInput = _world.Time;
+        if (IsAsleep)
+        {
+            SleepyNote(x);
+            return;
+        }
         CancelScheduled();
         _world.Touch(x, y, 0.08);
         if (fingers >= 3)
@@ -119,13 +158,20 @@ public sealed class ToyEngine
         }
         var family = (int)(x * 6) + (6 * (int)(y * 4));
         var recipe = BuiltInRecipes.Palette[family % BuiltInRecipes.Palette.Count];
-        SpawnThing(recipe, x, y, 1);
+        SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
     }
 
     /// <summary>Advances the world and runs scheduled counting and words.</summary>
     public void Update(double dt)
     {
+        if (!IsAsleep && _settings.SessionLength is { } length && _world.Time - _sessionStart >= length.TotalSeconds)
+        {
+            CancelScheduled();
+            _asleepSince = _world.Time;
+        }
+        _world.Quiet = IsAsleep || _world.Time - _lastInput >= QuietAfter;
+        _world.Night = _asleepSince is { } since ? Math.Min(1, (_world.Time - since) / GoodnightSeconds) : 0;
         _world.Tick(dt);
         for (var i = 0; i < _scheduled.Count;)
         {
@@ -156,8 +202,7 @@ public sealed class ToyEngine
         }
 
         PlayNote(recipe.Voice, midi, speak ? 0.8 : 0.45, ev.X);
-        if (speak || _limiter.TryTake(DateTimeOffset.Now))
-            SpawnThing(recipe, ev.X, ev.Y, speak ? 1 : 0.7);
+        SpawnOrWake(recipe, ev.X, ev.Y, speak ? 1 : 0.7, ev.Timestamp);
         if (meaning is null) return;
 
         ShowGlyph(meaning.Display, ev.X);
@@ -167,10 +212,19 @@ public sealed class ToyEngine
         if (_settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X);
     }
 
-    /// <summary>Digits: 0 says zero; 1 to 9 make that many things, one at a time, counting aloud.</summary>
+    /// <summary>Digits: 0 says zero; 1 up to the calm level's limit make that many things, one at a time,
+    /// counting aloud; bigger numbers say the number and make one thing.</summary>
     private void Count(KeyMeaning meaning, Recipe recipe, double x, int midi)
     {
         var n = meaning.Number!.Value;
+        if (n > _settings.Limits.CountUpTo)
+        {
+            SpawnThing(recipe, x, 0.45, 1.2);
+            foreach (var step in new[] { 0, 2, 4 })
+                PlayNote(recipe.Voice, Notes.Degree("pentatonic", midi, step), 0.5, x);
+            if (meaning.Clip is not null) Say(meaning.Clip, meaning.FallbackText, x);
+            return;
+        }
         if (n == 0)
         {
             SpawnEffect(BuiltInRecipes.Burst, x, 0.45, 0.5, 1.2);
@@ -220,16 +274,36 @@ public sealed class ToyEngine
         });
     }
 
+    /// <summary>One soft burst and one chord; a burst too soon after the last gets a single note instead.</summary>
     private void Mash(InputEvent ev)
     {
-        var size = Math.Min(1.0 + (ev.Intensity * 0.15), 2.2);
-        SpawnEffect(BuiltInRecipes.Burst, ev.X, ev.Y, size, 1.4);
         var root = Notes.Degree("pentatonic", LowestKeyMidi, (int)(ev.X * 10));
+        if (_world.Time - _lastBurst < MinBurstGap)
+        {
+            PlayNote(BuiltInRecipes.Burst.Voice, root, 0.35, ev.X);
+            return;
+        }
+        _lastBurst = _world.Time;
+        var size = Math.Min(1.0 + (ev.Intensity * 0.1), MaxBurstScale);
+        SpawnEffect(BuiltInRecipes.Burst, ev.X, ev.Y, size, 1.4);
         foreach (var step in new[] { 0, 2, 4 })
             PlayNote(BuiltInRecipes.Burst.Voice, Notes.Degree("pentatonic", root, step), 0.5, ev.X);
-        if (_limiter.TryTake(DateTimeOffset.Now))
-            SpawnThing(FamilyOf(ev.ScanCode), ev.X, ev.Y, 1.2);
+        SpawnOrWake(FamilyOf(ev.ScanCode), ev.X, ev.Y, 1.2, ev.Timestamp);
     }
+
+    private void SleepyNote(double x) =>
+        PlayNote(BuiltInRecipes.Palette[2].Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 8)), 0.3, x);
+
+    /// <summary>A new thing while the calm level's rate allows; otherwise the newest of that family wakes up,
+    /// so every press still gets a visible answer without adding to the crowd.</summary>
+    private void SpawnOrWake(Recipe recipe, double x, double y, double scale, DateTimeOffset at)
+    {
+        if (_limiter.TryTake(at)) SpawnThing(recipe, x, y, scale);
+        else if (_world.Newest(recipe) is { } existing) _world.Wake(existing);
+    }
+
+    private static SpawnLimiter LimiterFor(CalmLimits limits) =>
+        new(limits.NewThingsPerSecond, burst: limits.NewThingsPerSecond < 1 ? 1 : 2 * limits.NewThingsPerSecond);
 
     private void ShowGlyph(string display, double x) =>
         _world.Add(new Entity
