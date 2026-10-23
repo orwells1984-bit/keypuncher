@@ -1,4 +1,5 @@
 using Keypuncher.Audio;
+using Keypuncher.Core;
 using Keypuncher.Language;
 using Keypuncher.Platform.Windows;
 using Keypuncher.Storage;
@@ -12,6 +13,17 @@ public sealed class ParentPage : ContentPage
     private readonly Dictionary<string, Slider> _weights = [];
     private readonly Switch _upper, _words;
     private readonly Slider _volume;
+    private readonly Picker _calm, _session;
+
+    private static readonly (CalmLevel Level, string Name)[] CalmChoices =
+    [
+        (CalmLevel.Baby, "Baby (6 to 12 months): calmest"),
+        (CalmLevel.Toddler, "Toddler (12 to 18 months)"),
+        (CalmLevel.BigToddler, "Big toddler (18 months and up)"),
+    ];
+
+    /// <summary>Session lengths offered; null follows the calm level, 0 never ends.</summary>
+    private static readonly int?[] SessionChoices = [null, 5, 10, 15, 20, 30, 0];
 
     public ParentPage(ToyHost host)
     {
@@ -37,6 +49,13 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Say a word after a letter", _words));
         _volume = new Slider(0, Mixer.MaxVolume, s.Volume) { WidthRequest = 300 };
         layout.Add(Row("Volume", _volume));
+
+        layout.Add(Heading("Calm"));
+        layout.Add(new Label { Text = "How busy the screen may get. Calmer levels keep fewer things on screen, let fewer move, and end play sooner with a goodnight." });
+        _calm = ChoicePicker(CalmChoices.Select(c => c.Name), Array.FindIndex(CalmChoices, c => c.Level == s.Calm));
+        layout.Add(Row("Calm level", _calm));
+        _session = ChoicePicker(SessionChoices.Select(SessionName), Math.Max(0, Array.IndexOf(SessionChoices, s.SessionMinutes)));
+        layout.Add(Row("Goodnight after", _session));
 
         layout.Add(Heading("Voices"));
         var recorded = KeyMeanings.Languages
@@ -74,7 +93,8 @@ public sealed class ParentPage : ContentPage
     {
         _host.SaveSettings(new ToySettings(
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
-            _upper.IsToggled, (float)_volume.Value, _words.IsToggled));
+            _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
+            CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)]));
         base.OnDisappearing();
     }
 
@@ -98,6 +118,22 @@ public sealed class ParentPage : ContentPage
     {
         try { return WindowsVoices.InstalledLanguages(); }
         catch (Exception) { return ["unknown"]; }
+    }
+
+    private static string SessionName(int? minutes) => minutes switch
+    {
+        null => "The calm level's default (5, 10 or 15 minutes)",
+        0 => "Never",
+        _ => $"{minutes} minutes",
+    };
+
+    /// <summary>A drop-down with explicit colours, so it reads whatever the Windows theme is.</summary>
+    private static Picker ChoicePicker(IEnumerable<string> items, int selected)
+    {
+        var picker = new Picker { WidthRequest = 360, TextColor = Color.FromArgb("#222222"), BackgroundColor = Colors.White };
+        foreach (var item in items) picker.Items.Add(item);
+        picker.SelectedIndex = Math.Max(0, selected);
+        return picker;
     }
 
     private static Label Heading(string text) =>

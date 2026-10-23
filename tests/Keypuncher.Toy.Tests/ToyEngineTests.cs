@@ -185,6 +185,164 @@ public sealed class ToyEngineTests : IDisposable
         Assert.NotEqual(pixels.GetPixelColor(10, 10), pixels.GetPixelColor(320, 300));
     }
 
+    [Fact]
+    public void Presses_faster_than_the_calm_rate_wake_the_newest_thing_instead_of_adding()
+    {
+        _engine.Settings = _engine.Settings with { Calm = CalmLevel.Baby, SayWords = false };
+        Press(0x25, "k");
+        var first = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing);
+        Step(CalmLimits.Baby.SettleSeconds + 1);
+        Assert.Equal(0, first.Energy);
+        Assert.False(first.Awake);
+
+        Press(0x25, "k");   // seconds later: allowed
+        Press(0x25, "k");   // 0.16 s later: too soon
+        var things = _world.Live.Where(e => e.Role == EntityRole.Thing).ToList();
+        Assert.Equal(2, things.Count);
+        Assert.True(things[1].Awake);
+        Assert.Equal(2, _world.Live.Count(e => e.Role == EntityRole.Letter));   // still says and shows every letter
+    }
+
+    [Fact]
+    public void A_burst_of_presses_stays_under_the_live_cap()
+    {
+        _engine.Settings = _engine.Settings with { Calm = CalmLevel.Baby };
+        for (var i = 0; i < 40; i++)
+        {
+            Press(0x10 + (i % 10), "q");
+            Step(1.5);
+        }
+        Assert.Equal(CalmLimits.Baby.LiveThings, _world.LiveThingCount);
+        Assert.True(_world.Live.Count(e => e.Awake) <= CalmLimits.Baby.Moving);
+        Assert.NotEmpty(_world.Baked);
+    }
+
+    [Fact]
+    public void A_digit_above_the_calm_limit_makes_one_thing()
+    {
+        _engine.Settings = _engine.Settings with { Calm = CalmLevel.Baby };
+        Press(0x06, "5");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "5");
+        Step(4);
+        Assert.Equal(1, _world.LiveThingCount);
+
+        Press(0x04, "3");
+        Step(2);
+        Assert.Equal(4, _world.LiveThingCount);
+    }
+
+    [Fact]
+    public void Mashes_close_together_make_one_burst()
+    {
+        Mash(0x1E);
+        Step(0.2);
+        Mash(0x2C);
+        Assert.Single(_world.Live, e => e.Recipe == BuiltInRecipes.Burst);
+        Step(1);
+        Mash(0x1E);
+        Assert.Equal(2, _world.Live.Count(e => e.Recipe == BuiltInRecipes.Burst));
+    }
+
+    [Fact]
+    public void The_session_ends_with_a_goodnight_and_a_new_session_wakes_up()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
+        Press(0x25, "k");
+        Step(59);
+        Assert.False(_engine.IsAsleep);
+        Step(2);
+        Assert.True(_engine.IsAsleep);
+        Step(ToyEngine.GoodnightSeconds);
+        Assert.Equal(1, _world.Night);
+
+        var before = _world.Live.Count;
+        Press(0x1F, "s");
+        Assert.Equal(before, _world.Live.Count);   // only a soft note
+        Assert.DoesNotContain(_world.Live, e => e.Awake);
+
+        _engine.StartSession();
+        Assert.False(_engine.IsAsleep);
+        Assert.Equal(0, _world.Night);
+        Press(0x1F, "s");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "S");
+    }
+
+    [Fact]
+    public void Session_zero_never_says_goodnight()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 0 };
+        Assert.Null(_engine.Settings.SessionLength);
+        Step(20 * 60);
+        Assert.False(_engine.IsAsleep);
+    }
+
+    [Fact]
+    public void Calm_level_sets_the_world_limits()
+    {
+        Assert.Equal(CalmLimits.Toddler, _world.Limits);
+        _engine.Settings = _engine.Settings with { Calm = CalmLevel.BigToddler };
+        Assert.Equal(CalmLimits.BigToddler, _world.Limits);
+        Assert.Equal(TimeSpan.FromMinutes(15), _engine.Settings.SessionLength);
+    }
+
+    [Fact]
+    public void Settings_from_before_calm_levels_load_as_toddler()
+    {
+        var path = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(path, """{ "LanguageWeights": { "is": 1 }, "UpperCase": false, "Volume": 0.3, "SayWords": true }""");
+        var loaded = new SettingsStore(path).Load();
+        Assert.Equal(CalmLevel.Toddler, loaded.Calm);
+        Assert.Null(loaded.SessionMinutes);
+        Assert.False(loaded.UpperCase);
+
+        var store = new SettingsStore(path);
+        store.Save(loaded with { Calm = CalmLevel.Baby, SessionMinutes = 0 });
+        Assert.Contains("\"Baby\"", File.ReadAllText(path));
+        var again = store.Load();
+        Assert.Equal(CalmLevel.Baby, again.Calm);
+        Assert.Equal(0, again.SessionMinutes);
+    }
+
+    [Fact]
+    public void History_is_drawn_faintly()
+    {
+        var bare = new World();
+        var history = new World();
+        var thing = new Entity { Id = 1, Role = EntityRole.Thing, Recipe = BuiltInRecipes.Palette[9], X = 0.5, Y = 0.4, Born = 0, Scale = 2 };
+        history.Load(100, [], [thing]);
+        var live = new World();
+        live.Load(100, [new Entity { Id = 1, Role = EntityRole.Thing, Recipe = BuiltInRecipes.Palette[9], X = 0.5, Y = 0.4, Born = 0, Scale = 2 }], []);
+
+        var empty = Render(bare);
+        var faint = Render(history);
+        var full = Render(live);
+        var faintDelta = Delta(empty, faint);
+        var fullDelta = Delta(empty, full);
+        Assert.InRange(faintDelta, 1, fullDelta * 0.5);
+    }
+
+    private static SKColor Render(World world)
+    {
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        using var surface = SKSurface.Create(new SKImageInfo(400, 300));
+        renderer.Draw(surface.Canvas, 400, 300, world);
+        using var pixels = surface.Snapshot().PeekPixels();
+        return pixels.GetPixelColor(200, 120);
+    }
+
+    private static int Delta(SKColor a, SKColor b) => Math.Abs(a.Red - b.Red) + Math.Abs(a.Green - b.Green) + Math.Abs(a.Blue - b.Blue);
+
+    private void Mash(int firstScan)
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            _engine.OnKey(new KeyPress(_clock, firstScan + i, null, false, true));
+            _clock = _clock.AddMilliseconds(8);
+        }
+        for (var i = 0; i < 5; i++)
+            _engine.OnKey(new KeyPress(_clock, firstScan + i, null, false, false));
+    }
+
     private void Press(int scan, string ch)
     {
         _engine.OnKey(new KeyPress(_clock, scan, ch, false, true));
