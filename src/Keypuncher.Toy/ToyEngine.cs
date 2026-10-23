@@ -16,8 +16,11 @@ public sealed class ToyEngine
 {
     /// <summary>Pitches run up a pentatonic scale from G3 at the left of the keyboard.</summary>
     private const int LowestKeyMidi = 55;
-    /// <summary>A letter's word waits this long, and is dropped if another key comes first.</summary>
+    /// <summary>A letter's word waits this long. A later letter with a word of its own takes its place, and a mash
+    /// or a digit drops it; other keys and taps leave it be, so a child who keeps pressing still hears words.</summary>
     private const double WordDelay = 0.9;
+    /// <summary>A word whose voice is still being made when it is due keeps trying this long, then stays silent.</summary>
+    private const double WordVoiceWait = 1.5;
     private const double CountInterval = 0.55;
     /// <summary>Letters no word begins with; these borrow a word that contains them (Ð: fiðrildi).
     /// Any other letter without a word just says its sound.</summary>
@@ -41,6 +44,8 @@ public sealed class ToyEngine
     private readonly MashGrouper _mash = new();
     private readonly DeadKeyComposer _composer = new();
     private readonly List<(double At, Action Do)> _scheduled = [];
+    private (double At, Action Do)? _pendingWord;
+    private (ClipId Clip, string Text, double X, double Until)? _unsaidWord;
     private ToySettings _settings;
     private LanguageMix _mix;
     private SpawnLimiter _limiter;
@@ -141,7 +146,7 @@ public sealed class ToyEngine
         switch (kind)
         {
             case PressKind.Single:
-                CancelScheduled();
+                CancelCounting();
                 Respond(ev with { Character = character }, speak: true);
                 break;
             case PressKind.Repeat:
@@ -163,7 +168,7 @@ public sealed class ToyEngine
             SleepyNote(x);
             return;
         }
-        CancelScheduled();
+        CancelCounting();
         _world.Touch(x, y, 0.08);
         if (fingers >= 3)
         {
@@ -196,6 +201,17 @@ public sealed class ToyEngine
             _scheduled.RemoveAt(i);
             action();
         }
+        if (_pendingWord is { } word && word.At <= _world.Time)
+        {
+            _pendingWord = null;
+            word.Do();
+        }
+        if (_unsaidWord is { } unsaid)
+        {
+            if (_speech.TryGet(unsaid.Clip, unsaid.Text) is { } samples) _mixer.Speak(samples, (unsaid.X * 2) - 1);
+            else if (_world.Time < unsaid.Until) return;
+            _unsaidWord = null;
+        }
     }
 
     /// <summary>Clears key state after the window loses focus (key-ups went elsewhere).</summary>
@@ -212,6 +228,7 @@ public sealed class ToyEngine
 
         if (meaning?.Number is { } n)
         {
+            CancelWord();
             ShowGlyph(meaning.Display, ev.X);
             Count(meaning, recipe, ev.X, midi);
             return;
@@ -275,7 +292,8 @@ public sealed class ToyEngine
         var clip = new ClipId(language, ClipKind.Word, concept.Id);
         _speech.TryGet(clip, word); // start loading now so it is ready when the pause comes
 
-        Schedule(WordDelay, () =>
+        _unsaidWord = null;
+        _pendingWord = (_world.Time + WordDelay, () =>
         {
             var spot = Math.Clamp(x, 0.15, 0.85);
             var recipe = BuiltInRecipes.ForConcept(concept.Id);
@@ -286,7 +304,9 @@ public sealed class ToyEngine
                 X = spot, Y = 0.62, Born = _world.Time, Lifetime = 3.5,
             });
             PlayNote(recipe.Voice, Notes.Parse(recipe.Voice.Root), 0.6, spot);
-            Say(clip, word, spot);
+            // A voice made on the fly can take longer than the pause the first time; say it once it is ready.
+            if (_speech.TryGet(clip, word) is { } samples) _mixer.Speak(samples, (spot * 2) - 1);
+            else _unsaidWord = (clip, word, spot, _world.Time + WordVoiceWait);
         });
     }
 
@@ -370,5 +390,13 @@ public sealed class ToyEngine
         else _scheduled.Add((_world.Time + delay, action));
     }
 
-    private void CancelScheduled() => _scheduled.Clear();
+    private void CancelScheduled()
+    {
+        CancelCounting();
+        CancelWord();
+    }
+
+    private void CancelCounting() => _scheduled.Clear();
+
+    private void CancelWord() => (_pendingWord, _unsaidWord) = (null, null);
 }

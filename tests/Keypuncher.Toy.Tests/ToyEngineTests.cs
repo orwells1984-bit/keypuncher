@@ -36,18 +36,83 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
-    public void A_word_follows_a_letter_only_after_a_pause()
+    public void A_word_follows_a_letter_after_a_short_pause()
+    {
+        Press(0x1F, "s");          // sól, ský, stjarna
+        Step(0.5);
+        Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
+        Step(0.6);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.StartsWith("s", word.Text);
+    }
+
+    [Fact]
+    public void Keys_without_a_word_do_not_drop_the_waiting_word()
     {
         Press(0x1F, "s");          // sól, ský, stjarna
         Step(0.3);
-        Press(0x1E, "a");          // interrupts: no word for s
+        Press(0x1E, "a");          // no Icelandic starter word begins with a
+        Step(0.3);
+        Press(0x33, ",");
+        Step(0.5);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.StartsWith("s", word.Text);
+    }
+
+    [Fact]
+    public void A_later_letter_with_a_word_takes_the_earlier_ones_place()
+    {
+        Press(0x1F, "s");
+        Step(0.3);
+        Press(0x23, "h");          // hús, hundur
+        Step(2);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.StartsWith("h", word.Text);
+    }
+
+    [Fact]
+    public void A_mash_or_a_digit_drops_the_waiting_word()
+    {
+        Press(0x1F, "s");
+        Step(0.3);
+        foreach (var scan in new[] { 0x1E, 0x1F, 0x20 })
+        {
+            _engine.OnKey(new KeyPress(_clock, scan, "a", false, true));
+            _clock = _clock.AddMilliseconds(8);
+        }
         Step(2);
         Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
 
         Press(0x1F, "s");
-        Step(1.2);
-        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
-        Assert.StartsWith("s", word.Text);
+        Step(0.3);
+        Press(0x03, "2");
+        Step(2);
+        Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
+    }
+
+    [Fact]
+    public void A_word_whose_voice_is_late_is_said_once_it_is_ready()
+    {
+        var voice = new SlowVoice();
+        var mixer = new Mixer();
+        var world = new World();
+        var engine = new ToyEngine(world, mixer, new SpeechLibrary(new ClipStore(_dir), voice),
+            ToySettings.Default with { LanguageWeights = new() { ["en"] = 1 } }, new Random(7));
+        engine.OnKey(new KeyPress(_clock, 0x1F, "s", false, true));
+        engine.OnKey(new KeyPress(_clock.AddMilliseconds(80), 0x1F, "s", false, false));
+        for (var t = 0.0; t < 1.0; t += 0.05) engine.Update(0.05);
+        Assert.Contains(world.Live, e => e.Role == EntityRole.Word);
+        Assert.False(mixer.SpeechPlaying);
+
+        voice.Ready.Set();
+        var spoke = false;
+        for (var t = 0.0; t < 1.0 && !spoke; t += 0.05)
+        {
+            Thread.Sleep(20);
+            engine.Update(0.05);
+            spoke = mixer.SpeechPlaying;
+        }
+        Assert.True(spoke);
     }
 
     [Fact]
@@ -499,6 +564,21 @@ public sealed class ToyEngineTests : IDisposable
     {
         for (var t = 0.0; t < seconds; t += 0.05) _engine.Update(0.05);
         _clock = _clock.AddSeconds(seconds);
+    }
+
+    /// <summary>A voice that takes as long as the test wants to make its first word.</summary>
+    private sealed class SlowVoice : ISpeech
+    {
+        public ManualResetEventSlim Ready { get; } = new();
+
+        public Task<byte[]?> SpeakAsync(string languageTag, string text, CancellationToken cancellationToken = default) =>
+            Task.Run(() =>
+            {
+                Ready.Wait(cancellationToken);
+                using var s = new MemoryStream();
+                WavFile.Write(s, new float[4800], Mixer.SampleRate);
+                return (byte[]?)s.ToArray();
+            }, cancellationToken);
     }
 
     private sealed class SilentVoice : ISpeech
