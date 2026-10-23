@@ -46,6 +46,11 @@ dotnet test
 dotnet run --project src/Keypuncher.App
 ```
 
+In VS Code, open the repo folder, install the recommended C# Dev Kit extension, and press F5
+(*Keypuncher (Windows)*): it builds the app and starts it under the debugger. Ctrl+Shift+B builds,
+and *Tasks: Run Test Task* runs the tests. The toy covers the screen and VS Code can't be reached
+while it is in front; use the grown-up exit below to get back.
+
 - Every key answers at once: a creature or plant from that key's family (the same key always makes
   the same family), a note whose pitch rises from left to right, and for letters and digits the
   glyph, large. Three or more keys at once make one big burst instead.

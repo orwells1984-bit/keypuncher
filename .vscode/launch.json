@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // F5 builds and starts the toy under the debugger. Grown-up exit: Ctrl+Shift+Q or hold Esc 3 s.
+      "name": "Keypuncher (Windows)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build app",
+      "program": "${workspaceFolder}/src/Keypuncher.App/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Keypuncher.App.exe",
+      "cwd": "${workspaceFolder}/src/Keypuncher.App/bin/Debug/net10.0-windows10.0.19041.0/win-x64",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "justMyCode": true
+    }
+  ]
+}
