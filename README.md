@@ -22,7 +22,7 @@ The full architecture and tech plan is in the project's
 | --- | --- |
 | `src/Keypuncher.App` | The .NET MAUI app (Windows): play page, grown-ups' page, recording page |
 | `src/Keypuncher.Toy` | The reflex loop: what every key, mash and tap does; speech lookup; grown-up exit |
-| `src/Keypuncher.Core` | World model, recipes, input events, keyboard geometry, mash grouping, built-in recipes |
+| `src/Keypuncher.Core` | World model, recipes, input events, keyboard geometry, mash grouping, built-in recipes, calm levels and art styles |
 | `src/Keypuncher.Language` | Icelandic alphabet, Bulgarian phonetic key map, accent key, letter/number meanings, concept list, recording list |
 | `src/Keypuncher.Rendering` | SkiaSharp scene and recipe shapes; embeds the Andika font |
 | `src/Keypuncher.Audio` | Synth and mixer with volume cap and limiter, WAV files, recording clean-up |
@@ -57,8 +57,12 @@ dotnet run --project src/Keypuncher.App
 - Clicks and taps work too; three fingers make a burst.
 - When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
   3 minutes) and then puts things to sleep.
+- **Calm level** (grown-ups' page): Baby, Toddler or Big toddler sets how many things stay on screen
+  and move, and how they are drawn. Younger levels draw things bigger, with thicker dark outlines and
+  fewer, fully saturated colours, because an infant's acuity and contrast sensitivity are a fraction
+  of an adult's; see `CalmLimits` and `ArtStyle` in `Keypuncher.Core`.
 - **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds, shows a short word at the top left;
-  type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
+  type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, calm level, recordings, fresh world, quit).
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
   Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and

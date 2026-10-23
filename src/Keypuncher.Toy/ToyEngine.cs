@@ -60,6 +60,7 @@ public sealed class ToyEngine
         _mixer.Volume = settings.Volume;
         _limiter = LimiterFor(settings.Limits);
         _world.Limits = settings.Limits;
+        _world.Style = settings.Style;
         StartSession();
     }
 
@@ -86,6 +87,7 @@ public sealed class ToyEngine
             _mixer.Volume = value.Volume;
             _limiter = LimiterFor(value.Limits);
             _world.Limits = value.Limits;
+            _world.Style = value.Style;
             if (value.LanguageWeights.GetValueOrDefault(SessionLanguage) <= 0) SessionLanguage = _mix.Pick(_random);
         }
     }

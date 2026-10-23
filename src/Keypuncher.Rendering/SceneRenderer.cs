@@ -7,7 +7,8 @@ namespace Keypuncher.Rendering;
 /// Draws the world: a soft sky and hills, the faded history behind everything, then live things,
 /// effects, letters and words. Keeps two cached layers (background and history) so a frame stays cheap.
 /// Only the few things the world marks awake move; the rest ease to a stop, and everything else dims a
-/// little while a letter or word is showing. Use from one thread.
+/// little while a letter or word is showing. Sizes, outlines and colours come from the world's
+/// <see cref="ArtStyle"/>, so a calmer level draws bigger and bolder. Use from one thread.
 /// </summary>
 public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
 {
@@ -17,11 +18,14 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
     private const float HistorySaturation = 0.35f;
     /// <summary>Bigger moves are capped at this share of the shorter screen side.</summary>
     private const double MaxMotionAmplitude = 0.03;
+    /// <summary>A word label's height as a share of the screen height; it is for the grown-up, so it stays small.</summary>
+    private const double WordHeight = 0.085;
 
     private readonly Dictionary<long, (double Clock, double Motion)> _motion = [];
     private SKSurface? _baked;
     private SKPicture? _background;
     private SKColorFilter? _historyFilter;
+    private ArtStyle? _backgroundStyle, _bakedStyle;
     private int _width, _height, _bakedDrawn = -1, _bakedGeneration = -1, _bakedShown = -1;
     private double _lastTime = double.NaN;
 
@@ -34,6 +38,12 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         var dt = double.IsNaN(_lastTime) ? 0 : Math.Clamp(world.Time - _lastTime, 0, 0.25);
         _lastTime = world.Time;
 
+        if (_background is null || !Equals(_backgroundStyle, world.Style))
+        {
+            _background?.Dispose();
+            _background = PaintBackground(width, height, world.Style.Ground);
+            _backgroundStyle = world.Style;
+        }
         canvas.DrawPicture(_background);
         UpdateBaked(world);
         using (var history = new SKPaint { ColorFilter = _historyFilter, Color = SKColors.White.WithAlpha((byte)(255 * Math.Clamp(world.Limits.HistoryOpacity, 0, 1))) })
@@ -49,7 +59,7 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         foreach (var e in world.Live)
             if (e.Recipe?.Kind != RecipeKind.Plant && e.Role == EntityRole.Thing) DrawLive(canvas, e, world, width, height, unit, spotlight, spotlightSince);
         foreach (var e in world.Live)
-            if (e.Role == EntityRole.Effect) DrawEffect(canvas, e, world.Time, width, height, unit);
+            if (e.Role == EntityRole.Effect) DrawEffect(canvas, e, world.Time, width, height, unit, world.Style);
 
         if (world.Night > 0)
         {
@@ -58,7 +68,7 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         }
 
         foreach (var e in world.Live)
-            if (e.Role is EntityRole.Letter or EntityRole.Word) DrawText(canvas, e, world.Time, width, height);
+            if (e.Role is EntityRole.Letter or EntityRole.Word) DrawText(canvas, e, world.Time, width, height, unit, world.Style);
 
         if (overlay is not null) DrawOverlay(canvas, overlay, height);
     }
@@ -115,26 +125,27 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
             var k = Math.Clamp((world.Time - at) / World.RetireSeconds, 0, 1);
             a += (world.Limits.HistoryOpacity - a) * k;
         }
-        DrawThing(canvas, e, e.Age(world.Time), clock, motion, (byte)(255 * Math.Clamp(a, 0, 1)), world.Limits.MaxMotionHz, width, height, unit);
+        DrawThing(canvas, e, e.Age(world.Time), clock, motion, (byte)(255 * Math.Clamp(a, 0, 1)), world.Limits.MaxMotionHz, width, height, unit, world.Style);
     }
 
     private void Resize(int width, int height)
     {
         (_width, _height) = (width, height);
         _background?.Dispose();
-        _background = PaintBackground(width, height);
+        _background = null;
         _baked?.Dispose();
         _baked = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         _historyFilter ??= Desaturate(HistorySaturation);
         _bakedGeneration = -1;
     }
 
-    /// <summary>Repaints the history layer when something joins it: only the most recent few, drawn still.</summary>
+    /// <summary>Repaints the history layer when something joins it or the style changes: only the most
+    /// recent few, drawn still.</summary>
     private void UpdateBaked(World world)
     {
         var shown = Math.Max(0, world.Limits.HistoryShown);
-        if (_bakedGeneration == world.BakedGeneration && _bakedDrawn == world.Baked.Count && _bakedShown == shown) return;
-        (_bakedGeneration, _bakedDrawn, _bakedShown) = (world.BakedGeneration, world.Baked.Count, shown);
+        if (_bakedGeneration == world.BakedGeneration && _bakedDrawn == world.Baked.Count && _bakedShown == shown && Equals(_bakedStyle, world.Style)) return;
+        (_bakedGeneration, _bakedDrawn, _bakedShown, _bakedStyle) = (world.BakedGeneration, world.Baked.Count, shown, world.Style);
 
         var canvas = _baked!.Canvas;
         canvas.Clear(SKColors.Transparent);
@@ -142,23 +153,25 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         for (var i = Math.Max(0, world.Baked.Count - shown); i < world.Baked.Count; i++)
         {
             var e = world.Baked[i];
-            DrawThing(canvas, e, 1000, e.Phase * 10, 0, 255, 0, _width, _height, unit);
+            DrawThing(canvas, e, 1000, e.Phase * 10, 0, 255, 0, _width, _height, unit, world.Style);
         }
     }
 
     /// <param name="age">Seconds since birth, for the pop-in and the slow growth.</param>
     /// <param name="clock">The thing's own clock, which only runs while it moves.</param>
     /// <param name="motion">0 for still, up to 1 for fully lively.</param>
-    private static void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit)
+    private static void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit, ArtStyle style)
     {
         var recipe = e.Recipe!;
         var pop = EaseOutBack(Math.Min(age / 0.35, 1));
         var growth = 1 + (Math.Min(age / 600, 1) * 0.25);
-        var r = (float)(recipe.Body.Size * 0.11 * unit * e.Scale * pop * growth);
+        var r = (float)(BodyRadius(e, style, unit) * pop * growth);
         if (r < 0.5f) return;
 
-        var x = (float)(e.X * width);
-        var y = (float)(e.Y * height);
+        // Kept whole on the screen: a baby's thing is big enough to hang off the edge where its key put it.
+        var plant = recipe.Kind == RecipeKind.Plant;
+        var x = Math.Clamp((float)(e.X * width), r * 1.1f, width - (r * 1.1f));
+        var y = plant ? (float)(e.Y * height) : Math.Clamp((float)(e.Y * height), r * 1.1f, height - (r * 1.1f));
         var t = clock;
         float dx = 0, dy = 0, rotation = 0;
         var speed = Math.Clamp(recipe.Motion.Speed, 0, 1);
@@ -188,81 +201,126 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
             }
         }
 
-        canvas.Save();
-        if (recipe.Kind == RecipeKind.Plant)
+        var stem = plant ? r * 1.6f : 0;
+        var reachOut = (r * 2.2f) + RecipePainter.MinDetail(style, unit);
+        Faded(canvas, new SKRect(x + dx - reachOut, y + dy - stem - reachOut, x + dx + reachOut, y + dy + reachOut), alpha, () =>
         {
-            // The entity's Y is where the stem meets the ground; the plant sways from there.
-            canvas.Translate(x + dx, y);
-            canvas.RotateDegrees(rotation);
-            var stem = r * 1.6f;
-            using var stemPaint = new SKPaint
+            canvas.Save();
+            if (plant)
             {
-                IsAntialias = true, Color = new SKColor(70, 150, 80, alpha), Style = SKPaintStyle.Stroke,
-                StrokeWidth = Math.Max(2, r * 0.16f), StrokeCap = SKStrokeCap.Round,
-            };
-            canvas.DrawLine(0, 0, 0, -stem, stemPaint);
-            canvas.Translate(0, -stem);
-            RecipePainter.Paint(canvas, recipe, r, t, alpha);
-        }
-        else
+                // The entity's Y is where the stem meets the ground; the plant sways from there.
+                canvas.Translate(x + dx, y);
+                canvas.RotateDegrees(rotation);
+                using var stemPaint = new SKPaint
+                {
+                    IsAntialias = true, Color = RecipePainter.Rgb(style.Stem), Style = SKPaintStyle.Stroke,
+                    StrokeWidth = Math.Max(RecipePainter.MinDetail(style, unit), r * 0.16f), StrokeCap = SKStrokeCap.Round,
+                };
+                canvas.DrawLine(0, 0, 0, -stem, stemPaint);
+                canvas.Translate(0, -stem);
+            }
+            else
+            {
+                canvas.Translate(x + dx, y + dy);
+                canvas.RotateDegrees(rotation);
+            }
+            RecipePainter.Paint(canvas, recipe, r, t, style, unit);
+            canvas.Restore();
+        });
+    }
+
+    /// <summary>Draws something that may be translucent as one layer, so that its outline never shows through
+    /// its fill and overlapping parts fade together. Opaque things are drawn straight to the canvas.</summary>
+    private static void Faded(SKCanvas canvas, SKRect bounds, byte alpha, Action draw)
+    {
+        if (alpha >= 255)
         {
-            canvas.Translate(x + dx, y + dy);
-            canvas.RotateDegrees(rotation);
-            RecipePainter.Paint(canvas, recipe, r, t, alpha);
+            draw();
+            return;
         }
+        using var layer = new SKPaint { Color = SKColors.White.WithAlpha(alpha) };
+        canvas.SaveLayer(bounds, layer);
+        draw();
         canvas.Restore();
     }
 
-    private static void DrawEffect(SKCanvas canvas, Entity e, double time, int width, int height, int unit)
+    /// <summary>The radius a recipe's size means before any style: 0.11 of the shorter side at size 1.</summary>
+    private static double BaseRadius(Entity e, int unit) => e.Recipe!.Body.Size * 0.11 * unit * e.Scale;
+
+    /// <summary>A thing's resting radius: the recipe's size scaled up for younger eyes, kept between the
+    /// smallest the child can make out and the biggest that still fits the screen.</summary>
+    private static double BodyRadius(Entity e, ArtStyle style, int unit) =>
+        Math.Clamp(BaseRadius(e, unit) * style.SizeScale, style.MinDiameter * unit / 2, style.MaxDiameter * unit / 2);
+
+    private static void DrawEffect(SKCanvas canvas, Entity e, double time, int width, int height, int unit, ArtStyle style)
     {
         var recipe = e.Recipe!;
         var p = Math.Clamp(e.Age(time) / e.Lifetime, 0, 1);
+        var x = (float)(e.X * width);
+        var y = (float)(e.Y * height);
+        float r;
+        float rotation;
+        byte alpha;
         if (recipe.Motion.Type != MotionType.Burst)
         {
             // A concept drawn as an effect (sun, moon, star, cloud): a thing that fades at the end.
-            var fade = p < 0.8 ? 1 : (1 - p) / 0.2;
-            canvas.Save();
-            canvas.Translate((float)(e.X * width), (float)(e.Y * height));
-            var r = (float)(recipe.Body.Size * 0.11 * unit * e.Scale * EaseOutBack(Math.Min(e.Age(time) / 0.35, 1)));
-            if (recipe.Motion.Type == MotionType.Spin) canvas.RotateDegrees((float)(time * 8 % 360));
-            if (r > 0.5f) RecipePainter.Paint(canvas, recipe, r, time, (byte)(255 * fade));
-            canvas.Restore();
-            return;
+            r = (float)(BodyRadius(e, style, unit) * EaseOutBack(Math.Min(e.Age(time) / 0.35, 1)));
+            rotation = recipe.Motion.Type == MotionType.Spin ? (float)(time * 8 % 360) : 0;
+            alpha = (byte)(255 * (p < 0.8 ? 1 : (1 - p) / 0.2));
         }
+        else
+        {
+            // A burst is already big at every level, so it only takes the style's colours and outlines.
+            r = (float)(BaseRadius(e, unit) * (0.6 + (2.2 * EaseOut(p))));
+            rotation = (float)(e.Phase * 360) + (float)(p * 60);
+            alpha = (byte)(255 * (1 - p));
+        }
+        if (r < 0.5f) return;
 
-        var radius = (float)(recipe.Body.Size * 0.11 * unit * e.Scale * (0.6 + (2.2 * EaseOut(p))));
-        canvas.Save();
-        canvas.Translate((float)(e.X * width), (float)(e.Y * height));
-        canvas.RotateDegrees((float)(e.Phase * 360) + (float)(p * 60));
-        RecipePainter.Paint(canvas, recipe, radius, time, (byte)(255 * (1 - p)));
-        canvas.Restore();
+        var reachOut = (r * 2.2f) + RecipePainter.MinDetail(style, unit);
+        Faded(canvas, new SKRect(x - reachOut, y - reachOut, x + reachOut, y + reachOut), alpha, () =>
+        {
+            canvas.Save();
+            canvas.Translate(x, y);
+            canvas.RotateDegrees(rotation);
+            RecipePainter.Paint(canvas, recipe, r, time, style, unit);
+            canvas.Restore();
+        });
     }
 
-    private void DrawText(SKCanvas canvas, Entity e, double time, int width, int height)
+    private void DrawText(SKCanvas canvas, Entity e, double time, int width, int height, int unit, ArtStyle style)
     {
         var age = e.Age(time);
         var letter = e.Role == EntityRole.Letter;
         var fadeStart = e.Lifetime - 0.6;
         var alpha = (byte)(255 * (age < fadeStart ? 1 : Math.Max(0, (e.Lifetime - age) / 0.6)));
         var pop = EaseOutBack(Math.Min(age / 0.25, 1));
-        var size = (float)((letter ? 0.26 : 0.085) * height * pop);
+        var size = (float)((letter ? style.LetterHeight : WordHeight) * height * pop);
         if (size < 1) return;
 
         var x = (float)(e.X * width);
         var y = (float)((e.Y * height) - (letter ? age * 0.03 * height : 0));
         var hue = (e.Text ?? "").Sum(ch => ch * 47) % 360;
+        var colour = style.Snap(hue);
 
         using var font = new SKFont(typeface, size);
+        // A saturated glyph in dark outline, like the things. The outline is at least the finest visible
+        // line, except that a word label is small and would close up, so its outline stays a share of its size.
+        var edge = Math.Min(Math.Max(size * 0.09f, RecipePainter.MinDetail(style, unit)), size * 0.12f);
         using var stroke = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = size * 0.09f, StrokeJoin = SKStrokeJoin.Round,
-            Color = SKColor.FromHsv(hue, 65, 70).WithAlpha(alpha),
+            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = edge, StrokeJoin = SKStrokeJoin.Round,
+            Color = RecipePainter.Rgb(colour.Outline),
         };
-        using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(alpha) };
+        using var fill = new SKPaint { IsAntialias = true, Color = RecipePainter.Rgb(colour.Fill) };
         var text = e.Text ?? "";
         var baseline = y + (size * 0.35f);
-        canvas.DrawText(text, x, baseline, SKTextAlign.Center, font, stroke);
-        canvas.DrawText(text, x, baseline, SKTextAlign.Center, font, fill);
+        var reach = (font.MeasureText(text) / 2) + edge;
+        Faded(canvas, new SKRect(x - reach, baseline - (size * 1.2f), x + reach, baseline + (size * 0.5f)), alpha, () =>
+        {
+            canvas.DrawText(text, x, baseline, SKTextAlign.Center, font, stroke);
+            canvas.DrawText(text, x, baseline, SKTextAlign.Center, font, fill);
+        });
     }
 
     private void DrawOverlay(SKCanvas canvas, string text, int height)
@@ -272,21 +330,22 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         canvas.DrawText(text, height * 0.02f, height * 0.04f, SKTextAlign.Left, font, paint);
     }
 
-    private static SKPicture PaintBackground(int width, int height)
+    /// <summary>The backdrop: a smooth sky and two smooth hills in the style's quiet colours, nothing finer.</summary>
+    private static SKPicture PaintBackground(int width, int height, Ground ground)
     {
         using var recorder = new SKPictureRecorder();
         var c = recorder.BeginRecording(new SKRect(0, 0, width, height));
 
         using (var sky = SKShader.CreateLinearGradient(
             new SKPoint(0, 0), new SKPoint(0, height * 0.75f),
-            [new SKColor(0xB8, 0xE2, 0xFF), new SKColor(0xFF, 0xF2, 0xD8)], [0, 1], SKShaderTileMode.Clamp))
+            [RecipePainter.Rgb(ground.SkyTop), RecipePainter.Rgb(ground.SkyBottom)], [0, 1], SKShaderTileMode.Clamp))
         using (var paint = new SKPaint { Shader = sky })
         {
             c.DrawRect(0, 0, width, height, paint);
         }
 
-        Hill(c, width, height, 0.66, 0.035, 1.3, 0.4, new SKColor(0xA8, 0xDC, 0x9F));
-        Hill(c, width, height, 0.74, 0.03, 2.1, 1.7, new SKColor(0x86, 0xCB, 0x80));
+        Hill(c, width, height, 0.66, 0.035, 1.3, 0.4, RecipePainter.Rgb(ground.FarHill));
+        Hill(c, width, height, 0.74, 0.03, 2.1, 1.7, RecipePainter.Rgb(ground.NearHill));
         return recorder.EndRecording();
     }
 
