@@ -30,6 +30,7 @@ public sealed class KeyboardHook : IDisposable
     private IntPtr _hook;
     private IntPtr _layout;
     private uint _threadId;
+    private bool _ctrl, _shift;
 
     /// <param name="onKey">Called on the hook thread; keep it short (enqueue and return).</param>
     /// <param name="window">The toy's top-level window handle; keys are only kept while it is in front.</param>
@@ -83,11 +84,19 @@ public sealed class KeyboardHook : IDisposable
         var scan = (int)k.scanCode | ((k.flags & LLKHF_EXTENDED) != 0 ? 0xE000 : 0);
         var (character, dead) = CharacterFor(k.vkCode, k.scanCode);
 
+        // Track modifiers ourselves: a key this hook swallows never reaches Windows' key state, so
+        // GetAsyncKeyState would report Ctrl and Shift as up while they are held.
+        switch (k.vkCode)
+        {
+            case 0x11 or 0xA2 or 0xA3: _ctrl = down; break;
+            case 0x10 or 0xA0 or 0xA1: _shift = down; break;
+        }
+
         if (GetForegroundWindow() != _window()) return CallNextHookEx(_hook, nCode, wParam, lParam);
 
         var press = new KeyPress(DateTimeOffset.Now, scan, character, dead, down,
-            Ctrl: (GetAsyncKeyState(0x11) & 0x8000) != 0,
-            Shift: (GetAsyncKeyState(0x10) & 0x8000) != 0,
+            Ctrl: _ctrl,
+            Shift: _shift,
             Alt: (k.flags & 0x20) != 0);
         var swallow = true;
         try
@@ -126,7 +135,6 @@ public sealed class KeyboardHook : IDisposable
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
     [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hhk);
     [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int ToUnicodeEx(uint wVirtKey, uint wScanCode, byte[] lpKeyState, StringBuilder pwszBuff, int cchBuff, uint wFlags, IntPtr dwhkl);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr LoadKeyboardLayout(string pwszKLID, uint flags);

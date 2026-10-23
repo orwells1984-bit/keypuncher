@@ -54,8 +54,8 @@ dotnet run --project src/Keypuncher.App
   follows, with its picture. Digits make that many things and count them aloud.
 - The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
 - Clicks and taps work too; three fingers make a burst.
-- **Grown-up exit:** Ctrl+Shift+Q shows a short word at the top left; type it within 20 seconds to
-  reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
+- **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds, shows a short word at the top left;
+  type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
   Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and

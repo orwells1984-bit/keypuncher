@@ -104,6 +104,30 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void Holding_Esc_for_three_seconds_also_shows_the_challenge()
+    {
+        _engine.OnKey(new KeyPress(_clock, 0x01, null, false, true));
+        for (var ms = 500; ms <= 2500; ms += 500)
+            _engine.OnKey(new KeyPress(_clock.AddMilliseconds(ms), 0x01, null, false, true));
+        Assert.Null(_engine.Gate.Challenge);
+
+        _engine.OnKey(new KeyPress(_clock.AddMilliseconds(3050), 0x01, null, false, true));
+        Assert.NotNull(_engine.Gate.Challenge);
+    }
+
+    [Fact]
+    public void Tapping_Esc_does_not_add_up_to_a_hold()
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            _engine.OnKey(new KeyPress(_clock, 0x01, null, false, true));
+            _clock = _clock.AddMilliseconds(400);
+            _engine.OnKey(new KeyPress(_clock, 0x01, null, false, false));
+        }
+        Assert.Null(_engine.Gate.Challenge);
+    }
+
+    [Fact]
     public void Grown_up_challenge_expires()
     {
         _engine.OnKey(new KeyPress(_clock, 0x10, "q", false, true, Ctrl: true, Shift: true));
