@@ -25,7 +25,8 @@ public enum CalmLevel
 /// <param name="NewThingsPerSecond">Steady rate of new things; presses beyond it wake an existing one.</param>
 /// <param name="MaxMotionHz">Fastest idle motion, in cycles a second.</param>
 /// <param name="HistoryOpacity">Opacity of the retired things painted behind everything.</param>
-/// <param name="HistoryShown">How many of the most recently retired things are painted.</param>
+/// <param name="HistoryShown">How many of the most recently retired things are painted, as pale ghosts that
+/// fade with age; a trace of what came before, kept small so it never reads as clutter.</param>
 /// <param name="CountUpTo">A digit up to this makes and counts that many things; above it, one thing.</param>
 /// <param name="SessionMinutes">Default play time before the goodnight.</param>
 public sealed record CalmLimits(
@@ -39,9 +40,9 @@ public sealed record CalmLimits(
     int CountUpTo,
     int SessionMinutes)
 {
-    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.12, 40, 3, 5);
-    public static readonly CalmLimits Toddler = new(7, 2, 15, 1, 0.75, 0.20, 80, 5, 10);
-    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.30, 150, 9, 15);
+    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.07, 3, 3, 5);
+    public static readonly CalmLimits Toddler = new(7, 2, 15, 1, 0.75, 0.10, 6, 5, 10);
+    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.15, 15, 9, 15);
 
     public static CalmLimits For(CalmLevel level) => level switch
     {
