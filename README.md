@@ -49,11 +49,14 @@ dotnet run --project src/Keypuncher.App
 - Every key answers at once: a creature or plant from that key's family (the same key always makes
   the same family), a note whose pitch rises from left to right, and for letters and digits the
   glyph, large. Three or more keys at once make one big burst instead.
-- Letters are said by their sound, in Icelandic most of the time and English or Bulgarian sometimes
-  (Bulgarian through the phonetic key map). If the child pauses, a word starting with that letter
+- Letters are said by their sound, in one language per session: Icelandic most sessions, English or
+  Bulgarian sometimes (Bulgarian through the phonetic key map). Letters show in small letters unless
+  the grown-ups' page says capitals. If the child pauses, a word starting with that letter
   follows, with its picture. Digits make that many things and count them aloud.
 - The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
 - Clicks and taps work too; three fingers make a burst.
+- When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
+  3 minutes) and then puts things to sleep.
 - **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds, shows a short word at the top left;
   type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,

@@ -33,16 +33,17 @@ public static class BuiltInRecipes
     public static readonly Recipe Sparkle =
         Make(RecipeKind.Effect, "sparkle", Shape.Star, 4, 55, 0.35, 0, MotionType.Burst, 0.6, Waveform.Triangle, 0.005, 0.4, "pentatonic", "E6");
 
-    /// <summary>Pictures for the starter concept ids until the director draws them.</summary>
+    /// <summary>Pictures for the starter concept ids until the director draws them. Only living things get
+    /// eyes: a face on the sun or a house teaches that things are alive.</summary>
     public static readonly IReadOnlyDictionary<string, Recipe> Concepts = new Dictionary<string, Recipe>
     {
-        ["sun"] = Make(RecipeKind.Effect, "sun", Shape.Star, 10, 45, 0.9, 2, MotionType.Spin, 0.1, Waveform.Sine, 0.05, 1.5, "major", "C4"),
+        ["sun"] = Make(RecipeKind.Effect, "sun", Shape.Star, 10, 45, 0.9, 0, MotionType.Spin, 0.1, Waveform.Sine, 0.05, 1.5, "major", "C4"),
         ["cat"] = Make(RecipeKind.Creature, "cat", Shape.Blob, 2, 30, 0.6, 2, MotionType.Still, 0.2, Waveform.Triangle, 0.05, 0.8, "pentatonic", "G4"),
         ["fish"] = Make(RecipeKind.Creature, "fish", Shape.Stripe, 3, 200, 0.5, 1, MotionType.Drift, 0.5, Waveform.Sine, 0.01, 0.4, "pentatonic", "A4"),
         ["bird"] = Make(RecipeKind.Creature, "bird", Shape.Blob, 3, 340, 0.45, 2, MotionType.Hop, 0.7, Waveform.Sine, 0.005, 0.3, "pentatonic", "E5"),
-        ["moon"] = Make(RecipeKind.Effect, "moon", Shape.Cloud, 2, 55, 0.7, 2, MotionType.Drift, 0.1, Waveform.Sine, 0.2, 2.0, "lydian", "D4"),
+        ["moon"] = Make(RecipeKind.Effect, "moon", Shape.Cloud, 2, 55, 0.7, 0, MotionType.Drift, 0.1, Waveform.Sine, 0.2, 2.0, "lydian", "D4"),
         ["flower"] = Make(RecipeKind.Plant, "flower", Shape.Petal, 6, 310, 0.75, 0, MotionType.Sway, 0.3, Waveform.Triangle, 0.02, 0.9, "major", "C5"),
-        ["house"] = Make(RecipeKind.Plant, "house", Shape.Stripe, 4, 15, 0.8, 2, MotionType.Still, 0, Waveform.Triangle, 0.02, 0.8, "major", "C4"),
+        ["house"] = Make(RecipeKind.Plant, "house", Shape.Stripe, 4, 15, 0.8, 0, MotionType.Still, 0, Waveform.Triangle, 0.02, 0.8, "major", "C4"),
         ["tree"] = Make(RecipeKind.Plant, "tree", Shape.Cloud, 5, 120, 0.9, 0, MotionType.Sway, 0.15, Waveform.Sine, 0.05, 1.2, "pentatonic", "G3"),
         ["ball"] = Make(RecipeKind.Creature, "ball", Shape.Blob, 1, 0, 0.45, 0, MotionType.Hop, 0.9, Waveform.Square, 0.005, 0.2, "major", "C5"),
         ["dog"] = Make(RecipeKind.Creature, "dog", Shape.Blob, 4, 25, 0.65, 2, MotionType.Hop, 0.5, Waveform.Triangle, 0.01, 0.4, "pentatonic", "D4"),

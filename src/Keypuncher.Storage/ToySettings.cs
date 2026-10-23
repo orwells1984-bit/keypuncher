@@ -4,15 +4,16 @@ using Keypuncher.Core;
 namespace Keypuncher.Storage;
 
 /// <summary>What the parent screen controls.</summary>
-/// <param name="LanguageWeights">Share of key presses per language tag; Icelandic leads by default.</param>
-/// <param name="UpperCase">Show letters as capitals (the keycaps) or small letters.</param>
+/// <param name="LanguageWeights">Share of sessions per language tag; Icelandic leads by default.</param>
+/// <param name="UpperCase">Show letters as capitals (the keycaps) or small letters; small letters by default,
+/// as Montessori introduces them first and the words that follow a letter are in small letters.</param>
 /// <param name="Volume">Master volume 0..1; the mixer caps it lower.</param>
 /// <param name="SayWords">After a letter, say a word that starts with it when the child pauses.</param>
 /// <param name="Calm">How busy the screen may get; see <see cref="CalmLimits"/>.</param>
 /// <param name="SessionMinutes">Play time before the goodnight: null for the calm level's default, 0 for never.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
-    bool UpperCase = true,
+    bool UpperCase = false,
     float Volume = 0.5f,
     bool SayWords = true,
     CalmLevel Calm = CalmLevel.Toddler,

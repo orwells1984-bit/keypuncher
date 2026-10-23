@@ -29,6 +29,10 @@ public sealed class ToyEngine
     public const double QuietAfter = 20;
     /// <summary>The goodnight dims the sky and puts things to sleep over this many seconds.</summary>
     public const double GoodnightSeconds = 8;
+    /// <summary>Once play time is up, the goodnight waits for a pause this long, so a busy child is not cut off.</summary>
+    public const double PauseBeforeGoodnight = 6;
+    /// <summary>The longest the goodnight waits for that pause.</summary>
+    public const double MaxWindDown = 180;
 
     private readonly World _world;
     private readonly Mixer _mixer;
@@ -42,7 +46,7 @@ public sealed class ToyEngine
     private SpawnLimiter _limiter;
     private double _lastBurst = double.NegativeInfinity;
     private double _sessionStart, _lastInput;
-    private double? _asleepSince;
+    private double? _windDownSince, _asleepSince;
 
     public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null)
     {
@@ -63,6 +67,11 @@ public sealed class ToyEngine
     public GrownUpGate Gate { get; }
     /// <summary>True once the session timer has run out; presses only make soft notes until a new session.</summary>
     public bool IsAsleep => _asleepSince is not null;
+    /// <summary>True once play time is up but the child has not paused yet; things settle faster meanwhile.</summary>
+    public bool IsWindingDown => _windDownSince is not null && !IsAsleep;
+    /// <summary>Every letter, number and word in a session uses this one language, so a key keeps one sound.
+    /// It is drawn from the language weights when the session starts.</summary>
+    public string SessionLanguage { get; private set; } = KeyMeanings.Icelandic;
 
     /// <summary>Raised when the grown-up challenge is answered.</summary>
     public event Action? GrownUpRequested;
@@ -77,14 +86,17 @@ public sealed class ToyEngine
             _mixer.Volume = value.Volume;
             _limiter = LimiterFor(value.Limits);
             _world.Limits = value.Limits;
+            if (value.LanguageWeights.GetValueOrDefault(SessionLanguage) <= 0) SessionLanguage = _mix.Pick(_random);
         }
     }
 
-    /// <summary>Starts the session timer again and wakes the scene from a goodnight; call when play starts.</summary>
+    /// <summary>Starts the session timer again, picks the session's language and wakes the scene from a
+    /// goodnight; call when play starts.</summary>
     public void StartSession()
     {
         _sessionStart = _lastInput = _world.Time;
-        _asleepSince = null;
+        SessionLanguage = _mix.Pick(_random);
+        _windDownSince = _asleepSince = null;
         _world.Night = 0;
         _world.Quiet = false;
     }
@@ -165,12 +177,14 @@ public sealed class ToyEngine
     /// <summary>Advances the world and runs scheduled counting and words.</summary>
     public void Update(double dt)
     {
-        if (!IsAsleep && _settings.SessionLength is { } length && _world.Time - _sessionStart >= length.TotalSeconds)
+        if (_windDownSince is null && _settings.SessionLength is { } length && _world.Time - _sessionStart >= length.TotalSeconds)
+            _windDownSince = _world.Time;
+        if (IsWindingDown && (_world.Time - _lastInput >= PauseBeforeGoodnight || _world.Time - _windDownSince >= MaxWindDown))
         {
             CancelScheduled();
             _asleepSince = _world.Time;
         }
-        _world.Quiet = IsAsleep || _world.Time - _lastInput >= QuietAfter;
+        _world.Quiet = IsAsleep || IsWindingDown || _world.Time - _lastInput >= QuietAfter;
         _world.Night = _asleepSince is { } since ? Math.Min(1, (_world.Time - since) / GoodnightSeconds) : 0;
         _world.Tick(dt);
         for (var i = 0; i < _scheduled.Count;)
@@ -191,7 +205,7 @@ public sealed class ToyEngine
         var column = KeyboardGeometry.Column(ev.ScanCode);
         var midi = Notes.Degree("pentatonic", LowestKeyMidi, (int)Math.Round(column));
 
-        var language = _mix.Pick(_random);
+        var language = SessionLanguage;
         var meaning = KeyMeanings.For(language, ev.Character);
 
         if (meaning?.Number is { } n)
