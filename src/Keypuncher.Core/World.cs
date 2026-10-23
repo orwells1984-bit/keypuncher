@@ -28,6 +28,8 @@ public sealed class World
     public bool Dirty { get; private set; }
 
     public CalmLimits Limits { get; set; } = CalmLimits.Toddler;
+    /// <summary>How things are drawn; chosen by the same calm level as <see cref="Limits"/>.</summary>
+    public ArtStyle Style { get; set; } = ArtStyle.Toddler;
     /// <summary>Set after a while with no input: things settle faster.</summary>
     public bool Quiet { get; set; }
     /// <summary>0 while playing, rising to 1 as the goodnight dims the scene and puts things to sleep.</summary>

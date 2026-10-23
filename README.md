@@ -57,6 +57,10 @@ dotnet run --project src/Keypuncher.App
 - Clicks and taps work too; three fingers make a burst.
 - When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
   3 minutes) and then puts things to sleep.
+- **Calm level** (grown-ups' page): Baby, Toddler or Big toddler sets how many things stay on screen
+  and move, and how they are drawn. Younger levels draw things bigger, with thicker dark outlines and
+  fewer, fully saturated colours, because an infant's acuity and contrast sensitivity are a fraction
+  of an adult's; see `CalmLimits` and `ArtStyle` in `Keypuncher.Core`.
 - **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds, shows a short word at the top left;
   type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, recordings, fresh world, quit).
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,

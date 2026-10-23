@@ -58,7 +58,7 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Volume", _volume));
 
         layout.Add(Heading("Calm"));
-        layout.Add(new Label { Text = "How busy the screen may get. Calmer levels keep fewer things on screen, let fewer move, and end play sooner with a goodnight." });
+        layout.Add(new Label { Text = "How busy the screen may get. Calmer levels keep fewer things on screen, let fewer move, draw them bigger and bolder in fewer colours, and end play sooner with a goodnight." });
         _calm = ChoicePicker(CalmChoices.Select(c => c.Name), Array.FindIndex(CalmChoices, c => c.Level == s.Calm));
         layout.Add(Row("Calm level", _calm));
         _session = ChoicePicker(SessionChoices.Select(SessionName), Math.Max(0, Array.IndexOf(SessionChoices, s.SessionMinutes)));

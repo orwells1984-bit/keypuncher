@@ -23,6 +23,8 @@ public sealed record ToySettings(
 
     public CalmLimits Limits => CalmLimits.For(Calm);
 
+    public ArtStyle Art => ArtStyle.For(Calm);
+
     /// <summary>The goodnight comes after this much play; null means never.</summary>
     public TimeSpan? SessionLength => (SessionMinutes ?? Limits.SessionMinutes) is > 0 and var m ? TimeSpan.FromMinutes(m) : null;
 }
