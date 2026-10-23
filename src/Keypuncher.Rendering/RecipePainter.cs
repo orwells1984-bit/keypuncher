@@ -7,27 +7,29 @@ namespace Keypuncher.Rendering;
 /// Turns the recipe shape vocabulary into geometry. Everything is round and soft on purpose: the model
 /// (and Phase 1's hand-written recipes) only choose among these shapes, so nothing sharp or scary can
 /// be drawn whatever a recipe says. The <see cref="ArtStyle"/> says how bold: every body is a palette
-/// colour with a dark outline, and the younger the child the fewer and bigger its parts.
+/// colour with a dark outline, and the younger the child the fewer and bigger its parts. Bodies are
+/// drawn opaque; the caller fades a whole thing at once, so an outline never shows through a fill.
 /// </summary>
 internal static class RecipePainter
 {
     /// <summary>Draws a recipe's body centred on the canvas origin with radius <paramref name="r"/>.</summary>
     /// <param name="t">Seconds, for wobble and blinking.</param>
     /// <param name="unit">The shorter screen side in pixels, which the style's widths are fractions of.</param>
-    public static void Paint(SKCanvas c, Recipe recipe, float r, double t, byte alpha, ArtStyle style, int unit)
+    public static void Paint(SKCanvas c, Recipe recipe, float r, double t, ArtStyle style, int unit)
     {
         var body = recipe.Body;
         var colour = style.Snap(body.Hue);
-        var stroke = StrokeWidth(style, r, unit);
+        var stroke = Math.Max(MinDetail(style, unit), r * (float)style.StrokeOfRadius);
+        // MaxLobes is at least 4 at every level, so each shape's own minimum below always fits under it.
         var lobes = Math.Clamp(body.Lobes, 1, style.MaxLobes);
 
-        using var fill = new SKPaint { IsAntialias = true, Color = Rgb(colour.Fill, alpha) };
+        using var fill = new SKPaint { IsAntialias = true, Color = Rgb(colour.Fill) };
         using var line = new SKPaint
         {
-            IsAntialias = true, Color = Rgb(colour.Outline, alpha), Style = SKPaintStyle.Stroke,
+            IsAntialias = true, Color = Rgb(colour.Outline), Style = SKPaintStyle.Stroke,
             StrokeWidth = stroke, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round,
         };
-        var brush = new Brush(fill, line, stroke, style, unit, alpha);
+        var brush = new Brush(fill, line, stroke, style, unit);
 
         switch (body.Shape)
         {
@@ -40,27 +42,25 @@ internal static class RecipePainter
             default: Blob(c, r, lobes, t, brush); break;
         }
 
-        // Babies attend to faces, so at the calmest level every creature gets eyes whatever its recipe says.
-        var eyes = recipe.Kind == RecipeKind.Creature ? Math.Max(recipe.Eyes, style.MinEyes) : recipe.Eyes;
+        // Babies attend to faces, so at the calmest level a creature with any eyes gets a proper pair.
+        // A thing drawn without eyes (a ball, an egg, the sun) stays faceless at every level.
+        var eyes = recipe.Kind == RecipeKind.Creature && recipe.Eyes > 0 ? Math.Max(recipe.Eyes, style.MinEyes) : recipe.Eyes;
         eyes = Math.Clamp(eyes, 0, style.MaxEyes);
         if (eyes > 0) Eyes(c, r, eyes, t, brush);
     }
 
-    /// <summary>The outline width for a body of radius <paramref name="r"/>: the style's share of the
-    /// radius, but never finer than the finest line the child can see.</summary>
-    public static float StrokeWidth(ArtStyle style, float r, int unit) =>
-        (float)Math.Max(style.MinStroke * unit, r * style.StrokeOfRadius);
+    /// <summary>The finest line the style draws, in pixels: outlines, stems and letter edges are never thinner.</summary>
+    public static float MinDetail(ArtStyle style, int unit) => (float)(style.MinStroke * unit);
 
-    public static SKColor Rgb(uint rgb, byte alpha = 255) =>
-        new((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb, alpha);
+    public static SKColor Rgb(uint rgb) => new((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 
     /// <summary>What one body is drawn with: its palette fill, the outline around it, and the style's limits.</summary>
-    private readonly record struct Brush(SKPaint Fill, SKPaint Line, float Stroke, ArtStyle Style, int Unit, byte Alpha)
+    private readonly record struct Brush(SKPaint Fill, SKPaint Line, float Stroke, ArtStyle Style, int Unit)
     {
         public SKColor FillColor => Fill.Color;
-        public SKColor Ink => Line.Color;
+        public SKColor Outline => Line.Color;
         /// <summary>Nothing finer than this is drawn.</summary>
-        public float MinDetail => (float)(Style.MinStroke * Unit);
+        public float MinDetail => RecipePainter.MinDetail(Style, Unit);
     }
 
     private static void Blob(SKCanvas c, float r, int lobes, double t, Brush b)
@@ -87,7 +87,7 @@ internal static class RecipePainter
 
     private static void Petals(SKCanvas c, float r, int lobes, int hue, Brush b)
     {
-        var count = Math.Min(Math.Max(lobes, 3), b.Style.MaxLobes);
+        var count = Math.Max(3, lobes);
         for (var i = 0; i < count; i++)
         {
             c.Save();
@@ -97,14 +97,14 @@ internal static class RecipePainter
             c.DrawOval(petal, b.Line);
             c.Restore();
         }
-        using var centre = new SKPaint { IsAntialias = true, Color = Rgb(b.Style.Companion(hue).Fill, b.Alpha) };
+        using var centre = new SKPaint { IsAntialias = true, Color = Rgb(b.Style.Companion(hue).Fill) };
         c.DrawCircle(0, 0, r * 0.32f, centre);
         c.DrawCircle(0, 0, r * 0.32f, b.Line);
     }
 
     private static void Star(SKCanvas c, float r, int lobes, Brush b)
     {
-        var points = Math.Min(Math.Max(lobes, 4), b.Style.MaxLobes);
+        var points = Math.Max(4, lobes);
         using var builder = new SKPathBuilder();
         for (var i = 0; i < points * 2; i++)
         {
@@ -115,21 +115,16 @@ internal static class RecipePainter
         }
         builder.Close();
         using var path = builder.Detach();
-        // A thick round-joined stroke rounds every point: first in ink, then narrower in the fill colour,
-        // which leaves the outline showing around the edge.
-        var round = r * 0.22f;
-        using var outer = new SKPaint
+        // Every point and notch is rounded off, then filled and outlined like any other body.
+        using var corner = SKPathEffect.CreateCorner(r * 0.2f);
+        using var fill = new SKPaint { IsAntialias = true, Color = b.FillColor, PathEffect = corner };
+        using var line = new SKPaint
         {
-            IsAntialias = true, Color = b.Ink, Style = SKPaintStyle.StrokeAndFill,
-            StrokeWidth = round + (2 * b.Stroke), StrokeJoin = SKStrokeJoin.Round,
+            IsAntialias = true, Color = b.Outline, Style = SKPaintStyle.Stroke, StrokeWidth = b.Stroke,
+            StrokeJoin = SKStrokeJoin.Round, PathEffect = corner,
         };
-        using var inner = new SKPaint
-        {
-            IsAntialias = true, Color = b.FillColor, Style = SKPaintStyle.StrokeAndFill,
-            StrokeWidth = round, StrokeJoin = SKStrokeJoin.Round,
-        };
-        c.DrawPath(path, outer);
-        c.DrawPath(path, inner);
+        c.DrawPath(path, fill);
+        c.DrawPath(path, line);
     }
 
     private static void Wave(SKCanvas c, float r, int lobes, double t, Brush b)
@@ -148,7 +143,7 @@ internal static class RecipePainter
         var width = Math.Max(r * 0.3f, 3.5f * b.MinDetail);
         using var outer = new SKPaint
         {
-            IsAntialias = true, Color = b.Ink, Style = SKPaintStyle.Stroke, StrokeWidth = width + (2 * b.Stroke), StrokeCap = SKStrokeCap.Round,
+            IsAntialias = true, Color = b.Outline, Style = SKPaintStyle.Stroke, StrokeWidth = width + (2 * b.Stroke), StrokeCap = SKStrokeCap.Round,
         };
         using var inner = new SKPaint
         {
@@ -160,7 +155,7 @@ internal static class RecipePainter
 
     private static void Cloud(SKCanvas c, float r, int lobes, Brush b)
     {
-        var count = Math.Min(Math.Max(lobes, 2), b.Style.MaxLobes);
+        var count = Math.Max(2, lobes);
         using var builder = new SKPathBuilder();
         for (var i = 0; i < count; i++)
         {
@@ -178,7 +173,7 @@ internal static class RecipePainter
 
     private static void Stripe(SKCanvas c, float r, int lobes, Brush b)
     {
-        var body = new SKRoundRect(new SKRect(-r, -r * 0.5f, r * 0.75f, r * 0.5f), r * 0.5f, r * 0.5f);
+        using var body = new SKRoundRect(new SKRect(-r, -r * 0.5f, r * 0.75f, r * 0.5f), r * 0.5f, r * 0.5f);
         using (var tb = new SKPathBuilder())
         {
             tb.MoveTo(r * 0.6f, 0);
@@ -186,20 +181,16 @@ internal static class RecipePainter
             tb.LineTo(r * 1.05f, r * 0.35f);
             tb.Close();
             using var tail = tb.Detach();
-            // Rounded by a thick stroke, in ink and then the fill colour, so the tail is outlined like the body.
-            var round = r * 0.12f;
-            using var tailInk = new SKPaint
+            // The tail's corners are rounded off and it is outlined like the body, which then covers its root.
+            using var corner = SKPathEffect.CreateCorner(r * 0.1f);
+            using var tailFill = new SKPaint { IsAntialias = true, Color = b.FillColor, PathEffect = corner };
+            using var tailLine = new SKPaint
             {
-                IsAntialias = true, Color = b.Ink, Style = SKPaintStyle.StrokeAndFill,
-                StrokeWidth = round + (2 * b.Stroke), StrokeJoin = SKStrokeJoin.Round,
+                IsAntialias = true, Color = b.Outline, Style = SKPaintStyle.Stroke, StrokeWidth = b.Stroke,
+                StrokeJoin = SKStrokeJoin.Round, PathEffect = corner,
             };
-            using var tailFill = new SKPaint
-            {
-                IsAntialias = true, Color = b.FillColor, Style = SKPaintStyle.StrokeAndFill,
-                StrokeWidth = round, StrokeJoin = SKStrokeJoin.Round,
-            };
-            c.DrawPath(tail, tailInk);
             c.DrawPath(tail, tailFill);
+            c.DrawPath(tail, tailLine);
         }
         c.DrawRoundRect(body, b.Fill);
         var count = Math.Min(lobes, b.Style.MaxStripes);
@@ -207,8 +198,8 @@ internal static class RecipePainter
         {
             c.Save();
             c.ClipRoundRect(body, antialias: true);
-            using var stripe = new SKPaint { IsAntialias = true, Color = b.Ink.WithAlpha((byte)(b.Alpha * 0.55)) };
-            var width = Math.Max(r * 0.14f, b.MinDetail);
+            using var stripe = new SKPaint { IsAntialias = true, Color = b.Outline.WithAlpha(140) };
+            var width = Math.Max(r * 0.14f, 1.4f * b.MinDetail);
             for (var i = 0; i < count; i++)
             {
                 var x = -r * 0.55f + (i * r * 1.1f / count);
@@ -227,14 +218,14 @@ internal static class RecipePainter
         using var dot = new SKPaint { IsAntialias = true };
         using var dotLine = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = b.Stroke, Color = b.Ink,
+            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = b.Stroke, Color = b.Outline,
         };
         for (var i = 0; i < count; i++)
         {
             var a = i * Math.PI * 2 / count;
             var colour = b.Style.MultiHueDots ? b.Style.Snap(hue + (i * 25)) : null;
-            dot.Color = colour is null ? b.FillColor : Rgb(colour.Fill, b.Alpha);
-            dotLine.Color = colour is null ? b.Ink : Rgb(colour.Outline, b.Alpha);
+            dot.Color = colour is null ? b.FillColor : Rgb(colour.Fill);
+            dotLine.Color = colour is null ? b.Outline : Rgb(colour.Outline);
             var x = (float)(Math.Cos(a) * r * 0.7);
             var y = (float)(Math.Sin(a) * r * 0.7);
             c.DrawCircle(x, y, dotRadius, dot);
@@ -253,15 +244,15 @@ internal static class RecipePainter
         var spacing = Math.Max(r * 0.36f * scale, white * 2.1f);
         var start = -spacing * (count - 1) / 2;
         var y = -r * 0.12f * scale;
-        using var whitePaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(b.Alpha) };
-        // The ring makes the white read as an eye on a pale body too; the pupil is the darkest thing drawn.
+        using var whitePaint = new SKPaint { IsAntialias = true, Color = SKColors.White };
+        // A ring just outside the white makes it read as an eye on a pale body too; the pupil is the darkest thing drawn.
         using var ring = new SKPaint
         {
-            IsAntialias = true, Color = Rgb(b.Style.Ink, b.Alpha), Style = SKPaintStyle.Stroke, StrokeWidth = b.MinDetail,
+            IsAntialias = true, Color = Rgb(b.Style.Ink), Style = SKPaintStyle.Stroke, StrokeWidth = b.MinDetail,
         };
         using var dark = new SKPaint
         {
-            IsAntialias = true, Color = Rgb(b.Style.Ink, b.Alpha),
+            IsAntialias = true, Color = Rgb(b.Style.Ink),
             StrokeWidth = Math.Max(r * 0.05f * scale, b.MinDetail), StrokeCap = SKStrokeCap.Round,
         };
         for (var i = 0; i < count; i++)
@@ -273,7 +264,7 @@ internal static class RecipePainter
                 continue;
             }
             c.DrawCircle(x, y, white, whitePaint);
-            c.DrawCircle(x, y, white, ring);
+            c.DrawCircle(x, y, white + (b.MinDetail / 2), ring);
             c.DrawCircle(x + (r * 0.03f * scale), y + (r * 0.02f * scale), pupil, dark);
         }
     }

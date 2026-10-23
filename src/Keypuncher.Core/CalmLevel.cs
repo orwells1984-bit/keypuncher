@@ -2,7 +2,8 @@ using System.Text.Json.Serialization;
 
 namespace Keypuncher.Core;
 
-/// <summary>How busy the screen may get, by the child's age. See the Keypuncher Calm Rules page.</summary>
+/// <summary>How busy the screen may get and how boldly it is drawn, by the child's age. See the Keypuncher
+/// Calm Rules and Art Rules pages, and <see cref="CalmLimits"/> and <see cref="ArtStyle"/>.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<CalmLevel>))]
 public enum CalmLevel
 {

@@ -40,28 +40,90 @@ public sealed class ArtRulesTests : IDisposable
         Assert.InRange(Changed(frame, empty), 0.2, 1.0);
     }
 
+    // Things born a second ago are fully popped in, and untouched by Tick they keep full energy, so they draw opaque.
     [Fact]
     public void A_baby_gets_bigger_things_with_thicker_outlines()
     {
-        var pixels = new Dictionary<CalmLevel, (double Body, double Ink)>();
+        const int width = 1280, height = 720;   // big enough that the finest outline is a few pixels, not an antialiased one
+        var pixels = new Dictionary<CalmLevel, (double Body, int Outline)>();
         foreach (var level in new[] { CalmLevel.Baby, CalmLevel.Toddler, CalmLevel.BigToddler })
         {
             var style = ArtStyle.For(level);
+            var recipe = BuiltInRecipes.Palette[0];
             var world = new World { Style = style };
-            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = BuiltInRecipes.Palette[0], X = 0.5, Y = 0.4, Born = 0 });
-            world.Tick(1);
+            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = recipe, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
             using var renderer = new SceneRenderer(Fonts.LoadAndika());
-            var frame = Render(renderer, world, 640, 360);
-            var empty = Render(renderer, new World { Style = style }, 640, 360);
-            pixels[level] = (Changed(frame, empty), Share(frame, c => c.Red + c.Green + c.Blue < 200));
+            var frame = Render(renderer, world, width, height);
+            var empty = Render(renderer, new World { Style = style }, width, height);
+            // Walk right from the centre of the body until the outline colour starts, then measure its run.
+            var outline = Rgb(style.Snap(recipe.Body.Hue).Outline);
+            var row = Enumerable.Range(0, width / 2).Select(i => frame[(height / 2 * width) + (width / 2) + i]).ToList();
+            var first = row.FindIndex(c => Near(c, outline));
+            Assert.True(first >= 0, $"{level}: no outline found");
+            var run = row.Skip(first).TakeWhile(c => Near(c, outline)).Count();
+            pixels[level] = (Changed(frame, empty), run);
+            Assert.True(run >= (style.MinStroke * height) - 1.5, $"{level}: outline {run} px, finest line {style.MinStroke * height:0.0} px");
         }
         Assert.True(pixels[CalmLevel.Baby].Body > pixels[CalmLevel.Toddler].Body * 1.5);
         Assert.True(pixels[CalmLevel.Toddler].Body > pixels[CalmLevel.BigToddler].Body * 1.5);
-        Assert.True(pixels[CalmLevel.Baby].Ink > pixels[CalmLevel.Toddler].Ink * 1.5);
-        Assert.True(pixels[CalmLevel.Toddler].Ink > pixels[CalmLevel.BigToddler].Ink * 1.5);
+        Assert.True(pixels[CalmLevel.Baby].Outline > pixels[CalmLevel.Toddler].Outline);
+        Assert.True(pixels[CalmLevel.Toddler].Outline > pixels[CalmLevel.BigToddler].Outline);
         // A baby's thing spans at least 6 degrees of view (0.18 of the shorter side): a disc of that
         // size is about 2.5 percent of a 16:9 frame, and the puffbird is wider than it is tall.
         Assert.True(pixels[CalmLevel.Baby].Body > 0.025);
+    }
+
+    [Theory]
+    [InlineData(CalmLevel.Baby)]
+    [InlineData(CalmLevel.Toddler)]
+    [InlineData(CalmLevel.BigToddler)]
+    public void Bodies_and_letters_take_the_level_s_palette(CalmLevel level)
+    {
+        var style = ArtStyle.For(level);
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+
+        // A star is flat-filled, so with no eyes in the way its middle is exactly the snapped colour.
+        var star = BuiltInRecipes.Palette[7] with { Eyes = 0 };
+        var world = new World { Style = style };
+        world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = star, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
+        var frame = Render(renderer, world, 640, 360);
+        Assert.Equal(Rgb(style.Snap(star.Body.Hue).Fill), frame[(180 * 640) + 320]);
+        Assert.NotEqual(SKColor.FromHsv(star.Body.Hue, 45, 97), frame[(180 * 640) + 320]);
+
+        // A letter is its own snapped colour with that colour's outline, not white any more.
+        var letters = new World { Style = style };
+        letters.Add(new Entity { Id = 1, Role = EntityRole.Letter, Text = "Þ", X = 0.5, Y = 0.5, Born = 0, Lifetime = 2.2 });
+        letters.Tick(0.5);
+        frame = Render(renderer, letters, 640, 360);
+        var colour = style.Snap("Þ".Sum(ch => ch * 47) % 360);
+        Assert.Contains(frame, c => c == Rgb(colour.Fill));
+        Assert.Contains(frame, c => c == Rgb(colour.Outline));
+        Assert.DoesNotContain(frame, c => c == SKColors.White);
+    }
+
+    [Fact]
+    public void A_baby_s_creature_gets_a_pair_of_eyes_but_a_ball_stays_faceless()
+    {
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        SKColor[] Eyes(CalmLevel level, Recipe recipe)
+        {
+            var world = new World { Style = ArtStyle.For(level) };
+            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = recipe, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
+            return Render(renderer, world, 640, 360);
+        }
+        bool White(SKColor[] frame, Func<int, bool> column) =>
+            frame.Where((c, i) => column(i % 640)).Any(c => c == SKColors.White);
+
+        var fish = BuiltInRecipes.Concepts["fish"];   // one eye in its recipe
+        Assert.Equal(1, fish.Eyes);
+        var baby = Eyes(CalmLevel.Baby, fish);
+        Assert.True(White(baby, x => x < 310) && White(baby, x => x > 330), "a baby's fish has an eye each side of the middle");
+        var big = Eyes(CalmLevel.BigToddler, fish);
+        Assert.True(White(big, x => x is > 300 and < 340) && !White(big, x => x < 300), "an older child's fish keeps its one eye");
+
+        var ball = BuiltInRecipes.Concepts["ball"];
+        Assert.Equal(0, ball.Eyes);
+        Assert.False(White(Eyes(CalmLevel.Baby, ball), _ => true), "a ball has no face at any level");
     }
 
     [Fact]
@@ -73,9 +135,32 @@ public sealed class ArtRulesTests : IDisposable
         var before = Render(renderer, world, 400, 300);
         world.Style = ArtStyle.Baby;
         var after = Render(renderer, world, 400, 300);
-        // The sky, the near hill and the faded thing in the middle all take the new style.
-        foreach (var (x, y) in new[] { (10, 10), (200, 290), (200, 120) })
+        // The sky and the near hill take the new style, and the whole frame, history layer included,
+        // matches what a renderer that never saw the old style draws.
+        foreach (var (x, y) in new[] { (10, 10), (200, 290) })
             Assert.NotEqual(before[(y * 400) + x], after[(y * 400) + x]);
+        using var fresh = new SceneRenderer(Fonts.LoadAndika());
+        Assert.Equal(Render(fresh, world, 400, 300), after);
+    }
+
+    [Fact]
+    public void A_settled_thing_fades_towards_the_sky_not_towards_its_outline()
+    {
+        // Everything at rest is drawn at six tenths; the outline under a fill must not darken the fill.
+        var star = BuiltInRecipes.Palette[7] with { Eyes = 0 };
+        var world = new World { Style = ArtStyle.Baby };
+        var thing = world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = star, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
+        thing.Energy = 0;
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        var frame = Render(renderer, world, 640, 360);
+        var sky = Render(renderer, new World { Style = ArtStyle.Baby }, 640, 360)[(180 * 640) + 320];
+        var fill = Rgb(ArtStyle.Baby.Snap(star.Body.Hue).Fill);
+        var middle = frame[(180 * 640) + 320];
+        Assert.InRange(middle.Red, Blend(fill.Red, sky.Red) - 3, Blend(fill.Red, sky.Red) + 3);
+        Assert.InRange(middle.Green, Blend(fill.Green, sky.Green) - 3, Blend(fill.Green, sky.Green) + 3);
+        Assert.InRange(middle.Blue, Blend(fill.Blue, sky.Blue) - 3, Blend(fill.Blue, sky.Blue) + 3);
+
+        static int Blend(byte fill, byte sky) => (int)Math.Round((0.6 * fill) + (0.4 * sky));
     }
 
     [Theory]
@@ -104,10 +189,11 @@ public sealed class ArtRulesTests : IDisposable
         for (var frame = 0; frame < 5 * fps; frame++)
         {
             var t = frame / (double)fps;
-            // The same letter four times a second, a palm mash every half second, and taps all over.
+            // The same letter four times a second, a palm mash every half second, and other keys between.
+            // Keys only: a tap is stamped with the wall clock, which would fight this scripted one.
             if (frame % (fps / 4) == 0 && t < 3) Press(engine, ref clock, 0x25, "k");
             if (frame % (fps / 2) == 0 && t is >= 1 and < 4) Mash(engine, ref clock, 0x1E);
-            if (frame % (fps / 3) == 0) engine.OnTouch(0.2 + (0.6 * ((frame / 10) % 4) / 3), 0.3, 1);
+            if (frame % (fps / 3) == 5) Press(engine, ref clock, 0x10 + ((frame / 10) % 10), "q");
             engine.Update(1.0 / fps);
             clock = clock.AddSeconds(1.0 / fps);
 
@@ -126,12 +212,27 @@ public sealed class ArtRulesTests : IDisposable
             }
         }
 
+        Assert.True(world.Live.Count + world.Baked.Count > 3, "the script put things on screen");
         var worst = luminance.Max(series => MostTransitionsInASecond(series, fps));
         Assert.True(worst <= 6, $"{worst} luminance transitions in one second in one patch; the limit is six (three flashes)");
     }
 
-    /// <summary>Counts changes of at least 0.1 that reverse direction, as a flash tester does, and returns the
-    /// most of them in any one-second window.</summary>
+    [Fact]
+    public void The_flash_counter_reads_a_series_the_way_the_guidelines_do()
+    {
+        const int fps = 30;
+        List<double> Square(double low, double high, int framesPerHalf, int halves) =>
+            Enumerable.Range(0, halves).SelectMany(h => Enumerable.Repeat(h % 2 == 0 ? high : low, framesPerHalf)).ToList();
+        Assert.Equal(0, MostTransitionsInASecond(Square(0.85, 0.99, 5, 12), fps));   // all brighter than 0.8: not a flash
+        Assert.Equal(0, MostTransitionsInASecond(Square(0.60, 0.68, 5, 12), fps));   // under a tenth: not a flash
+        Assert.Equal(6, MostTransitionsInASecond(Square(0.3, 0.6, 5, 12), fps));     // 3 Hz: six changes a second
+        Assert.Equal(8, MostTransitionsInASecond(Square(0.3, 0.6, 4, 12), fps));     // 3.75 Hz
+        Assert.Equal(7, MostTransitionsInASecond(Square(0.3, 0.6, 4, 8), fps));      // seven changes within a second, the first one counted
+        Assert.Equal(1, MostTransitionsInASecond([.. Enumerable.Repeat(0.7, 10), .. Enumerable.Repeat(0.4, 50)], fps));
+    }
+
+    /// <summary>Counts changes of at least 0.1 in relative luminance with the darker side below 0.8, as a
+    /// flash tester does, and returns the most of them in any one-second window.</summary>
     private static int MostTransitionsInASecond(List<double> series, int fps)
     {
         var transitions = new List<int>();
@@ -141,9 +242,10 @@ public sealed class ArtRulesTests : IDisposable
         {
             var delta = series[i] - extreme;
             var direction = Math.Sign(delta);
-            if (direction == 0 || direction == rising) { if (direction == rising) extreme = series[i]; continue; }
+            if (direction == 0) continue;
+            if (direction == rising) { extreme = series[i]; continue; }
             if (Math.Abs(delta) < 0.1 || Math.Min(series[i], extreme) >= 0.8) continue;
-            if (rising != 0) transitions.Add(i);
+            transitions.Add(i);
             rising = direction;
             extreme = series[i];
         }
@@ -182,5 +284,7 @@ public sealed class ArtRulesTests : IDisposable
     private static double Changed(SKColor[] a, SKColor[] b) =>
         a.Zip(b).Count(p => Math.Abs(p.First.Red - p.Second.Red) + Math.Abs(p.First.Green - p.Second.Green) + Math.Abs(p.First.Blue - p.Second.Blue) > 24) / (double)a.Length;
 
-    private static double Share(SKColor[] frame, Func<SKColor, bool> test) => frame.Count(test) / (double)frame.Length;
+    private static SKColor Rgb(uint rgb) => new((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+
+    private static bool Near(SKColor a, SKColor b) => Math.Abs(a.Red - b.Red) + Math.Abs(a.Green - b.Green) + Math.Abs(a.Blue - b.Blue) <= 40;
 }

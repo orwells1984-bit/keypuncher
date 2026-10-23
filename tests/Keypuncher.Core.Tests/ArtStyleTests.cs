@@ -21,7 +21,7 @@ public class ArtStyleTests
             Assert.True(younger.MaxLobes < older.MaxLobes);
             Assert.True(younger.MaxStripes < older.MaxStripes);
             Assert.True(younger.MaxDots < older.MaxDots);
-            Assert.True(younger.Palette.Count <= older.Palette.Count);
+            Assert.True(younger.Colors.Count <= older.Colors.Count);
         }
         Assert.All(Levels, s => Assert.True(s.MinDiameter < s.MaxDiameter));
         Assert.All(Levels, s => Assert.InRange(s.MaxEyes, s.MinEyes, 4));
@@ -48,8 +48,8 @@ public class ArtStyleTests
         foreach (var style in Levels)
         {
             var ground = new[] { style.Ground.SkyTop, style.Ground.SkyBottom, style.Ground.FarHill, style.Ground.NearHill };
-            var floor = style == ArtStyle.BigToddler ? 4.5 : 7;
-            foreach (var colour in style.Palette)
+            var floor = style == ArtStyle.Baby ? 9 : style == ArtStyle.Toddler ? 7 : 4.5;
+            foreach (var colour in style.Colors)
             {
                 Assert.All(ground, g => Assert.True(Contrast(colour.Outline, g) >= floor, $"{colour.Outline:X6} on {g:X6}: {Contrast(colour.Outline, g):0.0}"));
                 Assert.True(Contrast(colour.Outline, colour.Fill) >= 1.5, $"{colour.Outline:X6} on {colour.Fill:X6}");
@@ -77,10 +77,10 @@ public class ArtStyleTests
     public void No_palette_colour_is_a_saturated_red()
     {
         // Things pop in and fade out; a flash to or from saturated red is the riskiest kind (WCAG 2.3.1).
-        foreach (var colour in Levels.SelectMany(s => s.Palette))
+        foreach (var rgb in Levels.SelectMany(s => s.Colors).SelectMany(c => new[] { c.Fill, c.Outline }))
         {
-            double r = (colour.Fill >> 16) & 0xFF, g = (colour.Fill >> 8) & 0xFF, b = colour.Fill & 0xFF;
-            Assert.True(r / (r + g + b) < 0.8, $"{colour.Fill:X6}");
+            double r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+            Assert.True(r / (r + g + b) < 0.8, $"{rgb:X6}");
         }
     }
 
@@ -95,22 +95,23 @@ public class ArtStyleTests
         Assert.Equal(0xFFC400u, baby.Snap(50).Fill);
         Assert.Equal(0x1FA34Au, baby.Snap(120).Fill);
         Assert.NotEqual(baby.Snap(50).Fill, baby.Companion(50).Fill);
+        // Toddler red sits at 1 degree, brown at 23 and orange at 29: the boundaries fall where the hues say.
+        Assert.Equal(0x8D5A3Bu, ArtStyle.Toddler.Snap(20).Fill);
+        Assert.Equal(0xFF7A00u, ArtStyle.Toddler.Snap(30).Fill);
         foreach (var style in Levels)
             foreach (var hue in Enumerable.Range(0, 360))
             {
-                Assert.Contains(style.Snap(hue), style.Palette);
+                // Worked out independently: the smallest distance round the hue circle.
+                var nearest = style.Colors.MinBy(c => Math.Min(Math.Abs(c.Hue - hue), 360 - Math.Abs(c.Hue - hue)))!;
+                Assert.Equal(nearest, style.Snap(hue));
                 Assert.NotEqual(style.Snap(hue), style.Companion(hue));
             }
     }
 
     [Fact]
-    public void Every_built_in_recipe_lands_on_a_palette_colour()
+    public void Bursts_and_sparkles_are_yellow_at_every_level()
     {
-        var recipes = BuiltInRecipes.Palette.Concat(BuiltInRecipes.Concepts.Values).Append(BuiltInRecipes.Burst).Append(BuiltInRecipes.Sparkle);
-        foreach (var style in Levels)
-            foreach (var recipe in recipes)
-                Assert.Contains(style.Snap(recipe.Body.Hue), style.Palette);
-        // Bursts and sparkles are yellow at every level, never the red that flashes worst.
+        // They flash in and out, and yellow is as far from red as a warm hue gets.
         Assert.All(Levels, s => Assert.Equal(0xFFC400u, s.Snap(BuiltInRecipes.Burst.Body.Hue).Fill));
         Assert.All(Levels, s => Assert.Equal(0xFFC400u, s.Snap(BuiltInRecipes.Sparkle.Body.Hue).Fill));
     }
@@ -123,6 +124,7 @@ public class ArtStyleTests
         Assert.InRange(new ArtColor(0x0000FF, 0).Hue, 239.99, 240.01);
         Assert.InRange(new ArtColor(0x1E6FD9, 0).Hue, 210, 220);
         Assert.Equal(0, new ArtColor(0x808080, 0).Hue);
+        Assert.InRange((new ArtColor(0x1E6FD9, 0) with { Fill = 0x00FF00 }).Hue, 119.99, 120.01);
     }
 
     /// <summary>WCAG 2 contrast ratio between two 0xRRGGBB colours.</summary>
