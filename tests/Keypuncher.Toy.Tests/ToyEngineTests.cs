@@ -2,6 +2,7 @@ using Keypuncher.Audio;
 using Keypuncher.Core;
 using Keypuncher.Inference;
 using Keypuncher.Rendering;
+using Keypuncher.Language;
 using Keypuncher.Storage;
 using SkiaSharp;
 
@@ -27,7 +28,7 @@ public sealed class ToyEngineTests : IDisposable
     public void A_letter_key_shows_its_glyph_and_makes_its_family_thing()
     {
         Press(0x25, "k");
-        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "K");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "k");
         var thing = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing);
 
         Press(0x25, "k");
@@ -71,7 +72,7 @@ public sealed class ToyEngineTests : IDisposable
         _engine.OnKey(new KeyPress(_clock, 0x28, "´", true, false));
         Step(0.2);
         Press(0x18, "o");
-        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "Ó");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "ó");
     }
 
     [Fact]
@@ -264,8 +265,96 @@ public sealed class ToyEngineTests : IDisposable
         Assert.False(_engine.IsAsleep);
         Assert.Equal(0, _world.Night);
         Press(0x1F, "s");
-        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "S");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "s");
     }
+
+    [Fact]
+    public void The_goodnight_waits_for_a_pause()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
+        for (var i = 0; i < 70; i++)
+        {
+            Press(0x25, "k");
+            Step(1);
+        }
+        Assert.False(_engine.IsAsleep);   // still playing ten seconds after time was up
+        Assert.True(_engine.IsWindingDown);
+        Assert.True(_world.Quiet);
+
+        Step(ToyEngine.PauseBeforeGoodnight - 1);
+        Assert.False(_engine.IsAsleep);
+        Step(1.5);
+        Assert.True(_engine.IsAsleep);
+    }
+
+    [Fact]
+    public void The_goodnight_stops_waiting_after_a_few_minutes()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
+        Step(59);
+        var pressedFor = 0.0;
+        while (!_engine.IsAsleep && pressedFor < 600)
+        {
+            Press(0x25, "k");
+            Step(1);
+            pressedFor++;
+        }
+        Assert.True(_engine.IsAsleep);
+        Assert.InRange(pressedFor, ToyEngine.MaxWindDown, ToyEngine.MaxWindDown + 3);
+    }
+
+    [Fact]
+    public void A_session_keeps_one_language()
+    {
+        var engine = MixedLanguageEngine(new Random(1));
+        var seen = new HashSet<string>();
+        for (var session = 0; session < 40; session++)
+        {
+            engine.StartSession();
+            seen.Add(engine.SessionLanguage);
+        }
+        Assert.Equal(3, seen.Count);   // all three come up over many sessions...
+
+        engine.StartSession();
+        var language = engine.SessionLanguage;
+        for (var i = 0; i < 30; i++)
+        {
+            engine.OnKey(new KeyPress(_clock, 0x24, "j", false, true));
+            engine.OnKey(new KeyPress(_clock = _clock.AddMilliseconds(80), 0x24, "j", false, false));
+            _clock = _clock.AddMilliseconds(400);
+            engine.Update(0.5);
+        }
+        Assert.Equal(language, engine.SessionLanguage);   // ...but never within one
+        var expected = KeyMeanings.ApplyCase(KeyMeanings.For(language, "j")!.Display, upperCase: false);
+        Assert.All(engine.World.Live.Where(e => e.Role == EntityRole.Letter), e => Assert.Equal(expected, e.Text));
+    }
+
+    [Fact]
+    public void Turning_a_language_off_moves_the_session_to_another()
+    {
+        var engine = MixedLanguageEngine(new Random(3));
+        var current = engine.SessionLanguage;
+        var weights = new Dictionary<string, double>(engine.Settings.LanguageWeights) { [current] = 0 };
+        engine.Settings = engine.Settings with { LanguageWeights = weights };
+        Assert.NotEqual(current, engine.SessionLanguage);
+        Assert.True(weights[engine.SessionLanguage] > 0);
+    }
+
+    [Fact]
+    public void Letters_are_small_by_default()
+    {
+        Assert.False(ToySettings.Default.UpperCase);
+        _engine.Settings = _engine.Settings with { UpperCase = true };
+        Press(0x25, "k");
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "K");
+    }
+
+    [Theory]
+    [InlineData("sun")]
+    [InlineData("moon")]
+    [InlineData("house")]
+    public void Things_that_are_not_alive_have_no_face(string concept) =>
+        Assert.Equal(0, BuiltInRecipes.Concepts[concept].Eyes);
 
     [Fact]
     public void Session_zero_never_says_goodnight()
@@ -342,6 +431,10 @@ public sealed class ToyEngineTests : IDisposable
         for (var i = 0; i < 5; i++)
             _engine.OnKey(new KeyPress(_clock, firstScan + i, null, false, false));
     }
+
+    private ToyEngine MixedLanguageEngine(Random random) =>
+        new(new World(), new Mixer(), new SpeechLibrary(new ClipStore(_dir), null),
+            ToySettings.Default with { LanguageWeights = new() { ["is"] = 0.4, ["en"] = 0.3, ["bg"] = 0.3 } }, random);
 
     private void Press(int scan, string ch)
     {

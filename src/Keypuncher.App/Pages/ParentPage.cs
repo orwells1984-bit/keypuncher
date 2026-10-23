@@ -42,7 +42,7 @@ public sealed class ParentPage : ContentPage
         layout.Add(new HorizontalStackLayout { Spacing = 12, Children = { play, quit } });
 
         layout.Add(Heading("Languages"));
-        layout.Add(new Label { Text = "How often each language is used for a key. Icelandic leads." });
+        layout.Add(new Label { Text = "How often each language is picked for a play session. One session keeps one language, so each key keeps one sound. Icelandic leads." });
         foreach (var (tag, name) in new[] { ("is", "Icelandic"), ("en", "English"), ("bg", "Bulgarian") })
         {
             var slider = new Slider(0, 1, s.LanguageWeights.GetValueOrDefault(tag)) { WidthRequest = 300 };
