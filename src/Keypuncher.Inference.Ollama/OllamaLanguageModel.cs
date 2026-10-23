@@ -35,6 +35,9 @@ public sealed class OllamaLanguageModel : ILanguageModel
             Prompt = userPrompt,
             Format = jsonSchema,
             Stream = true,
+            // Reasoning models (qwen3 and friends) otherwise spend thousands of tokens thinking
+            // before the ~150 tokens of JSON we want; the bench measured 60 to 130 s per recipe.
+            Think = false,
             Options = new RequestOptions { NumCtx = _numCtx, Temperature = _temperature },
         };
 
