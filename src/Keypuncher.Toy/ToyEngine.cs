@@ -192,6 +192,7 @@ public sealed class ToyEngine
         _world.Touch(x, y, 0.08);
         if (fingers >= 3)
         {
+            _pendingCall = null;
             Mash(new InputEvent(DateTimeOffset.Now, 0, null, x, y, fingers));
             return;
         }
