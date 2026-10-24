@@ -11,7 +11,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words;
+    private readonly Switch _upper, _words, _noises;
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
 
@@ -54,6 +54,8 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Capital letters", _upper));
         _words = new Switch { IsToggled = s.SayWords };
         layout.Add(Row("Say a word after a letter", _words));
+        _noises = new Switch { IsToggled = s.AnimalNoises };
+        layout.Add(Row("Animals sometimes make their noise", _noises));
         _volume = new Slider(0, Mixer.MaxVolume, s.Volume) { WidthRequest = 300 };
         layout.Add(Row("Volume", _volume));
 
@@ -97,7 +99,8 @@ public sealed class ParentPage : ContentPage
         _host.SaveSettings(new ToySettings(
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
-            CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)]));
+            CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
+            _noises.IsToggled));
         base.OnDisappearing();
     }
 

@@ -29,6 +29,9 @@ public enum CalmLevel
 /// fade with age; a trace of what came before, kept small so it never reads as clutter.</param>
 /// <param name="CountUpTo">A digit up to this makes and counts that many things; above it, one thing.</param>
 /// <param name="SessionMinutes">Default play time before the goodnight.</param>
+/// <param name="CallGapSeconds">Animal noises are at least this far apart, so they stay a surprise and never
+/// pile up; longer than the longest call.</param>
+/// <param name="GentleCalls">Use the quieter, slower-starting animal noises, with roars and growls softest.</param>
 public sealed record CalmLimits(
     int LiveThings,
     int Moving,
@@ -38,11 +41,13 @@ public sealed record CalmLimits(
     double HistoryOpacity,
     int HistoryShown,
     int CountUpTo,
-    int SessionMinutes)
+    int SessionMinutes,
+    double CallGapSeconds = 6,
+    bool GentleCalls = false)
 {
-    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.07, 3, 3, 5);
-    public static readonly CalmLimits Toddler = new(7, 2, 15, 1, 0.75, 0.10, 6, 5, 10);
-    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.15, 15, 9, 15);
+    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.07, 3, 3, 5, CallGapSeconds: 10, GentleCalls: true);
+    public static readonly CalmLimits Toddler = new(7, 2, 15, 1, 0.75, 0.10, 6, 5, 10, CallGapSeconds: 6);
+    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.15, 15, 9, 15, CallGapSeconds: 4);
 
     public static CalmLimits For(CalmLevel level) => level switch
     {

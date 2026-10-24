@@ -92,6 +92,74 @@ public class AudioTests
         Assert.Equal(48000, ClipProcessing.Resample(input, 44100, 48000).Length);
     }
 
+    [Theory]
+    [InlineData(Shape.Cow)]
+    [InlineData(Shape.Dog)]
+    [InlineData(Shape.Cat)]
+    [InlineData(Shape.Rex)]
+    [InlineData(Shape.Whale)]
+    [InlineData(Shape.Duck)]
+    public void Known_animals_have_a_call(Shape shape) => Assert.NotNull(AnimalCalls.For(shape, gentle: false));
+
+    [Theory]
+    [InlineData(Shape.Blob)]
+    [InlineData(Shape.Shark)]
+    [InlineData(Shape.Rabbit)]
+    [InlineData(Shape.Starfish)]
+    public void Things_with_no_known_noise_stay_silent(Shape shape)
+    {
+        Assert.Null(AnimalCalls.For(shape, gentle: false));
+        Assert.False(AnimalCalls.HasCall(shape));
+    }
+
+    [Fact]
+    public void Every_call_is_short_bounded_and_soft_edged()
+    {
+        Assert.NotEmpty(AnimalCalls.Callers);
+        foreach (var gentle in new[] { false, true })
+            foreach (var shape in AnimalCalls.Callers)
+            {
+                var call = AnimalCalls.For(shape, gentle)!;
+                Assert.All(call, s => Assert.True(float.IsFinite(s)));
+                Assert.InRange(call.Length, Mixer.SampleRate / 10, Mixer.SampleRate * 5 / 2);
+                Assert.InRange(Peak(call), 0.05f, AnimalCalls.MaxPeak + 1e-4f);
+                Assert.True(Math.Abs(call[0]) < 0.01 && Math.Abs(call[^1]) < 0.01, $"{shape} should start and end in silence");
+                Assert.True(call.Length / (double)Mixer.SampleRate < CalmLimits.BigToddler.CallGapSeconds, $"{shape} outlasts the gap between calls");
+            }
+    }
+
+    [Theory]
+    [InlineData(Shape.Rex)]
+    [InlineData(Shape.Bear)]
+    [InlineData(Shape.Elephant)]
+    [InlineData(Shape.Dog)]
+    public void Baby_calls_are_quieter_and_start_slower(Shape shape)
+    {
+        var bold = AnimalCalls.For(shape, gentle: false)!;
+        var gentle = AnimalCalls.For(shape, gentle: true)!;
+        Assert.True(Peak(gentle) < Peak(bold) * 0.8, $"{shape} should be clearly quieter for a baby");
+        var opening = Mixer.SampleRate / 20;
+        Assert.True(Rms(gentle.AsSpan(0, opening)) < Rms(bold.AsSpan(0, opening)), $"{shape} should not jump out for a baby");
+    }
+
+    [Fact]
+    public void Roars_are_softest_of_all_for_babies() =>
+        Assert.True(Peak(AnimalCalls.For(Shape.Rex, gentle: true)!) <= 0.5f * AnimalCalls.MaxPeak);
+
+    [Fact]
+    public void A_call_plays_on_its_own_channel_and_ends()
+    {
+        var m = new Mixer { Volume = Mixer.MaxVolume };
+        Render(m, 3.1); // past the start ramp
+        var moo = AnimalCalls.For(Shape.Cow, gentle: false)!;
+        m.Call(moo);
+        Assert.True(m.CallPlaying);
+        Assert.True(Peak(Render(m, 0.5)) > 0.05);
+        Render(m, (moo.Length / (double)Mixer.SampleRate) + 0.1);
+        Assert.False(m.CallPlaying);
+        Assert.False(m.SpeechPlaying);
+    }
+
     private static float[] Render(Mixer m, double seconds)
     {
         var buffer = new float[(int)(seconds * Mixer.SampleRate) * Mixer.Channels];
@@ -100,4 +168,11 @@ public class AudioTests
     }
 
     private static float Peak(float[] buffer) => buffer.Max(Math.Abs);
+
+    private static double Rms(ReadOnlySpan<float> samples)
+    {
+        double sum = 0;
+        foreach (var s in samples) sum += s * s;
+        return Math.Sqrt(sum / samples.Length);
+    }
 }
