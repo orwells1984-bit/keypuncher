@@ -29,6 +29,7 @@ public enum Shape
     Blob, Petal, Star, Wave, Cloud, Stripe, DotField,
     Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse,
     Rex, LongNeck, Triceratops, Stegosaurus,
+    Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish,
 }
 
 public static class Shapes

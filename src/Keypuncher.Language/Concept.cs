@@ -47,6 +47,17 @@ public static class StarterConcepts
         new("longneck", "a gentle long-necked dinosaur", new Dictionary<string, string> { ["is"] = "þórseðla", ["en"] = "brontosaurus", ["bg"] = "бронтозавър" }),
         new("triceratops", "a three-horned dinosaur", new Dictionary<string, string> { ["is"] = "þríhyrna", ["en"] = "triceratops", ["bg"] = "трицератопс" }),
         new("stegosaurus", "a dinosaur with plates on its back", new Dictionary<string, string> { ["is"] = "kambeðla", ["en"] = "stegosaurus", ["bg"] = "стегозавър" }),
+        // Added with the sea creature pictures; Vanya to check these too before recording.
+        new("whale", "a big blue whale",        new Dictionary<string, string> { ["is"] = "hvalur",  ["en"] = "whale", ["bg"] = "кит" }),
+        new("dolphin", "a playful dolphin",     new Dictionary<string, string> { ["is"] = "höfrungur", ["en"] = "dolphin", ["bg"] = "делфин" }),
+        new("shark", "a friendly shark",        new Dictionary<string, string> { ["is"] = "hákarl",  ["en"] = "shark", ["bg"] = "акула" }),
+        new("octopus", "an octopus with eight arms", new Dictionary<string, string> { ["is"] = "kolkrabbi", ["en"] = "octopus", ["bg"] = "октопод" }),
+        new("crab", "a little red crab",        new Dictionary<string, string> { ["is"] = "krabbi",  ["en"] = "crab", ["bg"] = "рак" }),
+        new("turtle", "a sea turtle",           new Dictionary<string, string> { ["is"] = "skjaldbaka", ["en"] = "turtle", ["bg"] = "костенурка" }),
+        new("seal", "a round sleek seal",       new Dictionary<string, string> { ["is"] = "selur",   ["en"] = "seal", ["bg"] = "тюлен" }),
+        new("seahorse", "a curly-tailed seahorse", new Dictionary<string, string> { ["is"] = "sæhestur", ["en"] = "seahorse", ["bg"] = "морско конче" }),
+        new("starfish", "a five-armed starfish", new Dictionary<string, string> { ["is"] = "krossfiskur", ["en"] = "starfish", ["bg"] = "морска звезда" }),
+        new("jellyfish", "a floating jellyfish", new Dictionary<string, string> { ["is"] = "marglytta", ["en"] = "jellyfish", ["bg"] = "медуза" }),
     ];
 
     /// <summary>Concepts whose word in <paramref name="languageTag"/> starts with <paramref name="letter"/>.

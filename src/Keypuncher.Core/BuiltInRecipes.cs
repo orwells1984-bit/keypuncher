@@ -48,8 +48,22 @@ public static class BuiltInRecipes
         public static readonly Recipe Triceratops = Make(RecipeKind.Creature, "triceratops", Shape.Triceratops, 1, 280, 0.8, 1, MotionType.Sway, 0.15, Waveform.Triangle, 0.05, 1.2, "pentatonic", "E3");
         public static readonly Recipe Stegosaurus = Make(RecipeKind.Creature, "stegosaurus", Shape.Stegosaurus, 5, 100, 0.8, 1, MotionType.Sway, 0.15, Waveform.Triangle, 0.05, 1.2, "pentatonic", "A3");
 
+        public static readonly Recipe Whale = Make(RecipeKind.Creature, "whale", Shape.Whale, 1, 215, 0.95, 1, MotionType.Drift, 0.1, Waveform.Sine, 0.2, 2.0, "lydian", "C3");
+        public static readonly Recipe Dolphin = Make(RecipeKind.Creature, "dolphin", Shape.Dolphin, 1, 195, 0.75, 1, MotionType.Drift, 0.6, Waveform.Sine, 0.01, 0.4, "pentatonic", "E5");
+        public static readonly Recipe Shark = Make(RecipeKind.Creature, "shark", Shape.Shark, 1, 225, 0.8, 1, MotionType.Drift, 0.3, Waveform.Triangle, 0.05, 1.0, "pentatonic", "D3");
+        public static readonly Recipe Octopus = Make(RecipeKind.Creature, "octopus", Shape.Octopus, 8, 330, 0.7, 2, MotionType.Sway, 0.3, Waveform.Sine, 0.05, 0.9, "whole-tone", "G4");
+        public static readonly Recipe Crab = Make(RecipeKind.Creature, "crab", Shape.Crab, 1, 2, 0.6, 2, MotionType.Sway, 0.5, Waveform.Square, 0.005, 0.2, "pentatonic", "A4");
+        public static readonly Recipe Turtle = Make(RecipeKind.Creature, "turtle", Shape.Turtle, 3, 125, 0.75, 1, MotionType.Drift, 0.15, Waveform.Triangle, 0.1, 1.4, "pentatonic", "F3");
+        public static readonly Recipe Seal = Make(RecipeKind.Creature, "seal", Shape.Seal, 1, 22, 0.7, 1, MotionType.Sway, 0.3, Waveform.Triangle, 0.02, 0.5, "pentatonic", "G4");
+        public static readonly Recipe Seahorse = Make(RecipeKind.Creature, "seahorse", Shape.Seahorse, 3, 45, 0.6, 1, MotionType.Drift, 0.3, Waveform.Sine, 0.02, 0.6, "lydian", "B4");
+        public static readonly Recipe Starfish = Make(RecipeKind.Creature, "starfish", Shape.Starfish, 5, 28, 0.55, 2, MotionType.Sway, 0.15, Waveform.Triangle, 0.02, 0.7, "pentatonic", "C5");
+        public static readonly Recipe Jellyfish = Make(RecipeKind.Creature, "jellyfish", Shape.Jellyfish, 5, 290, 0.6, 2, MotionType.Drift, 0.2, Waveform.Sine, 0.15, 1.6, "whole-tone", "E5");
+
         public static readonly IReadOnlyList<Recipe> All =
-            [Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus];
+        [
+            Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus,
+            Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish,
+        ];
     }
 
     /// <summary>For a mash: a burst that fades by itself.</summary>
@@ -92,6 +106,16 @@ public static class BuiltInRecipes
         ["longneck"] = Animals.LongNeck,
         ["triceratops"] = Animals.Triceratops,
         ["stegosaurus"] = Animals.Stegosaurus,
+        ["whale"] = Animals.Whale,
+        ["dolphin"] = Animals.Dolphin,
+        ["shark"] = Animals.Shark,
+        ["octopus"] = Animals.Octopus,
+        ["crab"] = Animals.Crab,
+        ["turtle"] = Animals.Turtle,
+        ["seal"] = Animals.Seal,
+        ["seahorse"] = Animals.Seahorse,
+        ["starfish"] = Animals.Starfish,
+        ["jellyfish"] = Animals.Jellyfish,
     };
 
     public static Recipe ForConcept(string conceptId) =>

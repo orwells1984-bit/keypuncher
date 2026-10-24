@@ -8,7 +8,7 @@ namespace Keypuncher.Rendering;
 /// parts, each filled and outlined, and the one or two features that name the animal (a cat's pointed
 /// ears, a cow's patches, an elephant's trunk) kept even at the plainest level. Nothing has teeth,
 /// claws or a sharp point. Every animal faces right and fits the same box as the other shapes, about
-/// one radius each way, with its feet near the bottom.
+/// one radius each way, with its feet near the bottom (or, for a swimmer, round the middle).
 /// </summary>
 /// <remarks>
 /// Animals whose faces children know from the front (cat, dog, cow, sheep, rabbit, bear, mouse) turn
@@ -41,6 +41,16 @@ internal static partial class RecipePainter
             case Shape.LongNeck: LongNeck(k); break;
             case Shape.Triceratops: Triceratops(k); break;
             case Shape.Stegosaurus: Stegosaurus(k, lobes); break;
+            case Shape.Whale: Whale(k); break;
+            case Shape.Dolphin: Dolphin(k); break;
+            case Shape.Shark: Shark(k); break;
+            case Shape.Octopus: Octopus(k); break;
+            case Shape.Crab: Crab(k); break;
+            case Shape.Turtle: Turtle(k); break;
+            case Shape.Seal: Seal(k); break;
+            case Shape.Seahorse: Seahorse(k); break;
+            case Shape.Starfish: Starfish(k); break;
+            case Shape.Jellyfish: Jellyfish(k, lobes); break;
         }
     }
 
@@ -352,6 +362,217 @@ internal static partial class RecipePainter
         k.SideEye(0.72f, 0.34f, h);
     }
 
+    private static void Whale(Kit k)
+    {
+        // The spout first, so the head covers its root.
+        k.Ribbon(k.Pale, 0.06f, (0.32f, -0.2f), (0.3f, -0.62f));
+        k.Ribbon(k.Pale, 0.05f, (0.3f, -0.6f), (0.18f, -0.78f), (0.08f, -0.7f));
+        k.Ribbon(k.Pale, 0.05f, (0.3f, -0.6f), (0.42f, -0.78f), (0.52f, -0.7f));
+        var wag = k.Wag(0.06f);
+        k.Ribbon(k.Body, 0.16f, (-0.62f, 0.1f), (-0.86f, -0.16f + wag));
+        k.Oval(k.Body, -0.98f, -0.28f + wag, 0.17f, 0.075f, -50);
+        k.Oval(k.Body, -0.76f, -0.32f + wag, 0.17f, 0.075f, 50);
+        using var body = k.OvalPath(0.0f, 0.12f, 0.8f, 0.42f);
+        k.Fill(k.Body, body);
+        // A pale belly, the way a child draws a whale.
+        k.Inside(body, () => k.C.DrawOval(k.R * 0.1f, k.R * 0.5f, k.R * 0.75f, k.R * 0.2f, k.Pale.FillPaint));
+        k.Line(body);
+        k.Oval(k.Body, 0.15f, 0.36f, 0.2f, 0.08f, 30);
+        if (k.Fine) k.Stroke((0.55f, 0.22f), (0.68f, 0.28f), (0.78f, 0.2f));
+        k.SideEye(0.5f, 0.02f, 0.22f);
+    }
+
+    private static void Dolphin(Kit k)
+    {
+        var wag = k.Wag(0.06f);
+        k.Rounded(k.Body, 0.08f, (-0.25f, -0.18f), (-0.18f, -0.52f), (0.1f, -0.2f));
+        k.Ribbon(k.Body, 0.12f, (-0.5f, 0.04f), (-0.82f, 0.0f + wag));
+        k.Oval(k.Body, -0.92f, -0.1f + wag, 0.15f, 0.065f, -35);
+        k.Oval(k.Body, -0.92f, 0.1f + wag, 0.15f, 0.065f, 35);
+        k.Ribbon(k.Body, 0.13f, (0.52f, 0.0f), (0.78f, 0.06f));
+        using var body = k.OvalPath(0.0f, 0.0f, 0.62f, 0.27f);
+        k.Fill(k.Body, body);
+        k.Inside(body, () => k.C.DrawOval(k.R * 0.1f, k.R * 0.26f, k.R * 0.55f, k.R * 0.13f, k.Pale.FillPaint));
+        k.Line(body);
+        k.Oval(k.Body, 0.12f, 0.24f, 0.16f, 0.07f, 35);
+        k.SideEye(0.4f, -0.07f, 0.18f);
+    }
+
+    private static void Shark(Kit k)
+    {
+        var wag = k.Wag(0.06f);
+        // A tall back fin and a crescent tail are what say shark; no teeth, a closed smile.
+        k.Rounded(k.Body, 0.08f, (-0.2f, -0.18f), (-0.05f, -0.68f), (0.18f, -0.18f));
+        k.Rounded(k.Body, 0.08f, (-0.5f, 0.05f), (-1.0f, -0.48f + wag), (-0.78f, 0.05f), (-0.95f, 0.38f + wag));
+        k.Rounded(k.Body, 0.08f, (0.05f, 0.22f), (-0.08f, 0.55f), (0.28f, 0.26f));
+        using (var builder = new SKPathBuilder())
+        {
+            builder.MoveTo(-0.65f * k.R, 0.05f * k.R);
+            builder.CubicTo(-0.4f * k.R, -0.3f * k.R, 0.6f * k.R, -0.32f * k.R, 0.98f * k.R, 0.04f * k.R);
+            builder.CubicTo(0.6f * k.R, 0.36f * k.R, -0.4f * k.R, 0.34f * k.R, -0.65f * k.R, 0.05f * k.R);
+            builder.Close();
+            using var body = builder.Detach();
+            k.Fill(k.Body, body);
+            k.Inside(body, () => k.C.DrawOval(k.R * 0.15f, k.R * 0.3f, k.R * 0.75f, k.R * 0.14f, k.Pale.FillPaint));
+            k.Line(body);
+        }
+        if (k.Fine)
+        {
+            foreach (var x in new[] { 0.32f, 0.39f, 0.46f }) k.Stroke((x, -0.02f), (x - 0.02f, 0.12f));
+            k.Stroke((0.66f, 0.12f), (0.78f, 0.16f), (0.88f, 0.1f));
+        }
+        k.SideEye(0.62f, -0.04f, 0.16f);
+    }
+
+    private static void Octopus(Kit k)
+    {
+        // Eight arms from two, six for a baby so they stay thick and apart.
+        var arms = k.Fine ? 8 : 6;
+        for (var i = 0; i < arms; i++)
+        {
+            var u = (i + 0.5f) / arms;
+            var x0 = -0.42f + (0.84f * u);
+            var x1 = -0.95f + (1.9f * u);
+            var curl = (u < 0.5f ? -1 : 1) * 0.16f;
+            var sway = k.Wag(0.06f) * (i % 2 == 0 ? 1 : -1);
+            k.Ribbon(k.Body, 0.13f, (x0, 0.1f), (x1 * 0.8f + sway, 0.45f), (x1 + sway, 0.62f), (x1 + curl + sway, 0.78f));
+        }
+        k.Oval(k.Body, 0, -0.28f, 0.56f, 0.56f);
+        if (k.Fine)
+        {
+            k.Circle(k.Second, -0.3f, -0.55f, 0.07f);
+            k.Circle(k.Second, 0.3f, -0.5f, 0.06f);
+            k.Stroke((-0.14f, 0.04f), (0.0f, 0.1f), (0.14f, 0.04f));
+        }
+        k.FrontEyes(0, -0.18f, 0.42f);
+    }
+
+    private static void Crab(Kit k)
+    {
+        foreach (var side in new[] { -1f, 1f })
+        {
+            // Three legs a side from a toddler up; two for a baby, so they don't merge into one dark mass.
+            for (var i = 0; i < (k.Fine ? 3 : 2); i++)
+                k.Ribbon(k.Body, 0.08f, (side * 0.45f, 0.3f + (i * 0.12f)), (side * 0.85f, 0.25f + (i * 0.16f)), (side * 0.95f, 0.55f + (i * 0.14f)));
+            k.Ribbon(k.Body, 0.1f, (side * 0.38f, 0.05f), (side * 0.62f, -0.25f), (side * 0.72f, -0.4f));
+            // A rounded mitten of a claw: a big lower pincer with a smaller one above it.
+            k.Oval(k.Body, side * 0.76f, -0.5f, 0.2f, 0.15f, side * -20);
+            k.Oval(k.Body, side * 0.66f, -0.7f, 0.14f, 0.09f, side * 35);
+        }
+        k.Oval(k.Body, 0, 0.22f, 0.6f, 0.38f);
+        if (k.Fine) k.Stroke((-0.14f, 0.38f), (0.0f, 0.46f), (0.14f, 0.38f));
+        k.FrontEyes(0, 0.1f, 0.4f);
+    }
+
+    private static void Turtle(Kit k)
+    {
+        var paddle = k.Wag(8);
+        k.Oval(k.Second, -0.58f, 0.28f, 0.17f, 0.08f, -20);
+        k.Oval(k.Second, 0.68f, -0.02f, 0.2f, 0.15f);
+        using (var builder = new SKPathBuilder())
+        {
+            builder.MoveTo(-0.7f * k.R, 0.22f * k.R);
+            builder.CubicTo(-0.62f * k.R, -0.55f * k.R, 0.55f * k.R, -0.55f * k.R, 0.6f * k.R, 0.22f * k.R);
+            builder.Close();
+            using var shell = builder.Detach();
+            k.Fill(k.Body, shell);
+            // The shell's plates, as lines only, from a toddler up.
+            if (k.Fine)
+                k.Inside(shell, () =>
+                {
+                    k.C.DrawOval(new SKRect(-0.22f * k.R, -0.28f * k.R, 0.14f * k.R, 0.06f * k.R), k.Body.LinePaint);
+                    k.C.DrawOval(new SKRect(-0.62f * k.R, -0.1f * k.R, -0.26f * k.R, 0.26f * k.R), k.Body.LinePaint);
+                    k.C.DrawOval(new SKRect(0.18f * k.R, -0.1f * k.R, 0.52f * k.R, 0.26f * k.R), k.Body.LinePaint);
+                });
+            k.Line(shell);
+        }
+        k.C.Save();
+        k.C.Translate(0.25f * k.R, 0.24f * k.R);
+        k.C.RotateDegrees(paddle);
+        k.Oval(k.Second, 0.12f, 0.1f, 0.3f, 0.1f, 30);
+        k.C.Restore();
+        k.SideEye(0.74f, -0.05f, 0.13f);
+    }
+
+    private static void Seal(Kit k)
+    {
+        k.Rounded(k.Body, 0.08f, (-0.65f, 0.35f), (-1.02f, 0.12f), (-0.98f, 0.55f));
+        k.Oval(k.Body, -0.1f, 0.32f, 0.65f, 0.3f, -6);
+        var h = k.SideHead(0.32f);
+        k.Circle(k.Body, 0.45f, -0.08f, h);
+        k.Oval(k.Body, 0.15f, 0.55f, 0.2f, 0.08f, 40);
+        k.Circle(k.Pale, 0.66f, 0.04f, 0.1f);
+        k.Circle(k.Pale, 0.74f, 0.06f, 0.09f);
+        k.Oval(k.Ink, 0.74f, -0.04f, 0.07f, 0.05f);
+        if (k.Fine)
+            foreach (var dy in new[] { -0.03f, 0.05f })
+                k.Stroke((0.8f, 0.04f + dy), (0.98f, 0.0f + (dy * 2)));
+        k.SideEye(0.5f, -0.16f, h);
+    }
+
+    private static void Seahorse(Kit k)
+    {
+        var wag = k.Wag(0.05f);
+        k.Ribbon(k.Body, 0.14f, (0.0f, 0.3f), (-0.12f, 0.75f), (0.18f + wag, 0.86f), (0.16f + wag, 0.62f));
+        k.Oval(k.Second, -0.27f, -0.02f, 0.1f, 0.17f, 10);
+        k.Ribbon(k.Body, 0.34f, (0.0f, -0.35f), (0.12f, 0.0f), (0.02f, 0.3f));
+        k.Oval(k.Body, 0.1f, 0.02f, 0.24f, 0.3f);
+        if (k.Fine)
+            foreach (var y in new[] { -0.12f, 0.02f, 0.16f })
+                k.Stroke((0.0f, y), (0.22f, y + 0.02f));
+        k.Rounded(k.Body, 0.04f, (-0.08f, -0.7f), (-0.02f, -0.92f), (0.08f, -0.7f));
+        k.Ribbon(k.Body, 0.1f, (0.12f, -0.55f), (0.46f, -0.45f));
+        var h = k.SideHead(0.22f);
+        k.Circle(k.Body, 0.0f, -0.55f, h);
+        k.SideEye(0.04f, -0.58f, h);
+    }
+
+    private static void Starfish(Kit k)
+    {
+        var points = new (float X, float Y)[10];
+        for (var i = 0; i < 10; i++)
+        {
+            var a = (i * Math.PI / 5) - (Math.PI / 2);
+            var rr = i % 2 == 0 ? 0.95f : 0.45f;
+            points[i] = ((float)Math.Cos(a) * rr, (float)(Math.Sin(a) * rr) + 0.05f);
+        }
+        k.Rounded(k.Body, 0.16f, points);
+        if (k.Fine)
+            for (var i = 0; i < 5; i++)
+            {
+                var a = (i * Math.PI * 2 / 5) - (Math.PI / 2);
+                k.Dot(k.Pale, (float)Math.Cos(a) * 0.62f, (float)(Math.Sin(a) * 0.62) + 0.05f, 0.05f);
+            }
+        k.FrontEyes(0, 0.0f, 0.36f);
+        if (k.Fine) k.Stroke((-0.1f, 0.2f), (0.0f, 0.26f), (0.1f, 0.2f));
+    }
+
+    private static void Jellyfish(Kit k, int lobes)
+    {
+        var strands = Math.Clamp(lobes, 3, k.Fine ? k.Style.MaxLobes : 3);
+        for (var i = 0; i < strands; i++)
+        {
+            var x = -0.4f + (0.8f * (i + 0.5f) / strands);
+            var sway = k.Wag(0.08f) * (i % 2 == 0 ? 1 : -1);
+            k.Ribbon(k.Body, 0.07f, (x, 0.0f), (x - 0.12f + sway, 0.3f), (x + 0.12f - sway, 0.6f), (x + sway, 0.88f));
+        }
+        using var builder = new SKPathBuilder();
+        builder.MoveTo(-0.62f * k.R, 0.05f * k.R);
+        builder.CubicTo(-0.62f * k.R, -0.9f * k.R, 0.62f * k.R, -0.9f * k.R, 0.62f * k.R, 0.05f * k.R);
+        // A scalloped rim: four soft bumps back along the bottom.
+        for (var i = 0; i < 4; i++)
+        {
+            var x0 = 0.62f - (i * 0.31f);
+            builder.QuadTo((x0 - 0.155f) * k.R, 0.22f * k.R, (x0 - 0.31f) * k.R, 0.05f * k.R);
+        }
+        builder.Close();
+        using var bell = builder.Detach();
+        k.Fill(k.Body, bell);
+        k.Line(bell);
+        k.FrontEyes(0, -0.28f, 0.4f);
+        if (k.Fine) k.Stroke((-0.12f, -0.08f), (0.0f, -0.02f), (0.12f, -0.08f));
+    }
+
     /// <summary>A fill and an outline for one kind of part.</summary>
     private sealed class Pen(SKColor fill, SKColor outline, float stroke) : IDisposable
     {
@@ -519,15 +740,21 @@ internal static partial class RecipePainter
             C.DrawPath(path, fill);
         }
 
-        /// <summary>A plain line in the outline colour and width, through two or three points: a mouth.</summary>
+        /// <summary>A plain line in the outline colour, through two or three points: a mouth, gills, whiskers.
+        /// Half the outline's width, but never finer than the style's finest line.</summary>
         public void Stroke(params (float X, float Y)[] points)
         {
+            using var thin = new SKPaint
+            {
+                IsAntialias = true, Color = Body.LinePaint.Color, Style = SKPaintStyle.Stroke,
+                StrokeWidth = Math.Max(_b.Stroke / 2, _b.MinDetail), StrokeCap = SKStrokeCap.Round,
+            };
             using var builder = new SKPathBuilder();
             builder.MoveTo(points[0].X * R, points[0].Y * R);
             if (points.Length == 2) builder.LineTo(points[1].X * R, points[1].Y * R);
             else builder.QuadTo(points[1].X * R, points[1].Y * R, points[2].X * R, points[2].Y * R);
             using var path = builder.Detach();
-            C.DrawPath(path, Body.LinePaint);
+            C.DrawPath(path, thin);
         }
 
         /// <summary>Upright pill-shaped legs from <paramref name="top"/> to <paramref name="bottom"/>.</summary>
