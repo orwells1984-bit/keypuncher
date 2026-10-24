@@ -104,7 +104,7 @@ return 0;
 
 static int Sheet(string outDir)
 {
-    const int tileW = 640, tileH = 360, columns = 4;
+    const int tileW = 640, tileH = 360, columns = 6;
     var animals = BuiltInRecipes.Animals.All;
     var rows = (animals.Count + columns - 1) / columns;
     using var renderer = new SceneRenderer(Fonts.LoadAndika());

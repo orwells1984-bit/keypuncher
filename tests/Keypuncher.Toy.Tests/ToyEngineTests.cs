@@ -432,6 +432,9 @@ public sealed class ToyEngineTests : IDisposable
     [InlineData("elephant")]
     [InlineData("rex")]
     [InlineData("stegosaurus")]
+    [InlineData("whale")]
+    [InlineData("octopus")]
+    [InlineData("starfish")]
     public void An_animal_word_shows_the_real_animal(string concept)
     {
         var recipe = BuiltInRecipes.Concepts[concept];
