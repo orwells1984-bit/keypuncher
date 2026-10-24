@@ -37,6 +37,16 @@ public static class StarterConcepts
         new("cloud", "a soft white cloud",       new Dictionary<string, string> { ["is"] = "ský",    ["en"] = "cloud", ["bg"] = "облак" }),
         new("boat", "a little bobbing boat",     new Dictionary<string, string> { ["is"] = "bátur",  ["en"] = "boat", ["bg"] = "лодка" }),
         new("butterfly", "a bright fluttering butterfly", new Dictionary<string, string> { ["is"] = "fiðrildi", ["en"] = "butterfly", ["bg"] = "пеперуда" }),
+        // Added with the animal and dinosaur pictures; Vanya to check every word here before recording.
+        new("cow", "a black and white cow",      new Dictionary<string, string> { ["is"] = "kýr",    ["en"] = "cow",  ["bg"] = "крава" }),
+        new("sheep", "a woolly white sheep",     new Dictionary<string, string> { ["is"] = "kind",   ["en"] = "sheep", ["bg"] = "овца" }),
+        new("horse", "a tall gentle horse",      new Dictionary<string, string> { ["is"] = "hestur", ["en"] = "horse", ["bg"] = "кон" }),
+        new("elephant", "a big kind elephant",   new Dictionary<string, string> { ["is"] = "fíll",   ["en"] = "elephant", ["bg"] = "слон" }),
+        new("rabbit", "a soft long-eared rabbit", new Dictionary<string, string> { ["is"] = "kanína", ["en"] = "rabbit", ["bg"] = "заек" }),
+        new("rex", "a friendly Tyrannosaurus rex", new Dictionary<string, string> { ["is"] = "grameðla", ["en"] = "T. rex", ["bg"] = "тиранозавър" }),
+        new("longneck", "a gentle long-necked dinosaur", new Dictionary<string, string> { ["is"] = "þórseðla", ["en"] = "brontosaurus", ["bg"] = "бронтозавър" }),
+        new("triceratops", "a three-horned dinosaur", new Dictionary<string, string> { ["is"] = "þríhyrna", ["en"] = "triceratops", ["bg"] = "трицератопс" }),
+        new("stegosaurus", "a dinosaur with plates on its back", new Dictionary<string, string> { ["is"] = "kambeðla", ["en"] = "stegosaurus", ["bg"] = "стегозавър" }),
     ];
 
     /// <summary>Concepts whose word in <paramref name="languageTag"/> starts with <paramref name="letter"/>.

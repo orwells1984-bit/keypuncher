@@ -10,7 +10,7 @@ namespace Keypuncher.Rendering;
 /// colour with a dark outline, and the younger the child the fewer and bigger its parts. Bodies are
 /// drawn opaque; the caller fades a whole thing at once, so an outline never shows through a fill.
 /// </summary>
-internal static class RecipePainter
+internal static partial class RecipePainter
 {
     /// <summary>Draws a recipe's body centred on the canvas origin with radius <paramref name="r"/>.</summary>
     /// <param name="t">Seconds, for wobble and blinking.</param>
@@ -30,6 +30,13 @@ internal static class RecipePainter
             StrokeWidth = stroke, StrokeCap = SKStrokeCap.Round, StrokeJoin = SKStrokeJoin.Round,
         };
         var brush = new Brush(fill, line, stroke, style, unit);
+
+        // An animal draws its own face where its head is, and always has one: animals are alive.
+        if (body.Shape.IsAnimal())
+        {
+            Animal(c, body.Shape, r, body.Lobes, body.Hue, t, brush);
+            return;
+        }
 
         switch (body.Shape)
         {
@@ -235,15 +242,20 @@ internal static class RecipePainter
         c.DrawCircle(0, 0, r * 0.22f, b.Line);
     }
 
-    private static void Eyes(SKCanvas c, float r, int count, double t, Brush b)
+    private static void Eyes(SKCanvas c, float r, int count, double t, Brush b) =>
+        EyesAt(c, 0, -r * 0.12f * (float)b.Style.EyeScale, r, count, t, b);
+
+    /// <summary>A row of eyes centred on (<paramref name="cx"/>, <paramref name="cy"/>), sized for a body of radius <paramref name="r"/>.</summary>
+    /// <param name="whiteOfPupil">How much wider the white is than the pupil at the least; a profile eye has a thinner white.</param>
+    private static void EyesAt(SKCanvas c, float cx, float cy, float r, int count, double t, Brush b, float whiteOfPupil = 2)
     {
         var blink = (t % 4.7) < 0.13;
         var scale = (float)b.Style.EyeScale;
         var pupil = Math.Max(r * 0.075f * scale, (float)(b.Style.MinPupil * b.Unit) / 2);
-        var white = Math.Max(r * 0.15f * scale, pupil * 2);
+        var white = Math.Max(r * 0.15f * scale, pupil * whiteOfPupil);
         var spacing = Math.Max(r * 0.36f * scale, white * 2.1f);
-        var start = -spacing * (count - 1) / 2;
-        var y = -r * 0.12f * scale;
+        var start = cx - (spacing * (count - 1) / 2);
+        var y = cy;
         using var whitePaint = new SKPaint { IsAntialias = true, Color = SKColors.White };
         // A ring just outside the white makes it read as an eye on a pale body too; the pupil is the darkest thing drawn.
         using var ring = new SKPaint
@@ -265,7 +277,7 @@ internal static class RecipePainter
             }
             c.DrawCircle(x, y, white, whitePaint);
             c.DrawCircle(x, y, white + (b.MinDetail / 2), ring);
-            c.DrawCircle(x + (r * 0.03f * scale), y + (r * 0.02f * scale), pupil, dark);
+            c.DrawCircle(x + Math.Min(r * 0.03f * scale, white - pupil), y + Math.Min(r * 0.02f * scale, white - pupil), pupil, dark);
         }
     }
 

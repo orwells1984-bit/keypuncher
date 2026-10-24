@@ -23,7 +23,34 @@ public static class BuiltInRecipes
         Make(RecipeKind.Creature, "plumpsy", Shape.Blob, 8, 30, 0.7, 2, MotionType.Sway, 0.3, Waveform.Sine, 0.05, 1.0, "pentatonic", "E4"),
         Make(RecipeKind.Plant, "tuftlet", Shape.Petal, 9, 160, 0.4, 0, MotionType.Sway, 0.5, Waveform.Triangle, 0.01, 0.5, "pentatonic", "D5"),
         Make(RecipeKind.Creature, "cloudkin", Shape.Cloud, 6, 230, 0.75, 2, MotionType.Drift, 0.2, Waveform.Sine, 0.12, 1.6, "pentatonic", "C4"),
+        // Real animals and dinosaurs, so that keys and taps make things a child can name.
+        .. Animals.All,
     ];
+
+    /// <summary>One recipe per animal shape, in its natural colour as near as the palette allows. Front-facing
+    /// animals have two eyes, side-on ones one; the painter gives every animal a face whatever this says.</summary>
+    public static class Animals
+    {
+        public static readonly Recipe Cat = Make(RecipeKind.Creature, "cat", Shape.Cat, 3, 30, 0.6, 2, MotionType.Sway, 0.2, Waveform.Triangle, 0.05, 0.8, "pentatonic", "G4");
+        public static readonly Recipe Dog = Make(RecipeKind.Creature, "dog", Shape.Dog, 1, 22, 0.65, 2, MotionType.Hop, 0.5, Waveform.Triangle, 0.01, 0.4, "pentatonic", "D4");
+        public static readonly Recipe Fish = Make(RecipeKind.Creature, "fish", Shape.Fish, 3, 28, 0.5, 1, MotionType.Drift, 0.5, Waveform.Sine, 0.01, 0.4, "pentatonic", "A4");
+        public static readonly Recipe Bird = Make(RecipeKind.Creature, "bird", Shape.Bird, 1, 215, 0.45, 1, MotionType.Hop, 0.7, Waveform.Sine, 0.005, 0.3, "pentatonic", "E5");
+        public static readonly Recipe Cow = Make(RecipeKind.Creature, "cow", Shape.Cow, 4, 25, 0.8, 2, MotionType.Sway, 0.15, Waveform.Triangle, 0.08, 1.4, "pentatonic", "C3");
+        public static readonly Recipe Sheep = Make(RecipeKind.Creature, "sheep", Shape.Sheep, 1, 25, 0.65, 2, MotionType.Sway, 0.2, Waveform.Triangle, 0.05, 0.9, "pentatonic", "E4");
+        public static readonly Recipe Horse = Make(RecipeKind.Creature, "horse", Shape.Horse, 1, 22, 0.8, 1, MotionType.Hop, 0.3, Waveform.Triangle, 0.02, 0.6, "pentatonic", "G3");
+        public static readonly Recipe Duck = Make(RecipeKind.Creature, "duck", Shape.Duck, 1, 50, 0.5, 1, MotionType.Drift, 0.4, Waveform.Square, 0.01, 0.3, "pentatonic", "F4");
+        public static readonly Recipe Elephant = Make(RecipeKind.Creature, "elephant", Shape.Elephant, 1, 215, 0.95, 1, MotionType.Sway, 0.1, Waveform.Triangle, 0.1, 1.6, "pentatonic", "C3");
+        public static readonly Recipe Rabbit = Make(RecipeKind.Creature, "rabbit", Shape.Rabbit, 1, 25, 0.55, 2, MotionType.Hop, 0.8, Waveform.Sine, 0.005, 0.25, "pentatonic", "A5");
+        public static readonly Recipe Bear = Make(RecipeKind.Creature, "bear", Shape.Bear, 1, 22, 0.85, 2, MotionType.Sway, 0.2, Waveform.Triangle, 0.05, 1.0, "pentatonic", "C3");
+        public static readonly Recipe Mouse = Make(RecipeKind.Creature, "mouse", Shape.Mouse, 1, 260, 0.45, 2, MotionType.Hop, 1.0, Waveform.Sine, 0.005, 0.2, "pentatonic", "C6");
+        public static readonly Recipe Rex = Make(RecipeKind.Creature, "rex", Shape.Rex, 1, 125, 0.9, 1, MotionType.Sway, 0.2, Waveform.Saw, 0.05, 1.0, "pentatonic", "C3");
+        public static readonly Recipe LongNeck = Make(RecipeKind.Creature, "longneck", Shape.LongNeck, 1, 180, 0.95, 1, MotionType.Sway, 0.1, Waveform.Sine, 0.15, 1.8, "lydian", "D3");
+        public static readonly Recipe Triceratops = Make(RecipeKind.Creature, "triceratops", Shape.Triceratops, 1, 280, 0.8, 1, MotionType.Sway, 0.15, Waveform.Triangle, 0.05, 1.2, "pentatonic", "E3");
+        public static readonly Recipe Stegosaurus = Make(RecipeKind.Creature, "stegosaurus", Shape.Stegosaurus, 5, 100, 0.8, 1, MotionType.Sway, 0.15, Waveform.Triangle, 0.05, 1.2, "pentatonic", "A3");
+
+        public static readonly IReadOnlyList<Recipe> All =
+            [Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus];
+    }
 
     /// <summary>For a mash: a burst that fades by itself.</summary>
     public static readonly Recipe Burst =
@@ -38,24 +65,33 @@ public static class BuiltInRecipes
     public static readonly IReadOnlyDictionary<string, Recipe> Concepts = new Dictionary<string, Recipe>
     {
         ["sun"] = Make(RecipeKind.Effect, "sun", Shape.Star, 10, 45, 0.9, 0, MotionType.Spin, 0.1, Waveform.Sine, 0.05, 1.5, "major", "C4"),
-        ["cat"] = Make(RecipeKind.Creature, "cat", Shape.Blob, 2, 30, 0.6, 2, MotionType.Still, 0.2, Waveform.Triangle, 0.05, 0.8, "pentatonic", "G4"),
-        ["fish"] = Make(RecipeKind.Creature, "fish", Shape.Stripe, 3, 200, 0.5, 1, MotionType.Drift, 0.5, Waveform.Sine, 0.01, 0.4, "pentatonic", "A4"),
-        ["bird"] = Make(RecipeKind.Creature, "bird", Shape.Blob, 3, 340, 0.45, 2, MotionType.Hop, 0.7, Waveform.Sine, 0.005, 0.3, "pentatonic", "E5"),
+        ["cat"] = Animals.Cat,
+        ["fish"] = Animals.Fish,
+        ["bird"] = Animals.Bird,
         ["moon"] = Make(RecipeKind.Effect, "moon", Shape.Cloud, 2, 55, 0.7, 0, MotionType.Drift, 0.1, Waveform.Sine, 0.2, 2.0, "lydian", "D4"),
         ["flower"] = Make(RecipeKind.Plant, "flower", Shape.Petal, 6, 310, 0.75, 0, MotionType.Sway, 0.3, Waveform.Triangle, 0.02, 0.9, "major", "C5"),
         ["house"] = Make(RecipeKind.Plant, "house", Shape.Stripe, 4, 15, 0.8, 0, MotionType.Still, 0, Waveform.Triangle, 0.02, 0.8, "major", "C4"),
         ["tree"] = Make(RecipeKind.Plant, "tree", Shape.Cloud, 5, 120, 0.9, 0, MotionType.Sway, 0.15, Waveform.Sine, 0.05, 1.2, "pentatonic", "G3"),
         ["ball"] = Make(RecipeKind.Creature, "ball", Shape.Blob, 1, 0, 0.45, 0, MotionType.Hop, 0.9, Waveform.Square, 0.005, 0.2, "major", "C5"),
-        ["dog"] = Make(RecipeKind.Creature, "dog", Shape.Blob, 4, 25, 0.65, 2, MotionType.Hop, 0.5, Waveform.Triangle, 0.01, 0.4, "pentatonic", "D4"),
+        ["dog"] = Animals.Dog,
         ["egg"] = Make(RecipeKind.Creature, "egg", Shape.Blob, 1, 50, 0.4, 0, MotionType.Still, 0, Waveform.Sine, 0.02, 0.5, "pentatonic", "A4"),
         ["star"] = Make(RecipeKind.Effect, "star", Shape.Star, 5, 50, 0.6, 2, MotionType.Spin, 0.2, Waveform.Sine, 0.01, 1.0, "lydian", "E5"),
         ["apple"] = Make(RecipeKind.Plant, "apple", Shape.Blob, 2, 0, 0.5, 0, MotionType.Still, 0, Waveform.Triangle, 0.01, 0.5, "major", "G4"),
-        ["bear"] = Make(RecipeKind.Creature, "bear", Shape.Cloud, 3, 25, 0.85, 2, MotionType.Sway, 0.2, Waveform.Triangle, 0.05, 1.0, "pentatonic", "C3"),
-        ["duck"] = Make(RecipeKind.Creature, "duck", Shape.Blob, 3, 55, 0.5, 1, MotionType.Drift, 0.4, Waveform.Square, 0.01, 0.3, "pentatonic", "F4"),
-        ["mouse"] = Make(RecipeKind.Creature, "mouse", Shape.Blob, 2, 260, 0.3, 2, MotionType.Hop, 1.0, Waveform.Sine, 0.005, 0.2, "pentatonic", "C6"),
+        ["bear"] = Animals.Bear,
+        ["duck"] = Animals.Duck,
+        ["mouse"] = Animals.Mouse,
         ["cloud"] = Make(RecipeKind.Effect, "cloud", Shape.Cloud, 5, 210, 0.9, 0, MotionType.Drift, 0.15, Waveform.Noise, 0.3, 1.5, "pentatonic", "C4"),
         ["boat"] = Make(RecipeKind.Creature, "boat", Shape.Stripe, 2, 190, 0.7, 0, MotionType.Sway, 0.3, Waveform.Triangle, 0.05, 0.8, "major", "G3"),
         ["butterfly"] = Make(RecipeKind.Creature, "butterfly", Shape.Petal, 4, 280, 0.5, 2, MotionType.Drift, 0.7, Waveform.Sine, 0.01, 0.5, "lydian", "A5"),
+        ["cow"] = Animals.Cow,
+        ["sheep"] = Animals.Sheep,
+        ["horse"] = Animals.Horse,
+        ["elephant"] = Animals.Elephant,
+        ["rabbit"] = Animals.Rabbit,
+        ["rex"] = Animals.Rex,
+        ["longneck"] = Animals.LongNeck,
+        ["triceratops"] = Animals.Triceratops,
+        ["stegosaurus"] = Animals.Stegosaurus,
     };
 
     public static Recipe ForConcept(string conceptId) =>

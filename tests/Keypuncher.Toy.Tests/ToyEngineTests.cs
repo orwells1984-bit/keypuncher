@@ -422,6 +422,29 @@ public sealed class ToyEngineTests : IDisposable
         Assert.Equal(0, BuiltInRecipes.Concepts[concept].Eyes);
 
     [Fact]
+    public void Every_starter_word_has_its_own_picture() =>
+        Assert.All(StarterConcepts.All, c => Assert.True(BuiltInRecipes.Concepts.ContainsKey(c.Id), c.Id));
+
+    [Theory]
+    [InlineData("cat")]
+    [InlineData("dog")]
+    [InlineData("cow")]
+    [InlineData("elephant")]
+    [InlineData("rex")]
+    [InlineData("stegosaurus")]
+    public void An_animal_word_shows_the_real_animal(string concept)
+    {
+        var recipe = BuiltInRecipes.Concepts[concept];
+        Assert.True(recipe.Body.Shape.IsAnimal());
+        Assert.Equal(RecipeKind.Creature, recipe.Kind);
+        Assert.True(recipe.Eyes > 0);
+    }
+
+    [Fact]
+    public void Keys_can_make_every_animal() =>
+        Assert.All(BuiltInRecipes.Animals.All, a => Assert.Contains(a, BuiltInRecipes.Palette));
+
+    [Fact]
     public void Session_zero_never_says_goodnight()
     {
         _engine.Settings = _engine.Settings with { SessionMinutes = 0 };

@@ -57,6 +57,23 @@ public class RecipeTests
     }
 
     [Fact]
+    public void An_animal_is_always_a_creature()
+    {
+        var plantCat = Sample.Replace("\"Creature\"", "\"Plant\"").Replace("\"Blob\"", "\"Cat\"");
+        Assert.True(RecipeValidator.TryParse(JsonDocument.Parse(plantCat), out var recipe, out var error), error);
+        Assert.Equal(Shape.Cat, recipe!.Body.Shape);
+        Assert.Equal(RecipeKind.Creature, recipe.Kind);
+    }
+
+    [Fact]
+    public void Schema_offers_every_shape()
+    {
+        var shapes = RecipeSchema.Element.GetProperty("properties").GetProperty("body").GetProperty("properties")
+            .GetProperty("shape").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Equal(Enum.GetNames<Shape>(), shapes);
+    }
+
+    [Fact]
     public void Null_document_is_rejected()
     {
         Assert.False(RecipeValidator.TryParse(null, out _, out var error));

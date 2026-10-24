@@ -114,7 +114,7 @@ public sealed class ArtRulesTests : IDisposable
         bool White(SKColor[] frame, Func<int, bool> column) =>
             frame.Where((c, i) => column(i % 640)).Any(c => c == SKColors.White);
 
-        var fish = BuiltInRecipes.Concepts["fish"];   // one eye in its recipe
+        var fish = BuiltInRecipes.Palette[4];   // the striped fish shape, one eye in its recipe
         Assert.Equal(1, fish.Eyes);
         var baby = Eyes(CalmLevel.Baby, fish);
         Assert.True(White(baby, x => x < 310) && White(baby, x => x > 330), "a baby's fish has an eye each side of the middle");
@@ -124,6 +124,25 @@ public sealed class ArtRulesTests : IDisposable
         var ball = BuiltInRecipes.Concepts["ball"];
         Assert.Equal(0, ball.Eyes);
         Assert.False(White(Eyes(CalmLevel.Baby, ball), _ => true), "a ball has no face at any level");
+    }
+
+    [Theory]
+    [InlineData(CalmLevel.Baby)]
+    [InlineData(CalmLevel.Toddler)]
+    [InlineData(CalmLevel.BigToddler)]
+    public void Every_animal_draws_with_a_face_even_if_its_recipe_says_no_eyes(CalmLevel level)
+    {
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        var style = ArtStyle.For(level);
+        var empty = Render(renderer, new World { Style = style }, 640, 360);
+        foreach (var animal in BuiltInRecipes.Animals.All)
+        {
+            var world = new World { Style = style };
+            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = animal with { Eyes = 0 }, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
+            var frame = Render(renderer, world, 640, 360);
+            Assert.True(frame.Any(c => c == SKColors.White), $"{animal.Name} has an eye at {level}");
+            Assert.InRange(Changed(frame, empty), 0.001, 0.5);
+        }
     }
 
     [Fact]
