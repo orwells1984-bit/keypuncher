@@ -31,6 +31,8 @@ public static class RecipeValidator
         // Ranges mirror RecipeSchema.
         recipe = parsed with
         {
+            // An animal is alive whatever the model says: a "Plant" cat would grow a stem.
+            Kind = parsed.Body.Shape.IsAnimal() ? RecipeKind.Creature : parsed.Kind,
             Name = parsed.Name.Length > 24 ? parsed.Name[..24] : parsed.Name,
             Body = parsed.Body with
             {

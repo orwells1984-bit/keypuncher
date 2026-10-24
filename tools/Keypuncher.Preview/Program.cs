@@ -6,6 +6,8 @@
 //
 // Each character in --keys is one press, 0.35 s apart (a space is a pause); ´ is the accent key.
 // --mash N adds N palm mashes at the end. --calm Baby|Toddler|BigToddler picks the calm level (default Toddler). Frames are written after every press and at the end.
+// --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
+// the size a word's picture is drawn.
 
 using Keypuncher.Audio;
 using Keypuncher.Core;
@@ -21,6 +23,7 @@ var width = int.Parse(Get("--width", "1280"));
 var height = int.Parse(Get("--height", "720"));
 var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
 Directory.CreateDirectory(outDir);
+if (args.Contains("--sheet")) return Sheet(outDir);
 
 var world = new World();
 var mixer = new Mixer();
@@ -98,6 +101,37 @@ using (var wav = File.Create(Path.Combine(outDir, "audio.wav")))
 }
 Console.WriteLine($"live {world.Live.Count}, things {world.LiveThingCount}");
 return 0;
+
+static int Sheet(string outDir)
+{
+    const int tileW = 640, tileH = 360, columns = 4;
+    var animals = BuiltInRecipes.Animals.All;
+    var rows = (animals.Count + columns - 1) / columns;
+    using var renderer = new SceneRenderer(Fonts.LoadAndika());
+    using var label = new SKFont(Fonts.LoadAndika(), 22);
+    using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70) };
+    foreach (var level in Enum.GetValues<CalmLevel>())
+    {
+        using var sheet = SKSurface.Create(new SKImageInfo(tileW * columns, tileH * rows));
+        for (var i = 0; i < animals.Count; i++)
+        {
+            var world = new World { Style = ArtStyle.For(level) };
+            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = animals[i], X = 0.5, Y = 0.45, Born = -1, Phase = 0.05, Scale = 1.8 });
+            using var tile = SKSurface.Create(new SKImageInfo(tileW, tileH));
+            renderer.Draw(tile.Canvas, tileW, tileH, world, null);
+            using var image = tile.Snapshot();
+            var (x, y) = (i % columns * tileW, i / columns * tileH);
+            sheet.Canvas.DrawImage(image, x, y, SKSamplingOptions.Default);
+            sheet.Canvas.DrawText(animals[i].Name, x + 10, y + 26, SKTextAlign.Left, label, ink);
+        }
+        using var snapshot = sheet.Snapshot();
+        using var data = snapshot.Encode(SKEncodedImageFormat.Png, 90);
+        var path = Path.Combine(outDir, $"animals-{level}.png");
+        using (var f = File.Create(path)) data.SaveTo(f);
+        Console.WriteLine(path);
+    }
+    return 0;
+}
 
 string Get(string name, string fallback)
 {

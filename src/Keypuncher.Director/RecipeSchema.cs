@@ -22,7 +22,9 @@ public static class RecipeSchema
               "additionalProperties": false,
               "required": ["shape", "lobes", "hue", "size"],
               "properties": {
-                "shape": { "type": "string", "enum": ["Blob", "Petal", "Star", "Wave", "Cloud", "Stripe", "DotField"] },
+                "shape": { "type": "string", "enum": ["Blob", "Petal", "Star", "Wave", "Cloud", "Stripe", "DotField",
+                  "Cat", "Dog", "Fish", "Bird", "Cow", "Sheep", "Horse", "Duck", "Elephant", "Rabbit", "Bear", "Mouse",
+                  "Rex", "LongNeck", "Triceratops", "Stegosaurus"] },
                 "lobes": { "type": "integer", "minimum": 1, "maximum": 12 },
                 "hue": { "type": "integer", "minimum": 0, "maximum": 359 },
                 "size": { "type": "number", "minimum": 0.1, "maximum": 1.0 }

@@ -12,6 +12,9 @@ public static class DirectorPrompts
         You answer only with JSON that matches the schema you are given. Never add text around it.
         Numbers are fractions unless stated: size, speed and attack are between 0 and 1,
         decay is between 0.05 and 2 seconds, hue is 0 to 359 degrees, lobes 1 to 12, eyes 0 to 4.
+        Hues snap to a small palette of bright colours, so pick the nearest natural one.
+        For a real animal or dinosaur use its own shape (Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck,
+        Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus); it is always a Creature.
         """;
 
     public static string NewRecipe(WorldSummary world, string conceptGloss) =>

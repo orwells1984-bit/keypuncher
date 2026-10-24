@@ -21,8 +21,21 @@ public sealed record Recipe
 [JsonConverter(typeof(JsonStringEnumConverter<RecipeKind>))]
 public enum RecipeKind { Creature, Plant, Effect }
 
+/// <summary>The abstract forms first, then real animals and dinosaurs drawn so a child knows them from a
+/// picture book. New shapes go at the end: saved worlds store the name, but keep the order readable.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<Shape>))]
-public enum Shape { Blob, Petal, Star, Wave, Cloud, Stripe, DotField }
+public enum Shape
+{
+    Blob, Petal, Star, Wave, Cloud, Stripe, DotField,
+    Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse,
+    Rex, LongNeck, Triceratops, Stegosaurus,
+}
+
+public static class Shapes
+{
+    /// <summary>A real animal or dinosaur: always alive, so always a creature with a face.</summary>
+    public static bool IsAnimal(this Shape shape) => shape >= Shape.Cat;
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<MotionType>))]
 public enum MotionType { Still, Hop, Drift, Sway, Spin, Burst }
