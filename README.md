@@ -75,6 +75,8 @@ while it is in front; use the grown-up exit below to get back.
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
   Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and
   words if one is installed for that language.
+- The screen stays on during play, so a pause or the goodnight never ends at a dark screen or the sign-in;
+  the grown-ups' page and quitting hand it back to the power plan.
 - Data lives in `%LOCALAPPDATA%\Keypuncher` (`world.db`, `recordings\`, `settings.json`). Set
   `KEYPUNCHER_DATA` to another folder to share recordings between the child's account and yours.
 
