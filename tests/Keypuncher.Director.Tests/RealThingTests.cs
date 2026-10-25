@@ -8,7 +8,9 @@ namespace Keypuncher.Director.Tests;
 public class RealThingTests
 {
     private static readonly DirectorRequest CreatureFamily = new(0, RecipeKind.Creature, null, ["cat", "dog"]);
-    private static readonly DirectorRequest PlantFamily = new(1, RecipeKind.Plant, null, []);
+    private static readonly DirectorRequest PlantFamily = new(1, RecipeKind.Plant, null, [], Category: RealCategory.Plant);
+    private static readonly DirectorRequest Vehicles = CreatureFamily with { Category = RealCategory.Vehicle };
+    private static readonly DirectorRequest Extinct = CreatureFamily with { Category = RealCategory.ExtinctAnimal };
 
     [Fact]
     public void Schema_asks_what_the_thing_is_before_how_it_looks()
@@ -54,11 +56,13 @@ public class RealThingTests
     {
         Assert.False(Build(Pick("oak tree", "Plant", "Cloud"), CreatureFamily, out _, out _, out _));
         Assert.False(Build(Pick("hedgehog", "Animal", "Blob"), PlantFamily, out _, out _, out _));
-        Assert.False(Build(Pick("bus", "Vehicle", "Elephant"), CreatureFamily, out _, out _, out var e1));
+        Assert.False(Build(Pick("bus", "Vehicle", "Stripe"), CreatureFamily, out _, out _, out var e0));
+        Assert.Equal("not a kind of animal alive today", e0);
+        Assert.False(Build(Pick("bus", "Vehicle", "Elephant"), Vehicles, out _, out _, out var e1));
         Assert.Contains("animal shape", e1);
         Assert.False(Build(Pick("crocodile", "Animal", "Rex"), CreatureFamily, out _, out _, out var e2));
         Assert.Contains("dinosaur", e2);
-        Assert.True(Build(Pick("allosaurus", "ExtinctAnimal", "Rex"), CreatureFamily, out _, out _, out var e3), e3);
+        Assert.True(Build(Pick("allosaurus", "ExtinctAnimal", "Rex"), Extinct, out _, out _, out var e3), e3);
     }
 
     [Fact]
@@ -66,7 +70,7 @@ public class RealThingTests
     {
         Assert.True(Build(Pick("cow", "Animal", "Horse"), CreatureFamily with { Existing = [] }, out _, out var cow, out _));
         Assert.Equal(Shape.Cow, cow!.Body.Shape);
-        Assert.True(Build(Pick("woolly mammoth", "ExtinctAnimal", "Blob"), CreatureFamily, out _, out var mammoth, out _));
+        Assert.True(Build(Pick("woolly mammoth", "ExtinctAnimal", "Blob"), Extinct, out _, out var mammoth, out _));
         Assert.Equal(Shape.Elephant, mammoth!.Body.Shape);
     }
 
@@ -75,7 +79,7 @@ public class RealThingTests
     {
         Assert.True(Build(Pick("ladybird", "Animal", "DotField"), CreatureFamily, out _, out var bug, out _));
         Assert.Equal(2, bug!.Eyes);
-        Assert.True(Build(Pick("fire engine", "Vehicle", "Stripe"), CreatureFamily, out _, out var engine, out _));
+        Assert.True(Build(Pick("fire engine", "Vehicle", "Stripe"), Vehicles, out _, out var engine, out _));
         Assert.Equal(0, engine!.Eyes);
         Assert.True(Build(Pick("tulip", "Plant", "Petal", motion: "Hop"), PlantFamily, out _, out var tulip, out _));
         Assert.Equal(RecipeKind.Plant, tulip!.Kind);
@@ -102,6 +106,33 @@ public class RealThingTests
         Assert.Equal("butterfly", real!.GrowsInto);
         Assert.True(Build(Pick("caterpillar", "Animal", "Stripe", growsInto: "fairy"), CreatureFamily, out _, out var story, out _));
         Assert.Null(story!.GrowsInto);
+        Assert.True(Build(Pick("strawberry", "Plant", "DotField", growsInto: "null"), PlantFamily, out _, out var none, out _));
+        Assert.Null(none!.GrowsInto);
+    }
+
+    [Theory]
+    [InlineData("dinosaur")]
+    [InlineData("flower")]
+    [InlineData("bird")]
+    public void Group_words_are_refused(string name) =>
+        Assert.Equal("too general, not one kind", Build(Pick(name, "Animal", "Blob"), CreatureFamily, out _, out _, out var e) ? null : e);
+
+    [Fact]
+    public void Each_request_gets_a_schema_that_allows_only_its_category_and_shapes()
+    {
+        static List<string> Enum(JsonElement schema, string prop) =>
+            schema.GetProperty("properties").GetProperty(prop).GetProperty("enum").EnumerateArray().Select(e => e.GetString()!).ToList();
+
+        var plant = RealThingSchema.For(PlantFamily);
+        Assert.Equal(["Plant"], Enum(plant, "category"));
+        Assert.DoesNotContain("Cat", Enum(plant, "shape"));
+        Assert.Contains("Petal", Enum(plant, "shape"));
+
+        var alive = RealThingSchema.For(CreatureFamily);
+        Assert.Contains("Cat", Enum(alive, "shape"));
+        Assert.DoesNotContain("Rex", Enum(alive, "shape"));
+        Assert.Contains("Rex", Enum(RealThingSchema.For(Extinct), "shape"));
+        Assert.DoesNotContain("Whale", Enum(RealThingSchema.For(Vehicles), "shape"));
     }
 
     [Fact]
@@ -156,7 +187,7 @@ public class RealThingTests
         var world = new World();
         var author = new ScriptedModel(Pick("tadpole", "Animal", "Blob", growsInto: "frog"), Pick("frog", "Animal", "Blob"));
         var checker = new ScriptedModel(Check("a young frog", "real", growsInto: "true"), Check("an amphibian", "real"));
-        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(checker)), new Random(3));
+        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(checker)), new Random(3), [RealCategory.Animal]);
         // Plant families are real already, so the one invented family left to ask about is a creature one.
         for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
             if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
@@ -214,7 +245,9 @@ public class RealThingTests
         var world = new World();
         var gate = new TaskCompletionSource();
         var author = new ScriptedModel(Pick("puffin", "Animal", "Bird")) { Gate = gate.Task };
-        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(new ScriptedModel(Check("a seabird", "real")))));
+        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(new ScriptedModel(Check("a seabird", "real")))), creatureCategories: [RealCategory.Animal]);
+        for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
+            if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
         loop.Update(world, 1, true);
         Tick(world, DirectorLoop.FirstAfterSeconds);
         loop.Update(world, 1, true);

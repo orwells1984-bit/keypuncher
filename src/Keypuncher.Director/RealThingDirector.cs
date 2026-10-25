@@ -40,7 +40,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         for (var i = 0; i < MaxAttempts; i++)
         {
             var result = await author.GenerateJsonAsync(
-                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown), RealThingSchema.Element, cancellationToken);
+                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown), RealThingSchema.For(request), cancellationToken);
             if (!RealThingRules.TryBuild(result.Json, request, out var pick, out var recipe, out var error))
             {
                 var name = pick?.Subject ?? "?";

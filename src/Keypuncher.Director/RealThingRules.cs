@@ -8,6 +8,11 @@ namespace Keypuncher.Director;
 /// <param name="Kind">The family's kind, which it keeps: a plant family only ever holds plants.</param>
 /// <param name="Current">The family's thing now; null while it is still an invented built-in one.</param>
 /// <param name="Existing">Names of the real things already in the world, so the pick is something new.</param>
+/// <param name="Category">The one kind of real thing asked for; the schema allows only this category, so a plant
+/// family always gets a plant and a creature family is varied between animals, extinct animals, vehicles and
+/// objects by the loop rather than by the model's habits.</param>
+/// <param name="Place">Where such a thing is found ("in a pond", "in the Ice Age"); drawn at random per request,
+/// because a small model asked for "an animal" offers the same three every time.</param>
 /// <param name="GrowInto">When the current thing really grows into something (a tadpole), the next pick must be that.</param>
 public sealed record DirectorRequest(
     int Slot,
@@ -15,7 +20,8 @@ public sealed record DirectorRequest(
     string? Current,
     IReadOnlyList<string> Existing,
     string? GrowInto = null,
-    string Biome = "meadow");
+    RealCategory Category = RealCategory.Animal,
+    string? Place = null);
 
 /// <summary>
 /// The checks a pick must pass before anything is asked about whether it is real. They cannot prove a thing
@@ -46,6 +52,16 @@ public static class RealThingRules
         "fairy tern", "fairy shrimp", "fairy penguin", "fairy wren", "elf owl", "witch hazel", "unicorn fish",
         "monster truck",
     ];
+
+    /// <summary>Group words: real, but not one kind of thing a child could picture.</summary>
+    private static readonly HashSet<string> GroupWords =
+    [
+        "animal", "animals", "creature", "dinosaur", "dinosaurs", "bird", "mammal", "reptile", "insect", "bug",
+        "plant", "flower", "tree", "vegetable", "fruit", "vehicle", "object", "thing", "toy", "baby", "fossil",
+    ];
+
+    /// <summary>What a model writes when it means no life stage.</summary>
+    private static readonly HashSet<string> Nothing = ["null", "none", "nothing", "n/a", "na", "no", "-"];
 
     /// <summary>Names that have a shape of their own; a pick by that name is drawn with it whatever the model chose.</summary>
     private static readonly Dictionary<string, Shape> OwnShapes = new(StringComparer.Ordinal)
@@ -78,6 +94,7 @@ public static class RealThingRules
         if (name.Length is < 2 or > 24) return "name length";
         if (!name.All(c => c is (>= 'a' and <= 'z') or ' ' or '-' or '\'' or '.')) return "not a plain English name";
         if (name.Count(c => c == ' ') > 3) return "too many words";
+        if (GroupWords.Contains(name)) return "too general, not one kind";
         if (RealDespiteTheWord.Contains(name)) return null;
         var words = name.Split(' ', '-');
         if (FantasyWords.Contains(name) || words.Any(FantasyWords.Contains)) return "from a story, not real";
@@ -109,6 +126,11 @@ public static class RealThingRules
             return false;
         }
 
+        if (parsed.Category != request.Category && request.GrowInto is null)
+        {
+            error = $"not {RealThingPick.Describe(request.Category)}";
+            return false;
+        }
         if (RealThingPick.KindOf(parsed.Category) != request.Kind)
         {
             error = request.Kind == RecipeKind.Plant ? "not a plant" : "a plant, but this family is not";
@@ -130,7 +152,7 @@ public static class RealThingRules
 
         if (!RecipeValidator.IsNote(parsed.Voice.Root)) { error = "root"; return false; }
 
-        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && tidy != subject && NameProblem(tidy) is null ? tidy : null;
+        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && tidy != subject && NameProblem(tidy) is null ? tidy : null;
         pick = pick with { Shape = shape, GrowsInto = grows, Fact = parsed.Fact.Trim() };
         recipe = RecipeValidator.Normalise(new Recipe
         {

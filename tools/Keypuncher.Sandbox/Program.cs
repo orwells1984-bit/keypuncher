@@ -38,7 +38,7 @@ switch (mode)
 async Task Picks(int count)
 {
     var world = new World();
-    var loop = new DirectorLoop(new RealThingDirector(author, checker), new Random(1));
+    var loop = new DirectorLoop(new RealThingDirector(author, checker), new Random(Environment.TickCount));
     var director = new RealThingDirector(author, checker);
     Console.WriteLine($"# Director picks, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
     Console.WriteLine();
@@ -49,7 +49,7 @@ async Task Picks(int count)
     {
         var request = loop.NextRequest(world.Families)!;
         var outcome = await director.ProposeAsync(request);
-        var asked = request.GrowInto is { } g ? $"grow {request.Current} into {g}" : request.Current is { } c ? $"replace {c}" : $"new {request.Kind}";
+        var asked = request.GrowInto is { } g ? $"grow {request.Current} into {g}" : $"{request.Category} {request.Place}" + (request.Current is { } c ? $", replacing {c}" : "");
         foreach (var a in outcome.Attempts)
         {
             tries++;

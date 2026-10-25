@@ -13,7 +13,9 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
 /// Call <see cref="Update"/> from the UI thread each frame; the model runs on the thread pool and its answer is
 /// applied on a later <see cref="Update"/>, so the reflex loop never waits for it.
 /// </summary>
-public sealed class DirectorLoop(RealThingDirector director, Random? random = null) : IDisposable
+/// <param name="creatureCategories">What a creature family may be asked for, drawn evenly; defaults to
+/// <see cref="CreatureMix"/>.</param>
+public sealed class DirectorLoop(RealThingDirector director, Random? random = null, IReadOnlyList<RealCategory>? creatureCategories = null) : IDisposable
 {
     /// <summary>The first request comes this long into play, so starting the toy is not when things change.</summary>
     public const double FirstAfterSeconds = 30;
@@ -80,14 +82,51 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (invented.Count > 0)
         {
             var slot = invented[_random.Next(invented.Count)];
-            return new DirectorRequest(slot, families[slot].Kind, null, existing);
+            return Ask(slot, families[slot].Kind, null, existing);
         }
 
         var growing = slots.Where(i => families[i].GrowsInto is not null).OrderBy(i => families.ChangedAt(i)).ToList();
         var pick = growing.Count > 0 ? growing[0] : slots.OrderBy(i => families.ChangedAt(i)).First();
         var current = families[pick];
-        return new DirectorRequest(pick, current.Kind, current.Name, existing, current.GrowsInto);
+        return current.GrowsInto is { } next
+            ? new DirectorRequest(pick, current.Kind, current.Name, existing, next, current.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal)
+            : Ask(pick, current.Kind, current.Name, existing);
     }
+
+    /// <summary>A request with a category and place drawn at random, so the picks range widely.</summary>
+    private DirectorRequest Ask(int slot, RecipeKind kind, string? current, IReadOnlyList<string> existing)
+    {
+        var category = kind == RecipeKind.Plant ? RealCategory.Plant : Pick(creatureCategories ?? CreatureMix);
+        return new DirectorRequest(slot, kind, current, existing, Category: category, Place: Pick(Places[category]));
+    }
+
+    private T Pick<T>(IReadOnlyList<T> items) => items[_random.Next(items.Count)];
+
+    /// <summary>A creature family is mostly animals: half alive today, a fifth extinct, the rest vehicles and objects.</summary>
+    public static readonly IReadOnlyList<RealCategory> CreatureMix =
+    [
+        RealCategory.Animal, RealCategory.Animal, RealCategory.Animal, RealCategory.Animal, RealCategory.Animal,
+        RealCategory.ExtinctAnimal, RealCategory.ExtinctAnimal, RealCategory.Vehicle, RealCategory.Vehicle, RealCategory.Object,
+    ];
+
+    /// <summary>Where each kind of thing may be found; one is put in each request.</summary>
+    private static readonly Dictionary<RealCategory, string[]> Places = new()
+    {
+        [RealCategory.Animal] =
+        [
+            "on a farm", "in a forest", "in a pond", "in the sea", "in a jungle", "in the desert", "in the Arctic",
+            "on the African savanna", "in a garden", "in a river", "in the mountains", "in Iceland", "in Australia",
+            "in South America", "on a beach", "in the Antarctic", "in a meadow",
+        ],
+        [RealCategory.ExtinctAnimal] = ["in the time of the dinosaurs", "in the Ice Age", "in the sea long ago", "on an island long ago", "in the sky long ago"],
+        [RealCategory.Plant] =
+        [
+            "in a garden", "in a forest", "in a vegetable patch", "in a meadow", "in an orchard", "by a pond",
+            "in the desert", "in Iceland", "in a jungle", "on a farm", "in the mountains", "by the sea",
+        ],
+        [RealCategory.Vehicle] = ["on the road", "on rails", "on the water", "in the sky", "on a farm", "on a building site", "in a town"],
+        [RealCategory.Object] = ["in a kitchen", "at the beach", "in a playground", "in a garden", "at bedtime", "at a birthday party"],
+    };
 
     private void Finish(World world, Task<DirectorOutcome> done)
     {

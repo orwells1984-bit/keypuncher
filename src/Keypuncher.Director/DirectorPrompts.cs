@@ -65,15 +65,12 @@ public static class DirectorPrompts
     /// why they were refused, so the model does not offer them again.</summary>
     public static string RealThing(DirectorRequest request, IReadOnlyList<string> turnedDown)
     {
-        var what = request.Kind == RecipeKind.Plant
-            ? "real plant, flower, tree, fruit or vegetable"
-            : "real animal (alive today, or a dinosaur or other animal known from fossils), real vehicle or real everyday object that a toddler could see in a picture book";
+        var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $" that you would find {place}" : "");
         var ask = request.GrowInto is { } next
             ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
-            : $"Choose one {what} that is not already in the world."
-              + (request.Current is { } now ? $" It takes the place of the {now}; something that really lives or grows near a {now}, or a close cousin of it, is good." : "");
+            : $"Choose one {what}. Name one particular kind, not a group word like dinosaur, bird or flower, and nothing already in the world.";
         return $"""
-            The world is a {request.Biome}. Real things already in it: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
+            Real things already in the world: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
 
             {ask}
             growsInto: if it really grows or turns into something else in nature (tadpole to frog, caterpillar to

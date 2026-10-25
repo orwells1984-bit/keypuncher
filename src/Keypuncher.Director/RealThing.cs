@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Keypuncher.Core;
 
@@ -99,4 +100,28 @@ public static class RealThingSchema
         """;
 
     public static JsonElement Element { get; } = JsonDocument.Parse(Json).RootElement.Clone();
+
+    /// <summary>The schema for one request: the category enum holds only the category asked for, and the shape
+    /// enum only shapes that thing could be, so the model cannot answer a plant family with an animal or draw a
+    /// bus as an elephant. Ollama enforces enums at decode time, so these are held, not just asked for.</summary>
+    public static JsonElement For(DirectorRequest request)
+    {
+        var root = JsonNode.Parse(Json)!.AsObject();
+        var props = root["properties"]!.AsObject();
+        var category = request.GrowInto is null ? request.Category : request.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal;
+        props["category"]!["enum"] = request.GrowInto is null
+            ? new JsonArray(category.ToString())
+            : new JsonArray([.. Enum.GetValues<RealCategory>().Where(c => RealThingPick.KindOf(c) == request.Kind).Select(c => (JsonNode)c.ToString())]);
+        props["shape"]!["enum"] = new JsonArray([.. ShapesFor(category, request.GrowInto is not null).Select(s => (JsonNode)s.ToString())]);
+        return JsonDocument.Parse(root.ToJsonString()).RootElement.Clone();
+    }
+
+    /// <summary>Shapes a thing of <paramref name="category"/> may be drawn with.</summary>
+    public static IEnumerable<Shape> ShapesFor(RealCategory category, bool anyAnimal = false) =>
+        Enum.GetValues<Shape>().Where(s => category switch
+        {
+            RealCategory.ExtinctAnimal => true,
+            RealCategory.Animal => anyAnimal || s is not (Shape.Rex or Shape.LongNeck or Shape.Triceratops or Shape.Stegosaurus),
+            _ => !s.IsAnimal(),
+        });
 }
