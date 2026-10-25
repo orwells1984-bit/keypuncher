@@ -88,6 +88,14 @@ public static class RealThingRules
     public static string Tidy(string name) =>
         string.Join(' ', name.Trim().Trim('"', '\'', '.', '!').ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
+    /// <summary>The same name, or one is the other with a plural ending: apple and apples, peach and peaches.</summary>
+    public static bool SameThing(string a, string b)
+    {
+        a = Tidy(a);
+        b = Tidy(b);
+        return a == b || a + "s" == b || b + "s" == a || a + "es" == b || b + "es" == a;
+    }
+
     /// <summary>Why <paramref name="name"/> cannot be a real thing's ordinary name, or null if it could be.</summary>
     public static string? NameProblem(string name)
     {
@@ -120,9 +128,14 @@ public static class RealThingRules
         if (string.IsNullOrWhiteSpace(parsed.Fact)) { error = "no fact"; return false; }
 
         if (request.GrowInto is { } next && subject != Tidy(next)) { error = $"should have been {next}"; return false; }
-        if (request.GrowInto is null && (request.Existing.Any(e => Tidy(e) == subject) || (request.Current is { } now && Tidy(now) == subject)))
+        if (request.GrowInto is null && (request.Existing.Any(e => SameThing(e, subject)) || (request.Current is { } now && SameThing(now, subject))))
         {
             error = "already in the world";
+            return false;
+        }
+        if (request.Place is { } where && where.Split(' ').Any(w => SameThing(w, subject)))
+        {
+            error = "the place, not a thing in it";
             return false;
         }
 
@@ -153,7 +166,9 @@ public static class RealThingRules
         if (!RecipeValidator.IsNote(parsed.Voice.Root)) { error = "root"; return false; }
 
         var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && tidy != subject && NameProblem(tidy) is null ? tidy : null;
-        pick = pick with { Shape = shape, GrowsInto = grows, Fact = parsed.Fact.Trim() };
+        // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
+        var fact = new string(parsed.Fact.Trim().Where(c => c < 0x2E80).ToArray());
+        pick = pick with { Shape = shape, GrowsInto = grows, Fact = fact };
         recipe = RecipeValidator.Normalise(new Recipe
         {
             Kind = request.Kind,

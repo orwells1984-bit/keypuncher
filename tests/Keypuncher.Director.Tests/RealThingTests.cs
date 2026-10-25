@@ -100,6 +100,17 @@ public class RealThingTests
     }
 
     [Fact]
+    public void A_plural_of_something_already_there_and_the_place_itself_are_refused()
+    {
+        Assert.False(Build(Pick("apples", "Plant", "Blob"), PlantFamily with { Existing = ["apple"] }, out _, out _, out var plural));
+        Assert.Equal("already in the world", plural);
+        var kitchen = CreatureFamily with { Category = RealCategory.Object, Place = "in a kitchen" };
+        Assert.False(Build(Pick("kitchen", "Object", "Blob"), kitchen, out _, out _, out var place));
+        Assert.Equal("the place, not a thing in it", place);
+        Assert.True(Build(Pick("teapot", "Object", "Blob"), kitchen, out _, out _, out _));
+    }
+
+    [Fact]
     public void A_story_life_stage_is_dropped_but_the_thing_kept()
     {
         Assert.True(Build(Pick("caterpillar", "Animal", "Stripe", growsInto: "Butterfly"), CreatureFamily, out _, out var real, out _));
