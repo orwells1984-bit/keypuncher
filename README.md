@@ -85,7 +85,8 @@ To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Previ
 With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the
 model busy with two jobs, one request at a time. Every 2 / 1 / 0.5 minutes of play (Baby / Toddler / Big
 toddler), starting 30 s in, it turns one key family into a real thing. Every 3 / 2 / 1.5 minutes it moves
-the scene a step (see below). The twelve invented families at the front of the palette
+the scene a step (see below), the first a minute into play. Every request and what came of it is written
+to `director.log` in the data folder, as well as listed on the grown-ups' page. The twelve invented families at the front of the palette
 (puffbird, petalpop and so on) go first, one by one; a family keeps its kind, so a plant key stays a plant
 key, and the real animals after them never change. A thing that really grows into something (tadpole,
 caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy plays as before.
