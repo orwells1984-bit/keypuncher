@@ -334,10 +334,9 @@ public sealed class ToyEngineTests : IDisposable
     public void The_session_ends_with_a_goodnight_and_a_new_session_wakes_up()
     {
         _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
-        Press(0x25, "k");
-        Step(59);
+        PlayFor(59);
         Assert.False(_engine.IsAsleep);
-        Step(2);
+        Step(ToyEngine.PauseBeforeGoodnight + 2);
         Assert.True(_engine.IsAsleep);
         Step(ToyEngine.GoodnightSeconds);
         Assert.Equal(1, _world.Night);
@@ -377,7 +376,7 @@ public sealed class ToyEngineTests : IDisposable
     public void The_goodnight_stops_waiting_after_a_few_minutes()
     {
         _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
-        Step(59);
+        PlayFor(59);
         var pressedFor = 0.0;
         while (!_engine.IsAsleep && pressedFor < 600)
         {
@@ -387,6 +386,40 @@ public sealed class ToyEngineTests : IDisposable
         }
         Assert.True(_engine.IsAsleep);
         Assert.InRange(pressedFor, ToyEngine.MaxWindDown, ToyEngine.MaxWindDown + 3);
+    }
+
+    [Fact]
+    public void A_toy_left_alone_does_not_use_up_the_play_time()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
+        Press(0x25, "k");
+        Step(30 * 60);
+        Assert.False(_engine.IsAsleep);
+        Assert.False(_engine.IsWindingDown);
+
+        PlayFor(30);
+        Assert.False(_engine.IsWindingDown);   // 20 s after the first press, then 30 s: the quiet half hour did not count
+        PlayFor(14);
+        Assert.True(_engine.IsWindingDown);
+    }
+
+    [Fact]
+    public void After_a_goodnight_a_long_rest_wakes_the_toy_on_the_next_press()
+    {
+        _engine.Settings = _engine.Settings with { SessionMinutes = 1 };
+        PlayFor(60);
+        Step(ToyEngine.PauseBeforeGoodnight + ToyEngine.GoodnightSeconds + 1);
+        Assert.True(_engine.IsAsleep);
+
+        Step(30);
+        Press(0x1F, "s");
+        Assert.True(_engine.IsAsleep);   // pressing on through the night keeps it asleep
+
+        Step(60);
+        Press(0x1F, "s");
+        Assert.False(_engine.IsAsleep);
+        Assert.Equal(0, _world.Night);
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Letter && e.Text == "s");
     }
 
     [Fact]
@@ -695,6 +728,16 @@ public sealed class ToyEngineTests : IDisposable
     private void Type(string text)
     {
         foreach (var c in text) Press(0x1E + (c % 9), c.ToString());
+    }
+
+    /// <summary>A press every two seconds for this long.</summary>
+    private void PlayFor(double seconds)
+    {
+        for (var t = 0.0; t < seconds; t += 2)
+        {
+            Press(0x25, "k");
+            Step(Math.Min(2, seconds - t));
+        }
     }
 
     private void Step(double seconds)
