@@ -26,8 +26,11 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// A refused pick is named in the next try's prompt; after <see cref="MaxAttempts"/> the family stays as it is,
 /// which is always safe.
 /// </summary>
-public sealed class RealThingDirector(ILanguageModel author, FactChecker checker)
+/// <param name="random">Picks the suggestions for a last try at an extinct animal.</param>
+public sealed class RealThingDirector(ILanguageModel author, FactChecker checker, Random? random = null)
 {
+    private readonly Random _random = random ?? new Random();
+
     public const int MaxAttempts = 3;
 
     public string ModelName => author.ModelName;
@@ -39,8 +42,9 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         var turnedDown = new List<string>();
         for (var i = 0; i < MaxAttempts; i++)
         {
+            var suggestions = i == MaxAttempts - 1 ? Suggestions(request, attempts) : null;
             var result = await author.GenerateJsonAsync(
-                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown), RealThingSchema.For(request), cancellationToken);
+                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown, suggestions), RealThingSchema.For(request), cancellationToken);
             if (!RealThingRules.TryBuild(result.Json, request, out var pick, out var recipe, out var error))
             {
                 var name = pick?.Subject ?? "?";
@@ -54,7 +58,13 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             {
                 var why = check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}";
                 attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, why, check));
-                turnedDown.Add($"{pick.Subject} ({(check.Verdict == "fictional" ? "not real" : check.Verdict == "real" ? $"not {RealThingPick.Describe(pick.Category)}" : "not sure it is real")})");
+                turnedDown.Add($"{pick.Subject} ({check.Verdict switch
+                {
+                    "fictional" => "not real",
+                    "real" when check.Kind == nameof(RealCategory.Animal) && pick.Category == RealCategory.ExtinctAnimal => "still alive today, so not extinct",
+                    "real" => $"not {RealThingPick.Describe(pick.Category)}",
+                    _ => "not sure it is real",
+                }})");
                 continue;
             }
 
@@ -64,5 +74,16 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             return new DirectorOutcome(request, recipe, attempts, DateTime.UtcNow - started);
         }
         return new DirectorOutcome(request, null, attempts, DateTime.UtcNow - started);
+    }
+
+    /// <summary>For an extinct animal, a few well-known ones not yet in the world or already tried; the small model
+    /// otherwise tends to offer a living animal or a dinosaur that is already there.</summary>
+    private List<string>? Suggestions(DirectorRequest request, List<DirectorAttempt> attempts)
+    {
+        if (request.Category != RealCategory.ExtinctAnimal || request.GrowInto is not null) return null;
+        var free = RealThingPick.WellKnownExtinct
+            .Where(n => !request.Existing.Any(e => RealThingRules.SameThing(e, n)) && !attempts.Any(a => RealThingRules.SameThing(a.Subject, n)))
+            .ToList();
+        return [.. free.OrderBy(_ => _random.Next()).Take(5)];
     }
 }

@@ -188,8 +188,28 @@ public class RealThingTests
         Assert.Equal("dodo", outcome.Recipe!.Name);
         Assert.Equal("checker: Animal, not ExtinctAnimal", outcome.Attempts[0].Refused);
         Assert.DoesNotContain("ExtinctAnimal", checker.Prompts[0].Split("kind:")[0]);   // the claim is not shown to the checker
-        Assert.Contains("puffin (not an animal that lived long ago", author.Prompts[1]);
+        Assert.Contains("puffin (still alive today, so not extinct)", author.Prompts[1]);
     }
+
+    [Fact]
+    public async Task A_last_try_at_an_extinct_animal_gets_well_known_ones_not_yet_in_the_world()
+    {
+        var author = new ScriptedModel(Pick("puffin", "ExtinctAnimal", "Bird"), Pick("puffin", "ExtinctAnimal", "Bird"), Pick("moa", "ExtinctAnimal", "Bird"));
+        var checker = new ScriptedModel(Check("a seabird", "real"), Check("a seabird", "real"), Check("an extinct bird", "real", kind: "ExtinctAnimal"));
+        var request = Extinct with { Existing = [.. RealThingPick.WellKnownExtinct.Where(n => n != "moa" && n != "dodo")] };
+        var outcome = await new RealThingDirector(author, new FactChecker(checker), new Random(1)).ProposeAsync(request);
+
+        Assert.Equal("moa", outcome.Recipe!.Name);
+        Assert.DoesNotContain("choose one of these", author.Prompts[1]);
+        var last = author.Prompts[2];
+        Assert.Contains("choose one of these: ", last);
+        var offered = last[(last.IndexOf("choose one of these: ") + 21)..].TrimEnd('.', '\n', ' ').Split(", ");
+        Assert.Equal(["dodo", "moa"], offered.Order());
+    }
+
+    [Fact]
+    public void No_example_in_the_standing_orders_can_pass_for_an_extinct_animal() =>
+        Assert.DoesNotContain("puffin", DirectorPrompts.RealSystem);
 
     [Fact]
     public async Task The_director_gives_up_after_three_tries_and_drops_an_unconfirmed_life_stage()
@@ -262,6 +282,29 @@ public class RealThingTests
         await Settle(loop, world);
         Assert.Contains("refused", Assert.Single(loop.Log).Error);
         Assert.Empty(world.Families.Restyled());
+    }
+
+    [Fact]
+    public async Task An_empty_answer_is_tried_again_soon_not_a_whole_interval_later()
+    {
+        var world = new World();
+        var author = new ScriptedModel(Pick("dragon", "Animal", "Blob"), Pick("dragon", "Animal", "Blob"), Pick("dragon", "Animal", "Blob"), Pick("hedgehog", "Animal", "Blob"));
+        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(new ScriptedModel(Check("a small mammal", "real")))), creatureCategories: [RealCategory.Animal]);
+        for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
+            if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
+        var before = world.Families.Restyled().Count();
+
+        loop.Update(world, restyleMinutes: 10, enabled: true);
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, 10, enabled: true);
+        await Settle(loop, world);
+        Assert.False(Assert.Single(loop.Log).Outcome!.Accepted);
+
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, 10, enabled: true);
+        Assert.True(loop.Busy);
+        await Settle(loop, world);
+        Assert.Equal(before + 1, world.Families.Restyled().Count());
     }
 
     [Fact]
