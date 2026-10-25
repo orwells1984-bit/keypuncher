@@ -51,6 +51,30 @@ public class ReflexInputTests
     }
 
     [Fact]
+    public void Keys_held_down_never_block_new_ones()
+    {
+        // A palm leaning on five keys, the last one auto-repeating, while other fingers keep pressing.
+        var g = new MashGrouper();
+        foreach (var (scan, i) in new[] { 0x1E, 0x1F, 0x20, 0x21, 0x22 }.Select((s, i) => (s, i)))
+            g.Feed(Down(scan, i * 10));
+        for (var t = 500; t < 3000; t += 33) g.Feed(Down(0x22, t));
+
+        Assert.Equal(PressKind.Single, g.Feed(Down(0x10, 3000)).Kind);
+        Assert.Equal(PressKind.Single, g.Feed(Down(0x11, 3300)).Kind);
+        Assert.Equal(PressKind.Single, g.Feed(Down(0x12, 3600)).Kind);
+    }
+
+    [Fact]
+    public void A_key_whose_release_went_missing_is_a_fresh_press_next_time()
+    {
+        var g = new MashGrouper();
+        g.Feed(Down(0x1E, 0));
+        for (var t = 500; t < 1000; t += 33) g.Feed(Down(0x1E, t));
+        // The key-up went to another window, so the toy still thinks the key is held and gone quiet.
+        Assert.Equal(PressKind.Single, g.Feed(Down(0x1E, 5000)).Kind);
+    }
+
+    [Fact]
     public void Keyboard_left_is_screen_left_and_top_row_is_higher()
     {
         var q = KeyboardGeometry.Position(0x10);

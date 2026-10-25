@@ -26,8 +26,11 @@ public sealed class MashGrouper
     private static readonly TimeSpan MaxGroup = TimeSpan.FromMilliseconds(250);
     private const int MashThreshold = 3;
     private const int MaxRepeats = 3;
+    /// <summary>Windows starts auto-repeat at most a second after the press and repeats far faster, so a
+    /// "held" key silent for longer than this was released where the toy could not see it.</summary>
+    private static readonly TimeSpan LostRelease = TimeSpan.FromSeconds(1.5);
 
-    private readonly Dictionary<int, int> _held = [];
+    private readonly Dictionary<int, (int Repeats, DateTimeOffset Last)> _held = [];
     private DateTimeOffset _groupStart = DateTimeOffset.MinValue;
     private DateTimeOffset _lastPress = DateTimeOffset.MinValue;
     private int _groupCount;
@@ -43,14 +46,15 @@ public sealed class MashGrouper
 
         var (x, y) = KeyboardGeometry.Position(press.ScanCode);
 
-        if (_held.TryGetValue(press.ScanCode, out var repeats))
+        if (_held.TryGetValue(press.ScanCode, out var held) && press.Timestamp - held.Last <= LostRelease)
         {
-            _held[press.ScanCode] = repeats + 1;
+            var repeats = held.Repeats;
+            _held[press.ScanCode] = (repeats + 1, press.Timestamp);
             return repeats < MaxRepeats
                 ? (PressKind.Repeat, new InputEvent(press.Timestamp, press.ScanCode, press.Character, x, y, 1))
                 : (PressKind.Ignored, null);
         }
-        _held[press.ScanCode] = 0;
+        _held[press.ScanCode] = (0, press.Timestamp);
 
         var joins = press.Timestamp - _lastPress <= Window && press.Timestamp - _groupStart <= MaxGroup;
         _lastPress = press.Timestamp;
