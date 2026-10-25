@@ -139,26 +139,8 @@ public sealed class ParentPage : ContentPage
             $"Scene now: {host.World.Scene}.{(host.World.Scene.Fact is { } fact ? " " + fact : "")}",
         };
         if (host.Director.Log.Count == 0) lines.Add("No picks yet in this run.");
-        foreach (var entry in host.Director.Log)
-        {
-            if (entry.Error is { } error)
-            {
-                lines.Add($"{entry.At:HH:mm}  could not reach the model: {error}");
-                continue;
-            }
-            if (entry.Scene is { } scene)
-            {
-                foreach (var a in scene.Attempts)
-                    lines.Add(a.Refused is null
-                        ? $"{entry.At:HH:mm}  scene: {a.Tried}. {a.Fact}"
-                        : $"{entry.At:HH:mm}  scene turned down: {a.Tried} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}");
-                continue;
-            }
-            foreach (var a in entry.Outcome!.Attempts)
-                lines.Add(a.Refused is null
-                    ? $"{entry.At:HH:mm}  used: {a.Subject}. {a.Fact}"
-                    : $"{entry.At:HH:mm}  turned down: {a.Subject} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}");
-        }
+        foreach (var entry in host.Director.Log) lines.AddRange(entry.Lines());
+        lines.Add($"Everything the model is asked and answers is also written to {Path.Combine(host.DataFolder, ToyHost.DirectorLogName)}.");
         return string.Join("\n", lines);
     }
 

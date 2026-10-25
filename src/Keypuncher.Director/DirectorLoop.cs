@@ -4,7 +4,33 @@ namespace Keypuncher.Director;
 
 /// <summary>One line of the director's log: what it was asked, what came of it, or why it could not run.
 /// <paramref name="Slot"/> is -1 for a scene step, whose result is in <paramref name="Scene"/>.</summary>
-public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error, SceneOutcome? Scene = null);
+public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error, SceneOutcome? Scene = null)
+{
+    /// <summary>One line per attempt, for the grown-ups' page and the log file.</summary>
+    public IEnumerable<string> Lines(string timeFormat = "HH:mm")
+    {
+        var at = At.ToString(timeFormat);
+        if (Error is { } error)
+        {
+            yield return $"{at}  could not reach the model: {error}";
+            yield break;
+        }
+        if (Scene is { } scene)
+        {
+            foreach (var a in scene.Attempts)
+                yield return a.Refused is null
+                    ? $"{at}  scene: {a.Tried}. {a.Fact}"
+                    : $"{at}  scene turned down: {a.Tried} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}";
+            if (!scene.Accepted) yield return $"{at}  scene unchanged; trying again soon";
+            yield break;
+        }
+        foreach (var a in Outcome!.Attempts)
+            yield return a.Refused is null
+                ? $"{at}  key family {Slot}: {a.Subject}. {a.Fact}"
+                : $"{at}  turned down for key family {Slot}: {a.Subject} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}";
+        if (!Outcome.Accepted) yield return $"{at}  key family {Slot} unchanged; trying again soon";
+    }
+}
 
 /// <summary>
 /// The director loop. It keeps the local model busy with two jobs, one request at a time: every
@@ -25,6 +51,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// <summary>The first family request comes this long into play, so starting the toy is not when things change;
     /// a request that came back empty is tried again this long after.</summary>
     public const double FirstAfterSeconds = 30;
+    /// <summary>The first scene step comes this long into play (or sooner if the calm level's interval is shorter),
+    /// so even a short play sees the world move.</summary>
+    public const double FirstSceneAfterSeconds = 60;
     public const int LogLength = 16;
     /// <summary>Places the scene has been, remembered so it moves on somewhere new.</summary>
     public const int RecentPlaces = 8;
@@ -59,6 +88,10 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// <summary>Raised on the UI thread when a family has been restyled.</summary>
     public event Action<int, Recipe>? Restyled;
 
+    /// <summary>Raised on the UI thread with a line for the log file: each request as it goes out, and each line of
+    /// what came of it.</summary>
+    public event Action<string>? Noted;
+
     /// <param name="world">The world whose families and scene change.</param>
     /// <param name="limits">How often each job comes round.</param>
     /// <param name="enabled">False while the director is switched off or the child is asleep: nothing new
@@ -70,12 +103,13 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (!enabled || Busy) return;
 
         _familyDue ??= world.Time + FirstAfterSeconds;
-        _sceneDue ??= world.Time + (limits.SceneMinutes * 60);
+        _sceneDue ??= world.Time + Math.Min(FirstSceneAfterSeconds, limits.SceneMinutes * 60);
         var sceneFirst = scenes is not null && world.Time >= _sceneDue && _sceneDue <= _familyDue;
         if (sceneFirst)
         {
             _sceneDue = world.Time + (limits.SceneMinutes * 60);
             var sceneRequest = NextSceneRequest(world);
+            Note($"asking for a scene step ({sceneRequest.Change}) from {world.Scene}");
             _sceneWas = world.Scene;
             var sceneToken = _stop.Token;
             _scene = Task.Run(() => scenes!.ProposeAsync(sceneRequest, sceneToken), sceneToken);
@@ -87,6 +121,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var request = NextRequest(world.Families, world.Scene);
         if (request is null) return;
         _asked = (request.Slot, world.Families[request.Slot]);
+        Note(request.GrowInto is { } next
+            ? $"asking key family {request.Slot} to grow from {request.Current} into {next}"
+            : $"asking key family {request.Slot} ({request.Current ?? world.Families[request.Slot].Name}) for {RealThingPick.Describe(request.Category).Split(':')[0]} {request.Place}");
         var token = _stop.Token;
         _family = Task.Run(() => director.ProposeAsync(request, token), token);
     }
@@ -241,8 +278,12 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         world.SetScene(scene);
     }
 
+    private void Note(string line) => Noted?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
+
     private void AddLog(DirectorLogEntry entry)
     {
+        if (Noted is { } noted)
+            foreach (var line in entry.Lines("yyyy-MM-dd HH:mm:ss")) noted(line);
         _log.Insert(0, entry);
         if (_log.Count > LogLength) _log.RemoveAt(_log.Count - 1);
     }

@@ -59,11 +59,18 @@ public sealed class ToyHost : IDisposable
             new RealThingDirector(author, new FactChecker(checker)),
             scenes: new SceneDirector(author, new PlaceChecker(checker)));
         OllamaAddress = ollama;
+        _directorLog = Path.Combine(DataFolder, DirectorLogName);
+        Director.Noted += WriteDirectorLog;
+        WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
 
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
     }
 
     public const string DefaultModel = "qwen3:4b";
+    public const string DirectorLogName = "director.log";
+    /// <summary>The log file is moved aside to director.old.log when it grows past this.</summary>
+    private const long DirectorLogLimit = 2_000_000;
+    private readonly string _directorLog;
 
     /// <summary>Set by MauiProgram once the native window exists.</summary>
     public static IntPtr WindowHandle { get; set; }
@@ -120,6 +127,19 @@ public sealed class ToyHost : IDisposable
         SaveWorld();
         WorldStore.Dispose();
         Audio?.Dispose();
+    }
+
+    /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
+    private void WriteDirectorLog(string line)
+    {
+        try
+        {
+            if (File.Exists(_directorLog) && new FileInfo(_directorLog).Length > DirectorLogLimit)
+                File.Move(_directorLog, Path.ChangeExtension(_directorLog, ".old.log"), overwrite: true);
+            File.AppendAllText(_directorLog, line + Environment.NewLine);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     public static bool IsRecordingShortcut(KeyPress k) => k.ScanCode is 0x39 or 0xE04B or 0xE04D or 0x1C;

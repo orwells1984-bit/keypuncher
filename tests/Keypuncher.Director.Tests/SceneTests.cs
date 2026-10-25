@@ -189,6 +189,8 @@ public class SceneTests
         var things = new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel()));
         using var loop = new DirectorLoop(things, new Random(1), scenes: new SceneDirector(author, new PlaceChecker(checker)));
         var limits = CalmLimits.Toddler with { RestyleMinutes = 100, SceneMinutes = 2 };
+        var noted = new List<string>();
+        loop.Noted += noted.Add;
 
         loop.Update(world, limits, enabled: true);
         // The first family request comes first; the model is unreachable, so it is logged and tried again later.
@@ -196,8 +198,11 @@ public class SceneTests
         loop.Update(world, limits, enabled: true);
         await Settle(loop, world, limits);
         Assert.Contains("refused", loop.Log[0].Error);
+        Assert.Contains(noted, l => l.Contains("asking key family"));
+        Assert.Contains(noted, l => l.Contains("could not reach the model: connection refused"));
 
-        Tick(world, 89);
+        // The first scene step comes a minute into play, sooner than the calm level's interval.
+        Tick(world, DirectorLoop.FirstSceneAfterSeconds - DirectorLoop.FirstAfterSeconds - 1);
         loop.Update(world, limits, enabled: true);
         Assert.False(loop.Busy);
         Tick(world, 1);
@@ -205,6 +210,8 @@ public class SceneTests
         Assert.True(loop.Busy);
         await Settle(loop, world, limits);
         Assert.Equal("Reynisfjara, Iceland", world.Scene.Place);
+        Assert.Contains(noted, l => l.Contains("asking for a scene step (Journey)"));
+        Assert.Contains(noted, l => l.Contains("scene: Reynisfjara, Iceland, Beach, Morning, Cloudy."));
         Assert.Equal(Scene.Default, world.PreviousScene);
         Assert.Equal(world.Time, world.SceneChangedAt);
         Assert.True(world.Dirty);
