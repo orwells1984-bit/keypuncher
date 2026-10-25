@@ -61,6 +61,14 @@ public sealed class WorldStore : IDisposable
             foreach (var e in world.Live.Where(e => e.IsPersistent && e.Recipe is not null)) Write(e, false);
         }
         Exec($"INSERT OR REPLACE INTO World VALUES ('time', '{world.Time.ToString("R", CultureInfo.InvariantCulture)}');", tx);
+        using (var families = _db.CreateCommand())
+        {
+            families.Transaction = tx;
+            families.CommandText = "INSERT OR REPLACE INTO World VALUES ('families', $json);";
+            families.Parameters.AddWithValue("$json", JsonSerializer.Serialize(
+                world.Families.Restyled().Select(f => new SavedFamily(f.Slot, f.Recipe, f.At)).ToList()));
+            families.ExecuteNonQuery();
+        }
         tx.Commit();
         world.MarkSaved();
     }
@@ -73,6 +81,18 @@ public sealed class WorldStore : IDisposable
         {
             cmd.CommandText = "SELECT Value FROM World WHERE Key = 'time';";
             if (cmd.ExecuteScalar() is string s) time = double.Parse(s, CultureInfo.InvariantCulture);
+        }
+
+        var families = new List<(int, Recipe, double)>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT Value FROM World WHERE Key = 'families';";
+            try
+            {
+                if (cmd.ExecuteScalar() is string s && JsonSerializer.Deserialize<List<SavedFamily>>(s) is { } saved)
+                    families.AddRange(saved.Where(f => f.Recipe is not null).Select(f => (f.Slot, f.Recipe, f.At)));
+            }
+            catch (JsonException) { /* a damaged list leaves the built-in families */ }
         }
 
         var live = new List<Entity>();
@@ -103,10 +123,13 @@ public sealed class WorldStore : IDisposable
                 (r.GetInt64(1) == 1 ? baked : live).Add(e);
             }
         }
-        world.Load(time, live, baked);
+        world.Load(time, live, baked, families);
     }
 
     public void Dispose() => _db.Dispose();
+
+    /// <summary>A key family the director restyled, and when.</summary>
+    private sealed record SavedFamily(int Slot, Recipe Recipe, double At);
 
     private void Exec(string sql, SqliteTransaction? tx = null)
     {

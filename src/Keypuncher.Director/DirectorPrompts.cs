@@ -3,7 +3,9 @@ using Keypuncher.Core;
 namespace Keypuncher.Director;
 
 /// <summary>Builds the prompts for the director loop. Everything child-facing is constrained elsewhere;
-/// the model only ever chooses shapes, colours, motion and sound.</summary>
+/// the model only ever chooses shapes, colours, motion and sound. <see cref="System"/> and
+/// <see cref="NewRecipe"/> are the Phase 0 prompts the bench measured; the toy uses <see cref="RealSystem"/>
+/// and <see cref="RealThing"/>, which keep every pick to real things.</summary>
 public static class DirectorPrompts
 {
     public const string System = """
@@ -27,4 +29,56 @@ public static class DirectorPrompts
         Invent one new thing that a child would recognise as "{conceptGloss}", drawn with the shape vocabulary.
         Give it a short, pronounceable made-up name that is not already used, and a voice that fits its size.
         """;
+
+    /// <summary>The director's standing orders: only real things, named plainly, drawn with the nearest shape.</summary>
+    public const string RealSystem = """
+        You choose real things for a picture toy used by a baby. Everything you choose must be real: a kind of
+        animal that lives today; an animal that really lived long ago and is known from fossils or history
+        (a dinosaur, a woolly mammoth, a dodo); a real plant, flower, tree, fruit or vegetable; a real vehicle;
+        or a real everyday object.
+        Never choose anything from myths, fairy tales, stories, films, cartoons, games or toys. Never a character,
+        a brand, a mix of two animals, or a made-up name. Dragons, unicorns, fairies, mermaids and monsters are
+        not real. If you are not sure something is real, choose something more common that you are sure of.
+        subject is the thing's ordinary English name in small letters, like "puffin", "oak tree", "fire engine"
+        or "woolly mammoth". fact is one short true sentence about where it lives or grows, or when it lived.
+
+        Draw it with the nearest shape:
+        - Animals with a shape of their own: Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear,
+          Mouse, Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish. A similar
+          animal uses the nearest one: lion or tiger Cat, wolf or fox Dog, goat Sheep, zebra or donkey Horse,
+          hen, owl or penguin Bird, goose or swan Duck, hippo Elephant, squirrel or hamster Mouse.
+        - Dinosaurs: Rex for meat-eaters on two legs, LongNeck for long-necked plant-eaters, Triceratops for
+          horned ones, Stegosaurus for ones with plates. A woolly mammoth is an Elephant.
+        - Small animals with no shape of their own: Blob for round ones (ladybird, frog, hedgehog, snail),
+          Petal for butterflies and moths, Stripe for caterpillars and worms.
+        - Plants: Petal for flowers, Cloud for trees and bushes, Wave for grass, reeds and seaweed, DotField for
+          berries and peas, Blob for fruit and vegetables, Star for pine trees and cactus.
+        - Vehicles and objects: Stripe for boats, trains, buses and cars, Blob for balls and balloons, Cloud for
+          a hot-air balloon, Star for a kite.
+        Use its real colour: hue is 0 to 359 degrees and snaps to a few bright colours, so pick the nearest.
+        size, speed and attack are between 0 and 1, decay between 0.05 and 2 seconds, lobes 1 to 12.
+        Big things move slowly and sound low; small things are quick and sound high. Nothing sharp, scary or loud.
+        Answer only with JSON that matches the schema you are given. Never add text around it.
+        """;
+
+    /// <summary>The ask for one key family. <paramref name="turnedDown"/> lists earlier picks for this request and
+    /// why they were refused, so the model does not offer them again.</summary>
+    public static string RealThing(DirectorRequest request, IReadOnlyList<string> turnedDown)
+    {
+        var what = request.Kind == RecipeKind.Plant
+            ? "real plant, flower, tree, fruit or vegetable"
+            : "real animal (alive today, or a dinosaur or other animal known from fossils), real vehicle or real everyday object that a toddler could see in a picture book";
+        var ask = request.GrowInto is { } next
+            ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
+            : $"Choose one {what} that is not already in the world."
+              + (request.Current is { } now ? $" It takes the place of the {now}; something that really lives or grows near a {now}, or a close cousin of it, is good." : "");
+        return $"""
+            The world is a {request.Biome}. Real things already in it: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
+
+            {ask}
+            growsInto: if it really grows or turns into something else in nature (tadpole to frog, caterpillar to
+            butterfly, acorn to oak tree, egg to chick), name that; otherwise null.
+            {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
+            """;
+    }
 }

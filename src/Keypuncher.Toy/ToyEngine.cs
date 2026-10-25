@@ -196,8 +196,7 @@ public sealed class ToyEngine
             Mash(new InputEvent(DateTimeOffset.Now, 0, null, x, y, fingers));
             return;
         }
-        var family = (int)(x * 6) + (6 * (int)(y * 4));
-        var recipe = BuiltInRecipes.Palette[family % BuiltInRecipes.Palette.Count];
+        var recipe = _world.Families.For((uint)((int)(x * 6) + (6 * (int)(y * 4))));
         SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
         MaybeCall(recipe, x, CallChance);
@@ -437,9 +436,8 @@ public sealed class ToyEngine
     private void PlayNote(Voice voice, int midi, double velocity, double x) =>
         _mixer.Note(Notes.Frequency(midi), voice, velocity, (x * 2) - 1);
 
-    /// <summary>The same key always makes the same family of thing.</summary>
-    private static Recipe FamilyOf(int scanCode) =>
-        BuiltInRecipes.Palette[(int)((uint)scanCode % BuiltInRecipes.Palette.Count)];
+    /// <summary>The same key always makes the same family of thing, though the director may restyle the family.</summary>
+    private Recipe FamilyOf(int scanCode) => _world.Families.For((uint)scanCode);
 
     private void Schedule(double delay, Action action)
     {

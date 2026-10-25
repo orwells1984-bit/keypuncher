@@ -11,7 +11,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _noises;
+    private readonly Switch _upper, _words, _noises, _director;
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
 
@@ -66,6 +66,12 @@ public sealed class ParentPage : ContentPage
         _session = ChoicePicker(SessionChoices.Select(SessionName), Math.Max(0, Array.IndexOf(SessionChoices, s.SessionMinutes)));
         layout.Add(Row("Goodnight after", _session));
 
+        layout.Add(Heading("Real things"));
+        layout.Add(new Label { Text = $"Every {s.Limits.RestyleMinutes:0} minutes of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Each pick is checked by a second question to the model, and story creatures are turned away. Names and facts below are for grown-ups only: the child never sees or hears them." });
+        _director = new Switch { IsToggled = s.Director };
+        layout.Add(Row("Let the model change things", _director));
+        layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
+
         layout.Add(Heading("Voices"));
         var recorded = KeyMeanings.Languages
             .Select(tag => $"{tag}: {ClipCatalog.For(tag).Count(e => host.Clips.Exists(e.Id))} of {ClipCatalog.For(tag).Count(e => !e.Optional)} recorded");
@@ -100,7 +106,7 @@ public sealed class ParentPage : ContentPage
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled));
+            _noises.IsToggled, _director.IsToggled));
         base.OnDisappearing();
     }
 
@@ -118,6 +124,33 @@ public sealed class ParentPage : ContentPage
     {
         _host.SaveWorld();
         Application.Current!.Quit();
+    }
+
+    /// <summary>The model, the families now, and the last few picks with their facts and what the checks said.</summary>
+    private static string DirectorSummary(ToyHost host)
+    {
+        var families = host.World.Families;
+        var real = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).Where(i => families.ChangedAt(i) is not null)
+            .Select(i => families[i].GrowsInto is { } g ? $"{families[i].Name} (grows into {g})" : families[i].Name).ToList();
+        var lines = new List<string>
+        {
+            $"Model: {host.Director.ModelName} at {host.OllamaAddress}{(host.Director.Busy ? ", thinking now" : "")}.",
+            $"Keys now making real things: {(real.Count == 0 ? "none yet" : string.Join(", ", real))}; {BuiltInRecipes.InventedFamilies - real.Count} still make invented shapes.",
+        };
+        if (host.Director.Log.Count == 0) lines.Add("No picks yet in this run.");
+        foreach (var entry in host.Director.Log)
+        {
+            if (entry.Error is { } error)
+            {
+                lines.Add($"{entry.At:HH:mm}  could not reach the model: {error}");
+                continue;
+            }
+            foreach (var a in entry.Outcome!.Attempts)
+                lines.Add(a.Refused is null
+                    ? $"{entry.At:HH:mm}  used: {a.Subject}. {a.Fact}"
+                    : $"{entry.At:HH:mm}  turned down: {a.Subject} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}");
+        }
+        return string.Join("\n", lines);
     }
 
     private static IEnumerable<string> SafeVoices()

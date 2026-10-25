@@ -31,6 +31,8 @@
     <ProjectReference Include="..\Keypuncher.Platform.Windows\Keypuncher.Platform.Windows.csproj" />
     <ProjectReference Include="..\Keypuncher.Rendering\Keypuncher.Rendering.csproj" />
     <ProjectReference Include="..\Keypuncher.Toy\Keypuncher.Toy.csproj" />
+    <ProjectReference Include="..\Keypuncher.Director\Keypuncher.Director.csproj" />
+    <ProjectReference Include="..\Keypuncher.Inference.Ollama\Keypuncher.Inference.Ollama.csproj" />
   </ItemGroup>
 
 </Project>

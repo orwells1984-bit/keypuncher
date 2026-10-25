@@ -66,6 +66,8 @@ public sealed class PlayPage : ContentPage
 
         foreach (var key in _host.DrainKeys()) _host.Engine.OnKey(key);
         _host.Engine.Update(dt);
+        var settings = _host.Engine.Settings;
+        _host.Director.Update(_host.World, settings.Limits.RestyleMinutes, settings.Director && !_host.Engine.IsAsleep);
         _canvas.InvalidateSurface();
 
         if (now - _lastSave > SaveEvery)

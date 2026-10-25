@@ -18,6 +18,8 @@ public sealed class World
     private readonly List<Entity> _awake = [];
     private long _nextId = 1;
 
+    public World() => Families.Changed += () => Dirty = true;
+
     public double Time { get; private set; }
     public IReadOnlyList<Entity> Live => _live;
     /// <summary>Append-only between <see cref="Load"/> and <see cref="Clear"/> calls, so a renderer can
@@ -26,6 +28,9 @@ public sealed class World
     public int BakedGeneration { get; private set; }
     /// <summary>True when something that is saved has changed since <see cref="MarkSaved"/>.</summary>
     public bool Dirty { get; private set; }
+
+    /// <summary>What each key and screen spot makes; saved with the world.</summary>
+    public KeyFamilies Families { get; } = new();
 
     public CalmLimits Limits { get; set; } = CalmLimits.Toddler;
     /// <summary>How things are drawn; chosen by the same calm level as <see cref="Limits"/>.</summary>
@@ -123,8 +128,10 @@ public sealed class World
 
     public void MarkSaved() => Dirty = false;
 
-    public void Load(double time, IEnumerable<Entity> live, IEnumerable<Entity> baked)
+    public void Load(double time, IEnumerable<Entity> live, IEnumerable<Entity> baked,
+        IEnumerable<(int Slot, Recipe Recipe, double At)>? families = null)
     {
+        Families.Load(families ?? []);
         _live.Clear();
         _baked.Clear();
         Time = time;
@@ -138,6 +145,7 @@ public sealed class World
 
     public void Clear()
     {
+        Families.Reset();
         _live.Clear();
         _baked.Clear();
         BakedGeneration++;
