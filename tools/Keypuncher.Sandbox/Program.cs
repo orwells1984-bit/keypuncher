@@ -83,7 +83,10 @@ async Task Check()
         ("glimmerwing moth", RealCategory.Animal, false), ("sparkleraptor", RealCategory.ExtinctAnimal, false),
         ("moonpetal flower", RealCategory.Plant, false), ("bumblebeet", RealCategory.Plant, false),
         ("jabberwock", RealCategory.Animal, false), ("hippogriff", RealCategory.Animal, false),
-        ("dodo", RealCategory.Animal, false), // real, but not alive today: the category must be refused
+        ("strawberry", RealCategory.Plant, true), ("pumpkin", RealCategory.Plant, true),
+        // Real, but not the kind claimed: these must be refused too.
+        ("dodo", RealCategory.Animal, false), ("puffin", RealCategory.ExtinctAnimal, false),
+        ("triceratops", RealCategory.Animal, false), ("fennec fox", RealCategory.Plant, false),
     ];
     Console.WriteLine($"# Fact checker, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
     Console.WriteLine();
@@ -94,13 +97,13 @@ async Task Check()
     foreach (var (name, category, real) in cases)
     {
         var rule = RealThingRules.NameProblem(name);
-        var check = await checker.CheckAsync(name, category, null);
-        var passed = rule is null && check.Passed;
+        var check = await checker.CheckAsync(name, null);
+        var passed = rule is null && check.Passes(category);
         var ok = passed == real;
         if (ok) right++;
         else if (passed) inventedThrough++;
         else realRefused++;
-        Console.WriteLine($"| {name} | {category} | {rule ?? "ok"} | {check.Verdict}{(check.RightCategory ? "" : ", wrong category")} | {check.WhatItIs.Replace("|", "/")} | {(ok ? "yes" : "NO")} |");
+        Console.WriteLine($"| {name} | {category} | {rule ?? "ok"} | {check.Verdict}, {check.Kind} | {check.WhatItIs.Replace("|", "/")} | {(ok ? "yes" : "NO")} |");
     }
     Console.WriteLine();
     Console.WriteLine($"{right} of {cases.Length} right; {inventedThrough} inventions got through, {realRefused} real things refused; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");

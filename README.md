@@ -89,18 +89,19 @@ caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy
 
 Only real things are allowed, and that is held in three layers:
 
-1. **Prompt and schema.** The model is asked for a real, ordinary English name, a category (animal,
-   extinct animal, plant, vehicle, object) and one fact before it draws anything, and the schema keeps the
-   drawing to shapes the toy knows.
+1. **Prompt and schema.** Each request names one category (animal, extinct animal, plant, vehicle,
+   object) and a place drawn at random (a pond, the Ice Age, a building site). The schema allows only that
+   category and the shapes it could be. The model gives an ordinary English name and one fact before it draws.
 2. **Rules** (`RealThingRules`): story words (dragon, unicorn, fairy, monster and so on, with real
-   exceptions such as komodo dragon and gila monster), names that are not plain English, a shape that cannot
+   exceptions such as komodo dragon and gila monster), group words (dinosaur, flower), names that are not plain English, a shape that cannot
    be the thing (a dinosaur-shaped bus, a T. rex-shaped crocodile), a plant in a creature family, and
    repeats are refused. Names with their own drawing (cow, woolly mammoth) always get it. Faces only go on
    animals.
-3. **Fact check** (`FactChecker`): a second, cold call that sees only the name, category and life-stage
-   claim and must answer "real" in the right category; "unsure" is a no. It is the same small model, so the
-   check is not independent; the grown-ups' page lists every pick with its fact so a person can spot what
-   gets through.
+3. **Fact check** (`FactChecker`): a second, cold call that sees only the name and life-stage claim, says
+   whether it is real ("unsure" is a no) and names its kind itself (alive today, extinct, plant, vehicle,
+   object), which must match the pick, so a puffin offered as an extinct animal is refused. It is the same
+   small model, so the check is not independent; the grown-ups' page lists every pick with its fact so a
+   person can spot what gets through.
 
 The name and fact are never shown or said to the child; the child's words still come only from the concept
 list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`

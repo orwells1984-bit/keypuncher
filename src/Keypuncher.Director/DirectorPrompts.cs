@@ -68,11 +68,10 @@ public static class DirectorPrompts
         var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $" that you would find {place}" : "");
         var ask = request.GrowInto is { } next
             ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
-            : $"Choose one {what}. Name one particular kind, not a group word like dinosaur, bird or flower, and nothing already in the world.";
+            : $"Choose one {what}. Name one particular kind, not a group word like dinosaur, bird or flower.";
         return $"""
-            Real things already in the world: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
-
             {ask}
+            Not any of these, which are already in the world: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
             growsInto: if it really grows or turns into something else in nature (tadpole to frog, caterpillar to
             butterfly, acorn to oak tree, egg to chick), name that; otherwise null.
             {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}

@@ -143,10 +143,11 @@ public class RealThingTests
     [Fact]
     public void Only_a_sure_real_in_the_right_category_passes_the_check()
     {
-        Assert.True(new FactCheck("a seabird", "real", true, "none").Passed);
-        Assert.False(new FactCheck("unknown", "unsure", true, "none").Passed);
-        Assert.False(new FactCheck("a myth", "fictional", true, "none").Passed);
-        Assert.False(new FactCheck("an extinct bird", "real", false, "none").Passed);
+        Assert.True(new FactCheck("a seabird", "real", "Animal", "none").Passes(RealCategory.Animal));
+        Assert.False(new FactCheck("unknown", "unsure", "Animal", "none").Passes(RealCategory.Animal));
+        Assert.False(new FactCheck("a myth", "fictional", "Animal", "none").Passes(RealCategory.Animal));
+        Assert.False(new FactCheck("a seabird", "real", "Animal", "none").Passes(RealCategory.ExtinctAnimal));
+        Assert.False(new FactCheck("an extinct bird", "real", "ExtinctAnimal", "none").Passes(RealCategory.Animal));
     }
 
     [Fact]
@@ -164,6 +165,19 @@ public class RealThingTests
         Assert.Contains("fluffaroo (not real)", author.Prompts[2]);
         Assert.Contains("\"fluffaroo\"", checker.Prompts[0]);
         Assert.DoesNotContain("Lives on sea cliffs", checker.Prompts[0]);   // the checker never sees the author's fact
+    }
+
+    [Fact]
+    public async Task A_living_animal_offered_as_extinct_is_refused_by_the_checkers_own_call()
+    {
+        var author = new ScriptedModel(Pick("puffin", "ExtinctAnimal", "Bird"), Pick("dodo", "ExtinctAnimal", "Bird"));
+        var checker = new ScriptedModel(Check("a seabird", "real", kind: "Animal"), Check("an extinct bird", "real", kind: "ExtinctAnimal"));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(Extinct);
+
+        Assert.Equal("dodo", outcome.Recipe!.Name);
+        Assert.Equal("checker: Animal, not ExtinctAnimal", outcome.Attempts[0].Refused);
+        Assert.DoesNotContain("ExtinctAnimal", checker.Prompts[0].Split("kind:")[0]);   // the claim is not shown to the checker
+        Assert.Contains("puffin (not an animal that lived long ago", author.Prompts[1]);
     }
 
     [Fact]
@@ -285,8 +299,8 @@ public class RealThingTests
          "growsInto":{{(growsInto is null ? "null" : $"\"{growsInto}\"")}}}
         """;
 
-    private static string Check(string what, string verdict, bool rightCategory = true, string growsInto = "none") =>
-        JsonSerializer.Serialize(new { whatItIs = what, verdict, rightCategory, growsInto });
+    private static string Check(string what, string verdict, string kind = "Animal", string growsInto = "none") =>
+        JsonSerializer.Serialize(new { whatItIs = what, verdict, kind, growsInto });
 
     /// <summary>Answers each prompt with the next scripted JSON and remembers the prompts.</summary>
     private sealed class ScriptedModel(params string[] answers) : ILanguageModel

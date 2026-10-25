@@ -22,7 +22,7 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// 1. The prompt (<see cref="DirectorPrompts.RealSystem"/>) asks only for real things by their ordinary names,
 ///    with a fact, and the schema's enums keep the drawing to shapes the toy knows.
 /// 2. <see cref="RealThingRules"/> turns away story creatures, odd names, impossible shapes and repeats.
-/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and the right category.
+/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing.
 /// A refused pick is named in the next try's prompt; after <see cref="MaxAttempts"/> the family stays as it is,
 /// which is always safe.
 /// </summary>
@@ -49,12 +49,12 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 continue;
             }
 
-            var check = await checker.CheckAsync(pick!.Subject, pick.Category, pick.GrowsInto, cancellationToken);
-            if (!check.Passed)
+            var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, cancellationToken);
+            if (!check.Passes(pick.Category))
             {
-                var why = check.Verdict == "real" ? "wrong category" : $"checker: {check.Verdict}";
+                var why = check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}";
                 attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, why, check));
-                turnedDown.Add($"{pick.Subject} ({(check.Verdict == "fictional" ? "not real" : why)})");
+                turnedDown.Add($"{pick.Subject} ({(check.Verdict == "fictional" ? "not real" : check.Verdict == "real" ? $"not {RealThingPick.Describe(pick.Category)}" : "not sure it is real")})");
                 continue;
             }
 
