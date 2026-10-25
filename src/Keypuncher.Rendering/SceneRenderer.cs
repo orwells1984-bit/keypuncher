@@ -4,7 +4,8 @@ using SkiaSharp;
 namespace Keypuncher.Rendering;
 
 /// <summary>
-/// Draws the world: a soft sky and hills, the faded history behind everything, then live things,
+/// Draws the world: a soft sky and hills for the world's <see cref="Scene"/> (faded in slowly when it changes),
+/// the faded history behind everything, then live things,
 /// effects, letters and words. Keeps two cached layers (background and history) so a frame stays cheap.
 /// Only the few things the world marks awake move; the rest ease to a stop, and everything else dims a
 /// little while a letter or word is showing. Sizes, outlines and colours come from the world's
@@ -26,9 +27,10 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
 
     private readonly Dictionary<long, (double Clock, double Motion)> _motion = [];
     private SKSurface? _baked;
-    private SKPicture? _background;
+    private SKPicture? _background, _previous;
     private SKColorFilter? _historyFilter;
     private ArtStyle? _backgroundStyle, _bakedStyle;
+    private Scene? _backgroundScene;
     private int _width, _height, _bakedDrawn = -1, _bakedGeneration = -1, _bakedShown = -1;
     private double _lastTime = double.NaN;
 
@@ -41,13 +43,7 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         var dt = double.IsNaN(_lastTime) ? 0 : Math.Clamp(world.Time - _lastTime, 0, 0.25);
         _lastTime = world.Time;
 
-        if (_background is null || !Equals(_backgroundStyle, world.Style))
-        {
-            _background?.Dispose();
-            _background = PaintBackground(width, height, world.Style.Ground);
-            _backgroundStyle = world.Style;
-        }
-        canvas.DrawPicture(_background);
+        DrawBackdrop(canvas, world, width, height);
         UpdateBaked(world);
         using (var history = new SKPaint { ColorFilter = _historyFilter, Color = SKColors.White.WithAlpha((byte)(255 * Math.Clamp(world.Limits.HistoryOpacity, 0, 1))) })
             canvas.DrawSurface(_baked, 0, 0, history);
@@ -80,6 +76,7 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
     {
         _baked?.Dispose();
         _background?.Dispose();
+        _previous?.Dispose();
         _historyFilter?.Dispose();
     }
 
@@ -136,6 +133,8 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         (_width, _height) = (width, height);
         _background?.Dispose();
         _background = null;
+        _previous?.Dispose();
+        _previous = null;
         _baked?.Dispose();
         _baked = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
         _historyFilter ??= Ghost(HistorySaturation, HistoryContrast);
@@ -335,9 +334,41 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
         canvas.DrawText(text, height * 0.02f, height * 0.04f, SKTextAlign.Left, font, paint);
     }
 
-    /// <summary>The backdrop: a smooth sky and two smooth hills in the style's quiet colours, nothing finer.</summary>
-    private static SKPicture PaintBackground(int width, int height, Ground ground)
+    /// <summary>The scene's backdrop. A change of scene fades the new one in over the calm level's
+    /// <see cref="CalmLimits.SceneFadeSeconds"/>, so the whole screen never changes at once; a change of style
+    /// (the calm level) is a grown-up's choice and is redrawn straight away.</summary>
+    private void DrawBackdrop(SKCanvas canvas, World world, int width, int height)
     {
+        if (_background is null || !Equals(_backgroundStyle, world.Style) || _backgroundScene != world.Scene)
+        {
+            var fading = _background is not null && Equals(_backgroundStyle, world.Style) && world.PreviousScene is not null;
+            _previous?.Dispose();
+            _previous = fading ? _background : null;
+            if (!fading) _background?.Dispose();
+            _background = PaintBackground(width, height, world.Scene, world.Style);
+            (_backgroundStyle, _backgroundScene) = (world.Style, world.Scene);
+        }
+
+        var k = Math.Clamp((world.Time - world.SceneChangedAt) / Math.Max(0.1, world.Limits.SceneFadeSeconds), 0, 1);
+        if (_previous is null || k >= 1)
+        {
+            _previous?.Dispose();
+            _previous = null;
+            canvas.DrawPicture(_background);
+            return;
+        }
+        canvas.DrawPicture(_previous);
+        // Eased at both ends, so neither the start nor the end of the fade can be seen as a moment.
+        using var fade = new SKPaint { Color = SKColors.White.WithAlpha((byte)(255 * k * k * (3 - (2 * k)))) };
+        canvas.DrawPicture(_background, fade);
+    }
+
+    /// <summary>The backdrop: a smooth sky and two hills in the scene's colours (<see cref="SceneGround"/>), shaped
+    /// for its landscape, with its weather drawn still: soft clouds, a few pale raindrops or snowflakes, a veil of
+    /// fog, a faint rainbow. Nothing in it moves, so it never competes with the things.</summary>
+    public static SKPicture PaintBackground(int width, int height, Scene scene, ArtStyle style)
+    {
+        var ground = SceneGround.For(style, scene);
         using var recorder = new SKPictureRecorder();
         var c = recorder.BeginRecording(new SKRect(0, 0, width, height));
 
@@ -349,27 +380,140 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
             c.DrawRect(0, 0, width, height, paint);
         }
 
-        Hill(c, width, height, 0.66, 0.035, 1.3, 0.4, RecipePainter.Rgb(ground.FarHill));
-        Hill(c, width, height, 0.74, 0.03, 2.1, 1.7, RecipePainter.Rgb(ground.NearHill));
+        // The same scene always draws the same, so a saved world looks as it did.
+        var random = new Random(HashCode.Combine(scene.Landscape, scene.Weather, scene.Place?.Length ?? 0));
+        if (scene.Weather == Weather.Rainbow) Rainbow(c, width, height);
+
+        var (far, near) = Hills(scene.Landscape);
+        Hill(c, width, height, far, RecipePainter.Rgb(ground.FarHill));
+        Hill(c, width, height, near, RecipePainter.Rgb(ground.NearHill));
+
+        if (scene.Weather is Weather.Cloudy or Weather.Rain or Weather.Snow) Clouds(c, width, height, random, scene.Weather == Weather.Cloudy ? 3 : 4);
+        if (scene.Weather == Weather.Rain) Drops(c, width, height, random, snow: false);
+        if (scene.Weather == Weather.Snow) Drops(c, width, height, random, snow: true);
+        if (scene.Weather == Weather.Fog)
+        {
+            using var veil = SKShader.CreateLinearGradient(
+                new SKPoint(0, height * 0.45f), new SKPoint(0, height),
+                [SKColors.White.WithAlpha(0), SKColors.White.WithAlpha(120)], [0, 1], SKShaderTileMode.Clamp);
+            using var paint = new SKPaint { Shader = veil };
+            c.DrawRect(0, 0, width, height, paint);
+        }
         return recorder.EndRecording();
     }
 
-    private static void Hill(SKCanvas c, int width, int height, double level, double amplitude, double waves, double offset, SKColor color)
+    /// <summary>How a hill line runs.</summary>
+    private enum Profile { Rolling, Peaks, Flat, Canopy, Dunes }
+
+    private readonly record struct HillLine(Profile Profile, double Level, double Amplitude, double Waves, double Offset);
+
+    /// <summary>The far and near hill lines for a landscape. The near hill's top stays near three quarters of the
+    /// way down everywhere, because plants are rooted there.</summary>
+    private static (HillLine Far, HillLine Near) Hills(Landscape landscape) => landscape switch
+    {
+        Landscape.Mountains => (new(Profile.Peaks, 0.6, 0.11, 2.6, 0.3), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
+        Landscape.Beach => (new(Profile.Flat, 0.64, 0, 0, 0), new(Profile.Rolling, 0.75, 0.012, 1.2, 0.8)),
+        Landscape.Lake => (new(Profile.Flat, 0.67, 0, 0, 0), new(Profile.Rolling, 0.74, 0.025, 1.6, 2.2)),
+        Landscape.Forest => (new(Profile.Canopy, 0.63, 0.025, 11, 0.5), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
+        Landscape.Jungle => (new(Profile.Canopy, 0.6, 0.035, 8, 1.1), new(Profile.Canopy, 0.735, 0.015, 14, 0.2)),
+        Landscape.Desert => (new(Profile.Dunes, 0.67, 0.04, 1.6, 0.6), new(Profile.Dunes, 0.75, 0.03, 2.4, 1.9)),
+        Landscape.Savanna => (new(Profile.Rolling, 0.68, 0.01, 1.1, 0.2), new(Profile.Rolling, 0.745, 0.012, 1.7, 1.3)),
+        Landscape.LavaField => (new(Profile.Canopy, 0.67, 0.012, 15, 0.9), new(Profile.Canopy, 0.745, 0.01, 21, 0.4)),
+        Landscape.SnowyHills => (new(Profile.Rolling, 0.64, 0.05, 1.5, 0.9), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
+        _ => (new(Profile.Rolling, 0.66, 0.035, 1.3, 0.4), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
+    };
+
+    private static void Hill(SKCanvas c, int width, int height, HillLine line, SKColor color)
     {
         using var b = new SKPathBuilder();
         b.MoveTo(0, height);
-        const int steps = 48;
+        const int steps = 96;
         for (var i = 0; i <= steps; i++)
         {
             var u = i / (double)steps;
-            var y = (level + (Math.Sin((u * waves * Math.PI) + offset) * amplitude)) * height;
-            b.LineTo((float)(u * width), (float)y);
+            var a = (u * line.Waves * Math.PI) + line.Offset;
+            var rise = line.Profile switch
+            {
+                // Soft-topped peaks: a raised sine, sharpened a little, never to a point.
+                Profile.Peaks => Math.Pow((Math.Sin(a) + 1) / 2, 1.6) * 2 - 1,
+                // A tree line: round bumps of uneven height.
+                Profile.Canopy => Math.Abs(Math.Sin(a)) * (0.7 + (0.3 * Math.Sin(a * 0.37))) * 2 - 1,
+                // Dunes lean one way: a long gentle side and a steeper one.
+                Profile.Dunes => Math.Sin(a + (0.5 * Math.Sin(a))),
+                Profile.Flat => 0,
+                _ => Math.Sin(a),
+            };
+            b.LineTo((float)(u * width), (float)((line.Level - (rise * line.Amplitude)) * height));
         }
         b.LineTo(width, height);
         b.Close();
         using var path = b.Detach();
         using var paint = new SKPaint { IsAntialias = true, Color = color };
         c.DrawPath(path, paint);
+    }
+
+    /// <summary>A few soft clouds high in the sky, each a cluster of white circles, lighter than any sky.</summary>
+    private static void Clouds(SKCanvas c, int width, int height, Random random, int count)
+    {
+        var unit = Math.Min(width, height);
+        using var paint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(190) };
+        for (var i = 0; i < count; i++)
+        {
+            var x = ((i + 0.5) / count * width) + ((random.NextDouble() - 0.5) * width / count * 0.6);
+            var y = height * (0.12 + (random.NextDouble() * 0.16));
+            var r = unit * (0.05 + (random.NextDouble() * 0.025));
+            c.Save();
+            c.Translate((float)x, (float)y);
+            using var cloud = new SKPathBuilder();
+            cloud.AddCircle(0, 0, (float)r);
+            cloud.AddCircle((float)(-r * 1.1), (float)(r * 0.35), (float)(r * 0.7));
+            cloud.AddCircle((float)(r * 1.1), (float)(r * 0.3), (float)(r * 0.75));
+            cloud.AddRoundRect(new SKRect((float)(-r * 1.6), 0, (float)(r * 1.7), (float)(r * 0.95)), (float)(r * 0.45), (float)(r * 0.45));
+            using var shape = cloud.Detach();
+            shape.FillType = SKPathFillType.Winding;
+            c.DrawPath(shape, paint);
+            c.Restore();
+        }
+    }
+
+    /// <summary>A sparse sprinkle of pale, still raindrops or snowflakes: enough to say what the weather is,
+    /// too faint and few to read as things.</summary>
+    private static void Drops(SKCanvas c, int width, int height, Random random, bool snow)
+    {
+        var unit = Math.Min(width, height);
+        using var paint = new SKPaint
+        {
+            IsAntialias = true, Color = SKColors.White.WithAlpha((byte)(snow ? 200 : 150)),
+            Style = snow ? SKPaintStyle.Fill : SKPaintStyle.Stroke, StrokeWidth = unit * 0.004f, StrokeCap = SKStrokeCap.Round,
+        };
+        var count = snow ? 46 : 40;
+        for (var i = 0; i < count; i++)
+        {
+            var x = (float)(random.NextDouble() * width);
+            var y = (float)(height * (0.3 + (random.NextDouble() * 0.6)));
+            if (snow) c.DrawCircle(x, y, unit * (0.005f + (float)(random.NextDouble() * 0.004)), paint);
+            else c.DrawLine(x, y, x - (unit * 0.006f), y + (unit * 0.022f), paint);
+        }
+    }
+
+    /// <summary>A faint rainbow behind the hills, its colours mostly sky.</summary>
+    private static void Rainbow(SKCanvas c, int width, int height)
+    {
+        uint[] bands = [0xE57373, 0xFFB74D, 0xFFF176, 0x81C784, 0x64B5F6, 0x9575CD];
+        var unit = Math.Min(width, height);
+        var band = unit * 0.022f;
+        var radius = width * 0.36f;
+        var centre = new SKPoint(width * 0.62f, height * 0.78f);
+        for (var i = 0; i < bands.Length; i++)
+        {
+            using var paint = new SKPaint
+            {
+                IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = band,
+                Color = RecipePainter.Rgb(bands[i]).WithAlpha(70),
+            };
+            var r = radius - (i * band);
+            c.DrawArc(new SKRect(centre.X - r, centre.Y - r, centre.X + r, centre.Y + r), 180, 180, false, paint);
+        }
     }
 
     /// <summary>Keeps <paramref name="saturation"/> of each colour's saturation (Rec. 709 luminance weights).</summary>

@@ -82,9 +82,10 @@ To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Previ
 
 ## Phase 2: the director
 
-With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director wakes 30 s
-into play and then every few minutes of play (10 / 5 / 3 for Baby / Toddler / Big toddler). Each time it
-turns one key family into a real thing. The twelve invented families at the front of the palette
+With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the
+model busy with two jobs, one request at a time. Every 2 / 1 / 0.5 minutes of play (Baby / Toddler / Big
+toddler), starting 30 s in, it turns one key family into a real thing. Every 3 / 2 / 1.5 minutes it moves
+the scene a step (see below). The twelve invented families at the front of the palette
 (puffbird, petalpop and so on) go first, one by one; a family keeps its kind, so a plant key stays a plant
 key, and the real animals after them never change. A thing that really grows into something (tadpole,
 caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy plays as before.
@@ -105,13 +106,36 @@ Only real things are allowed, and that is held in three layers:
    small model, so the check is not independent; the grown-ups' page lists every pick with its fact so a
    person can spot what gets through.
 
-The name and fact are never shown or said to the child; the child's words still come only from the concept
+### The scene
+
+The backdrop is a `Scene`: a real place (named for grown-ups, such as "Reynisfjara, Iceland"), one of eleven
+landscapes (meadow, farm, forest, jungle, mountains, beach, lake, desert, savanna, snowy hills, lava field),
+a time of day (dawn to evening; the goodnight is the only night) and the weather (clear, cloudy, rain, snow,
+fog, a rainbow). The loop chooses the kind of step (a journey from the starting meadow and after three steps at one place, otherwise mostly a weather change or the time moving on; a small model left to choose only moves the clock) and the model chooses the weather or where to go. Each step is held to the real world:
+
+1. **Prompt and schema.** The time of day may only stay or move on; a rainbow is offered only after rain.
+   A weather step must change the weather, a journey must go somewhere new. Half of the later requests for an animal or plant ask for one really found at the scene's place.
+2. **Rules** (`SceneRules`): no snow in deserts, jungles or the savanna, a new landscape needs a new place,
+   not all three things at once, no going back to one of the last eight places.
+   A journey offers five well-known real places (Icelandic and Bulgarian ones among them, `KnownPlace.All`); if all three tries miss, it goes to one of them. A kind of country with a country after it ("Savannah, Botswana") is not a place.
+3. **Place check** (`PlaceChecker`): a new place goes to a second, cold call that sees only its name, must
+   say it is real, lists the landscapes found there itself (the claimed one must be among them) and, for
+   snow, must say snow falls there.
+
+Every scene keeps the brightness of the calm level's own sky and hills and only takes on their hue
+(`SceneGround`), so the Art Rules' contrast holds in all of them; the weather is drawn still, and a new
+scene fades in over 30 / 20 / 15 s. `dotnet run --project tools/Keypuncher.Preview -- --scenes` writes a
+contact sheet of every landscape per calm level.
+
+The names and facts are never shown or said to the child; the child's words still come only from the concept
 list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`
 another server.
 
 ```powershell
 dotnet run --project tools/Keypuncher.Sandbox -- picks qwen3:4b 12   # restyle all twelve families, print each try
 dotnet run --project tools/Keypuncher.Sandbox -- check qwen3:4b      # score the checker on real and made-up names
+dotnet run --project tools/Keypuncher.Sandbox -- scenes qwen3:4b 12  # walk the scene through twelve steps
+dotnet run --project tools/Keypuncher.Sandbox -- places qwen3:4b     # score the place checker on real and made-up places
 ```
 
 ## Phase 0 on the desktop

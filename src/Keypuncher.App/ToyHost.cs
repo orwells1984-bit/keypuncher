@@ -53,9 +53,11 @@ public sealed class ToyHost : IDisposable
             ? (host.Contains("://") ? host : "http://" + host)
             : "http://localhost:11434");
         var model = Environment.GetEnvironmentVariable("KEYPUNCHER_MODEL") is { Length: > 0 } m ? m : DefaultModel;
-        Director = new DirectorLoop(new RealThingDirector(
-            new OllamaLanguageModel(ollama, model),
-            new FactChecker(new OllamaLanguageModel(ollama, model, temperature: 0))));
+        var author = new OllamaLanguageModel(ollama, model);
+        var checker = new OllamaLanguageModel(ollama, model, temperature: 0);
+        Director = new DirectorLoop(
+            new RealThingDirector(author, new FactChecker(checker)),
+            scenes: new SceneDirector(author, new PlaceChecker(checker)));
         OllamaAddress = ollama;
 
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));

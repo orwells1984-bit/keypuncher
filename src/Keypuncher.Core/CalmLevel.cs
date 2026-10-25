@@ -32,8 +32,13 @@ public enum CalmLevel
 /// <param name="CallGapSeconds">Animal noises are at least this far apart, so they stay a surprise and never
 /// pile up; longer than the longest call.</param>
 /// <param name="GentleCalls">Use the quieter, slower-starting animal noises, with roars and growls softest.</param>
-/// <param name="RestyleMinutes">Minutes of play between the director's changes to a key family: slow, so cause and
-/// effect stay learnable and a changed key is a small surprise rather than churn.</param>
+/// <param name="RestyleMinutes">Minutes of play between the director's changes to a key family. Only one family
+/// changes at a time and a key keeps making the same kind of thing, so cause and effect stay learnable and a
+/// changed key is a small surprise rather than churn.</param>
+/// <param name="SceneMinutes">Minutes of play between the director's changes to the scene (place, time of day,
+/// weather). Each change fades in over <paramref name="SceneFadeSeconds"/>, far slower than the 11-second scene cuts
+/// that tired children in the fast-pacing study.</param>
+/// <param name="SceneFadeSeconds">How long the backdrop takes to fade from one scene to the next.</param>
 public sealed record CalmLimits(
     int LiveThings,
     int Moving,
@@ -46,11 +51,15 @@ public sealed record CalmLimits(
     int SessionMinutes,
     double CallGapSeconds = 6,
     bool GentleCalls = false,
-    double RestyleMinutes = 5)
+    double RestyleMinutes = 1,
+    double SceneMinutes = 2,
+    double SceneFadeSeconds = 20)
 {
-    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.07, 3, 3, 5, CallGapSeconds: 10, GentleCalls: true, RestyleMinutes: 10);
+    public static readonly CalmLimits Baby = new(4, 1, 8, 0.7, 0.5, 0.07, 3, 3, 5, CallGapSeconds: 10, GentleCalls: true,
+        RestyleMinutes: 2, SceneMinutes: 3, SceneFadeSeconds: 30);
     public static readonly CalmLimits Toddler = new(7, 2, 15, 1, 0.75, 0.10, 6, 5, 10, CallGapSeconds: 6);
-    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.15, 15, 9, 15, CallGapSeconds: 4, RestyleMinutes: 3);
+    public static readonly CalmLimits BigToddler = new(12, 4, 30, 2, 1, 0.15, 15, 9, 15, CallGapSeconds: 4,
+        RestyleMinutes: 0.5, SceneMinutes: 1.5, SceneFadeSeconds: 15);
 
     public static CalmLimits For(CalmLevel level) => level switch
     {
