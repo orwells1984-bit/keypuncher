@@ -14,7 +14,7 @@ public enum HostMode { Play, Parent, Recording }
 
 /// <summary>
 /// Owns everything that lives as long as the app: the world and its file, the mixer and the sound
-/// card, the recordings, the settings, the keyboard hook and the Sticky Keys shortcuts being off. Pages borrow it.
+/// card, the recordings, the settings, the keyboard hook, the Sticky Keys shortcuts being off and the screen kept on in play. Pages borrow it.
 /// </summary>
 /// <remarks>
 /// Data lives in %LOCALAPPDATA%\Keypuncher, or in the folder named by the KEYPUNCHER_DATA environment
@@ -27,6 +27,7 @@ public sealed class ToyHost : IDisposable
     private readonly ConcurrentQueue<KeyPress> _keys = new();
     private readonly SettingsStore _settingsStore;
     private readonly AccessibilityShortcuts _shortcuts;
+    private readonly KeepAwake _keepAwake = new();
     private volatile HostMode _mode = HostMode.Play;
 
     public ToyHost()
@@ -100,6 +101,8 @@ public sealed class ToyHost : IDisposable
         set
         {
             _mode = value;
+            // Only play holds the screen on; the grown-ups' and recording pages let the power plan apply.
+            _keepAwake.Active = value == HostMode.Play;
             while (_keys.TryDequeue(out _)) { }
             Engine.ResetInput();
         }
@@ -129,6 +132,7 @@ public sealed class ToyHost : IDisposable
     {
         Keyboard.Dispose();
         _shortcuts.Dispose();
+        _keepAwake.Dispose();
         Director.Dispose();
         SaveWorld();
         WorldStore.Dispose();
