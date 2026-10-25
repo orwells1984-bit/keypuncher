@@ -11,7 +11,7 @@ namespace Keypuncher.Rendering;
 /// little while a letter or word is showing. Sizes, outlines and colours come from the world's
 /// <see cref="ArtStyle"/>, so a calmer level draws bigger and bolder. Use from one thread.
 /// </summary>
-public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
+public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
 {
     /// <summary>How fast a thing eases between moving and still, in full swings a second.</summary>
     private const double MotionEase = 1.5;
@@ -364,8 +364,10 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
     }
 
     /// <summary>The backdrop: a smooth sky and two hills in the scene's colours (<see cref="SceneGround"/>), shaped
-    /// for its landscape, with its weather drawn still: soft clouds, a few pale raindrops or snowflakes, a veil of
-    /// fog, a faint rainbow. Nothing in it moves, so it never competes with the things.</summary>
+    /// for its landscape and dressed with what makes it that landscape (trees, water, dunes, snow on the peaks,
+    /// a barn), a sun that moves across the sky with the time of day, and its weather drawn still: soft clouds,
+    /// a few pale raindrops or snowflakes, a veil of fog, a faint rainbow. Everything is drawn in the ground's own
+    /// colours or lighter, so the backdrop changes shape but never tone, and nothing in it moves.</summary>
     public static SKPicture PaintBackground(int width, int height, Scene scene, ArtStyle style)
     {
         var ground = SceneGround.For(style, scene);
@@ -382,11 +384,10 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
 
         // The same scene always draws the same, so a saved world looks as it did.
         var random = new Random(HashCode.Combine(scene.Landscape, scene.Weather, scene.Place?.Length ?? 0));
+        if (scene.Weather is Weather.Clear or Weather.Cloudy or Weather.Rainbow) Sun(c, width, height, scene.TimeOfDay);
         if (scene.Weather == Weather.Rainbow) Rainbow(c, width, height);
 
-        var (far, near) = Hills(scene.Landscape);
-        Hill(c, width, height, far, RecipePainter.Rgb(ground.FarHill));
-        Hill(c, width, height, near, RecipePainter.Rgb(ground.NearHill));
+        Land(c, width, height, scene, style, ground, random);
 
         if (scene.Weather is Weather.Cloudy or Weather.Rain or Weather.Snow) Clouds(c, width, height, random, scene.Weather == Weather.Cloudy ? 3 : 4);
         if (scene.Weather == Weather.Rain) Drops(c, width, height, random, snow: false);
@@ -400,56 +401,6 @@ public sealed class SceneRenderer(SKTypeface typeface) : IDisposable
             c.DrawRect(0, 0, width, height, paint);
         }
         return recorder.EndRecording();
-    }
-
-    /// <summary>How a hill line runs.</summary>
-    private enum Profile { Rolling, Peaks, Flat, Canopy, Dunes }
-
-    private readonly record struct HillLine(Profile Profile, double Level, double Amplitude, double Waves, double Offset);
-
-    /// <summary>The far and near hill lines for a landscape. The near hill's top stays near three quarters of the
-    /// way down everywhere, because plants are rooted there.</summary>
-    private static (HillLine Far, HillLine Near) Hills(Landscape landscape) => landscape switch
-    {
-        Landscape.Mountains => (new(Profile.Peaks, 0.6, 0.11, 2.6, 0.3), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
-        Landscape.Beach => (new(Profile.Flat, 0.64, 0, 0, 0), new(Profile.Rolling, 0.75, 0.012, 1.2, 0.8)),
-        Landscape.Lake => (new(Profile.Flat, 0.67, 0, 0, 0), new(Profile.Rolling, 0.74, 0.025, 1.6, 2.2)),
-        Landscape.Forest => (new(Profile.Canopy, 0.63, 0.025, 11, 0.5), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
-        Landscape.Jungle => (new(Profile.Canopy, 0.6, 0.035, 8, 1.1), new(Profile.Canopy, 0.735, 0.015, 14, 0.2)),
-        Landscape.Desert => (new(Profile.Dunes, 0.67, 0.04, 1.6, 0.6), new(Profile.Dunes, 0.75, 0.03, 2.4, 1.9)),
-        Landscape.Savanna => (new(Profile.Rolling, 0.68, 0.01, 1.1, 0.2), new(Profile.Rolling, 0.745, 0.012, 1.7, 1.3)),
-        Landscape.LavaField => (new(Profile.Canopy, 0.67, 0.012, 15, 0.9), new(Profile.Canopy, 0.745, 0.01, 21, 0.4)),
-        Landscape.SnowyHills => (new(Profile.Rolling, 0.64, 0.05, 1.5, 0.9), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
-        _ => (new(Profile.Rolling, 0.66, 0.035, 1.3, 0.4), new(Profile.Rolling, 0.74, 0.03, 2.1, 1.7)),
-    };
-
-    private static void Hill(SKCanvas c, int width, int height, HillLine line, SKColor color)
-    {
-        using var b = new SKPathBuilder();
-        b.MoveTo(0, height);
-        const int steps = 96;
-        for (var i = 0; i <= steps; i++)
-        {
-            var u = i / (double)steps;
-            var a = (u * line.Waves * Math.PI) + line.Offset;
-            var rise = line.Profile switch
-            {
-                // Soft-topped peaks: a raised sine, sharpened a little, never to a point.
-                Profile.Peaks => Math.Pow((Math.Sin(a) + 1) / 2, 1.6) * 2 - 1,
-                // A tree line: round bumps of uneven height.
-                Profile.Canopy => Math.Abs(Math.Sin(a)) * (0.7 + (0.3 * Math.Sin(a * 0.37))) * 2 - 1,
-                // Dunes lean one way: a long gentle side and a steeper one.
-                Profile.Dunes => Math.Sin(a + (0.5 * Math.Sin(a))),
-                Profile.Flat => 0,
-                _ => Math.Sin(a),
-            };
-            b.LineTo((float)(u * width), (float)((line.Level - (rise * line.Amplitude)) * height));
-        }
-        b.LineTo(width, height);
-        b.Close();
-        using var path = b.Detach();
-        using var paint = new SKPaint { IsAntialias = true, Color = color };
-        c.DrawPath(path, paint);
     }
 
     /// <summary>A few soft clouds high in the sky, each a cluster of white circles, lighter than any sky.</summary>

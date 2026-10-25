@@ -216,6 +216,51 @@ public sealed class ArtRulesTests : IDisposable
     }
 
     [Fact]
+    public void A_new_landscape_or_time_of_day_changes_the_backdrop_at_a_glance()
+    {
+        // Stephen couldn't see the move to a forest: recolouring two hills was not enough. Each landscape now
+        // has its own silhouettes, and the sun moves across the sky with the time of day.
+        static SKColor[] Backdrop(Scene scene)
+        {
+            var world = new World { Style = ArtStyle.Toddler };
+            world.Load(0, [], [], scene: scene);
+            using var renderer = new SceneRenderer(Fonts.LoadAndika());
+            return Render(renderer, world, 320, 180);
+        }
+        var landscapes = Enum.GetValues<Landscape>().Select(l => (l, Backdrop(new Scene(l)))).ToList();
+        foreach (var (a, pixels) in landscapes)
+            foreach (var (b, other) in landscapes.Where(o => o.l > a))
+                Assert.True(Changed(pixels, other) > 0.05, $"{a} and {b} differ in only {Changed(pixels, other):P1} of the screen");
+        var times = Enum.GetValues<TimeOfDay>().Select(t => (t, Backdrop(new Scene(Landscape.Meadow, t)))).ToList();
+        foreach (var (a, pixels) in times)
+            foreach (var (b, other) in times.Where(o => o.t > a))
+                Assert.True(Changed(pixels, other) > 0.01, $"{a} and {b} differ in only {Changed(pixels, other):P1} of the screen");
+    }
+
+    [Theory]
+    [InlineData(CalmLevel.Baby)]
+    [InlineData(CalmLevel.Toddler)]
+    [InlineData(CalmLevel.BigToddler)]
+    public void The_backdrop_is_never_darker_than_its_ground(CalmLevel level)
+    {
+        // Trees, barns and dunes are drawn in the ground's own colours or lighter (pines in snow at the level's own
+        // hill brightness), so every outline keeps the contrast the Art Rules set, whatever stands behind it.
+        var style = ArtStyle.For(level);
+        foreach (var landscape in Enum.GetValues<Landscape>())
+            foreach (var time in Enum.GetValues<TimeOfDay>())
+            {
+                var scene = new Scene(landscape, time);
+                var g = SceneGround.For(style, scene);
+                var floor = new[] { g.SkyTop, g.SkyBottom, g.FarHill, g.NearHill, style.Ground.NearHill }.Min(SceneGround.Luminance) - 0.02;
+                var world = new World { Style = style };
+                world.Load(0, [], [], scene: scene);
+                using var renderer = new SceneRenderer(Fonts.LoadAndika());
+                var darkest = Render(renderer, world, 320, 180).Min(p => SceneGround.Luminance((uint)((p.Red << 16) | (p.Green << 8) | p.Blue)));
+                Assert.True(darkest >= floor, $"{scene} at {level}: {darkest:0.000} below {floor:0.000}");
+            }
+    }
+
+    [Fact]
     public void A_settled_thing_fades_towards_the_sky_not_towards_its_outline()
     {
         // Everything at rest is drawn at six tenths; the outline under a fill must not darken the fill.
