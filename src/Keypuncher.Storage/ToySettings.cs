@@ -12,6 +12,7 @@ namespace Keypuncher.Storage;
 /// <param name="Calm">How busy the screen may get and how boldly it is drawn; see <see cref="CalmLimits"/> and <see cref="ArtStyle"/>.</param>
 /// <param name="SessionMinutes">Play time before the goodnight: null for the calm level's default, 0 for never.</param>
 /// <param name="AnimalNoises">Animals now and then make their noise (moo, woof, roar) when they appear.</param>
+/// <param name="Director">The local model now and then turns a key's invented thing into a real one.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -19,7 +20,8 @@ public sealed record ToySettings(
     bool SayWords = true,
     CalmLevel Calm = CalmLevel.Toddler,
     int? SessionMinutes = null,
-    bool AnimalNoises = true)
+    bool AnimalNoises = true,
+    bool Director = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 

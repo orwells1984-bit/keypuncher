@@ -7,6 +7,10 @@ namespace Keypuncher.Core;
 /// </summary>
 public static class BuiltInRecipes
 {
+    /// <summary>How many families at the front of <see cref="Palette"/> are invented shapes, which the director
+    /// restyles into real things; see <see cref="KeyFamilies"/>.</summary>
+    public const int InventedFamilies = 12;
+
     /// <summary>Things a key can make. A key keeps the same family, so the list order is part of the toy's
     /// behaviour: append, do not reorder.</summary>
     public static readonly IReadOnlyList<Recipe> Palette =

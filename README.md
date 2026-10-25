@@ -2,8 +2,9 @@
 
 A toy for an infant. Banging on the keyboard makes a persistent, slowly evolving landscape of
 shapes and sounds; every letter key shows and says its letter (by sound) and a word, in Icelandic,
-English or Bulgarian. A local LLM, running in Ollama on the family's Windows PCs, invents what the
-creatures, plants and sounds look and sound like.
+English or Bulgarian. A local LLM, running in Ollama on the family's Windows PCs, slowly turns the keys'
+invented shapes into real animals, extinct animals, plants, vehicles and objects, and chooses how they
+look and sound.
 
 The full architecture and tech plan is in the project's
 [plan document](https://claude.ai/artifact/HwtkxyHQZXKyvUUGjEkrNn). In short:
@@ -28,12 +29,12 @@ The full architecture and tech plan is in the project's
 | `src/Keypuncher.Audio` | Synth and mixer with volume cap and limiter, WAV files, recording clean-up |
 | `src/Keypuncher.Storage` | The world in SQLite, recordings as WAV files, settings |
 | `src/Keypuncher.Platform.Windows` | Keyboard hook (Icelandic layout forced), WASAPI output, microphone, Windows voices |
-| `src/Keypuncher.Director` | Recipe JSON schema, validator, prompts (Phase 2) |
+| `src/Keypuncher.Director` | The director: real-things prompts, schema, rules, fact checker, loop |
 | `src/Keypuncher.Inference` | `ILanguageModel`, `IImageGenerator`, `IAudioGenerator`, `ISpeech` |
 | `src/Keypuncher.Inference.Ollama` | `ILanguageModel` over a local Ollama server with structured output |
 | `tools/Keypuncher.Preview` | Plays a scripted session with no window and writes PNG frames and a WAV |
 | `tools/Keypuncher.Bench` | Phase 0: tokens/s and valid-recipe rate per model on this PC |
-| `tools/Keypuncher.Sandbox` | Ask the director for one recipe and print it |
+| `tools/Keypuncher.Sandbox` | Run the director against Ollama: a round of picks, or a score for the fact checker |
 | `tools/Keypuncher.KeySpike` | Phase 0: Windows low-level keyboard hook + Icelandic layout reading (Windows only) |
 | `tests/` | xUnit tests; everything except the app and the Windows pieces also runs on Linux |
 
@@ -77,6 +78,40 @@ while it is in front; use the grown-up exit below to get back.
 
 To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`. Add `--calls` to write every animal noise as a WAV instead.
 
+## Phase 2: the director
+
+With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director wakes 30 s
+into play and then every few minutes of play (10 / 5 / 3 for Baby / Toddler / Big toddler). Each time it
+turns one key family into a real thing. The twelve invented families at the front of the palette
+(puffbird, petalpop and so on) go first, one by one; a family keeps its kind, so a plant key stays a plant
+key, and the real animals after them never change. A thing that really grows into something (tadpole,
+caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy plays as before.
+
+Only real things are allowed, and that is held in three layers:
+
+1. **Prompt and schema.** Each request names one category (animal, extinct animal, plant, vehicle,
+   object) and a place drawn at random (a pond, the Ice Age, a building site). The schema allows only that
+   category and the shapes it could be. The model gives an ordinary English name and one fact before it draws.
+2. **Rules** (`RealThingRules`): story words (dragon, unicorn, fairy, monster and so on, with real
+   exceptions such as komodo dragon and gila monster), group words (dinosaur, flower), names that are not plain English, a shape that cannot
+   be the thing (a dinosaur-shaped bus, a T. rex-shaped crocodile), a plant in a creature family, and
+   repeats are refused. Names with their own drawing (cow, woolly mammoth) always get it. Faces only go on
+   animals.
+3. **Fact check** (`FactChecker`): a second, cold call that sees only the name and life-stage claim, says
+   whether it is real ("unsure" is a no) and names its kind itself (alive today, extinct, plant, vehicle,
+   object), which must match the pick, so a puffin offered as an extinct animal is refused. It is the same
+   small model, so the check is not independent; the grown-ups' page lists every pick with its fact so a
+   person can spot what gets through.
+
+The name and fact are never shown or said to the child; the child's words still come only from the concept
+list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`
+another server.
+
+```powershell
+dotnet run --project tools/Keypuncher.Sandbox -- picks qwen3:4b 12   # restyle all twelve families, print each try
+dotnet run --project tools/Keypuncher.Sandbox -- check qwen3:4b      # score the checker on real and made-up names
+```
+
 ## Phase 0 on the desktop
 
 Needs the .NET 10 SDK, [Ollama](https://ollama.com) and the Icelandic keyboard layout installed.
@@ -88,7 +123,7 @@ ollama pull llama3.1:8b          # tight on 6 GB; worth measuring
 
 dotnet test
 dotnet run --project tools/Keypuncher.Bench -- --models gemma3:4b,qwen3:4b,llama3.1:8b --runs 5
-dotnet run --project tools/Keypuncher.Sandbox -- gemma3:4b "a round sleepy cat"
+dotnet run --project tools/Keypuncher.Sandbox -- recipe gemma3:4b "a round sleepy cat"
 dotnet run --project tools/Keypuncher.KeySpike
 ```
 

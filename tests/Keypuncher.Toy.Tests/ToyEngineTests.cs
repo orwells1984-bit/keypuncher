@@ -237,6 +237,27 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_key_makes_its_restyled_family_and_the_change_is_saved()
+    {
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin", Body = BuiltInRecipes.Animals.Bird.Body with { Hue = 0 } };
+        Assert.True(_world.Families.Restyle(0, puffin, 1));   // 0x26 (L) is family 0
+        Assert.True(_world.Dirty);
+        Press(0x26, "l");
+        Assert.Same(puffin, Assert.Single(_world.Live, e => e.Role == EntityRole.Thing).Recipe);
+
+        var path = Path.Combine(_dir, "families.db");
+        using (var store = new WorldStore(path)) store.Save(_world);
+        var loaded = new World();
+        using (var store = new WorldStore(path)) store.Load(loaded);
+        Assert.Equal("puffin", loaded.Families[0].Name);
+        Assert.Equal(1, loaded.Families.ChangedAt(0));
+        Assert.Null(loaded.Families.ChangedAt(1));
+
+        loaded.Clear();
+        Assert.Same(BuiltInRecipes.Palette[0], loaded.Families[0]);
+    }
+
+    [Fact]
     public void Renderer_draws_a_busy_world()
     {
         foreach (var (scan, ch) in new[] { (0x25, "k"), (0x04, "3"), (0x1F, "s"), (0x2C, "z"), (0x16, "u") })

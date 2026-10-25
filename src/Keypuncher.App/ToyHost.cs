@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Keypuncher.Audio;
 using Keypuncher.Core;
+using Keypuncher.Director;
+using Keypuncher.Inference.Ollama;
 using Keypuncher.Language;
 using Keypuncher.Platform.Windows;
 using Keypuncher.Storage;
@@ -17,6 +19,8 @@ public enum HostMode { Play, Parent, Recording }
 /// <remarks>
 /// Data lives in %LOCALAPPDATA%\Keypuncher, or in the folder named by the KEYPUNCHER_DATA environment
 /// variable, so the child's account and a parent's account can share one set of recordings.
+/// The director talks to Ollama at OLLAMA_HOST (default http://localhost:11434) with the model named by
+/// KEYPUNCHER_MODEL (default qwen3:4b); with no Ollama running, the built-in families simply stay.
 /// </remarks>
 public sealed class ToyHost : IDisposable
 {
@@ -43,8 +47,19 @@ public sealed class ToyHost : IDisposable
         Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load());
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
 
+        var ollama = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } host
+            ? (host.Contains("://") ? host : "http://" + host)
+            : "http://localhost:11434");
+        var model = Environment.GetEnvironmentVariable("KEYPUNCHER_MODEL") is { Length: > 0 } m ? m : DefaultModel;
+        Director = new DirectorLoop(new RealThingDirector(
+            new OllamaLanguageModel(ollama, model),
+            new FactChecker(new OllamaLanguageModel(ollama, model, temperature: 0))));
+        OllamaAddress = ollama;
+
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
     }
+
+    public const string DefaultModel = "qwen3:4b";
 
     /// <summary>Set by MauiProgram once the native window exists.</summary>
     public static IntPtr WindowHandle { get; set; }
@@ -59,6 +74,8 @@ public sealed class ToyHost : IDisposable
     public WorldStore WorldStore { get; }
     public ToyEngine Engine { get; }
     public KeyboardHook Keyboard { get; }
+    public DirectorLoop Director { get; }
+    public Uri OllamaAddress { get; }
 
     public HostMode Mode
     {
@@ -94,6 +111,7 @@ public sealed class ToyHost : IDisposable
     public void Dispose()
     {
         Keyboard.Dispose();
+        Director.Dispose();
         SaveWorld();
         WorldStore.Dispose();
         Audio?.Dispose();
