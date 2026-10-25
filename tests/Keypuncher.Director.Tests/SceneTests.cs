@@ -139,6 +139,18 @@ public class SceneTests
         Assert.Contains($"Travel to {known.Name}", author.Prompts[^1]);
     }
 
+    [Fact]
+    public async Task A_known_place_the_checker_is_unsure_of_is_still_used_but_an_unknown_one_is_not()
+    {
+        var known = new ScriptedModel(Step("Eldhraun, Iceland", "LavaField", "Morning", "Cloudy"));
+        var outcome = await new SceneDirector(known, new PlaceChecker(new ScriptedModel(Place("unknown", "unsure", []))), new Random(1)).ProposeAsync(FromVik);
+        Assert.Equal("Eldhraun, Iceland", outcome.Scene!.Place);
+
+        var unknown = new ScriptedModel(Step("Koh Rong San, Cambodia", "Beach", "Morning", "Cloudy"));
+        var refused = await new SceneDirector(unknown, new PlaceChecker(new ScriptedModel(Place("unknown", "unsure", []))), new Random(1)).ProposeAsync(FromVik);
+        Assert.Equal("checker: not sure it is a real place", refused.Attempts[0].Refused);
+    }
+
     [Theory]
     [InlineData("Savannah, Botswana")]
     [InlineData("Desert, Egypt")]

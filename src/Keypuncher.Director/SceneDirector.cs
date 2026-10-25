@@ -231,7 +231,10 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
                 var check = await checker.CheckAsync(pick!.Place, cancellationToken);
                 // A known place's landscape is known here; any other must be one the checker finds there itself.
                 var known = KnownPlace.All.FirstOrDefault(p => SceneRules.SamePlace(p.Name, pick!.Place));
-                var why = check.Verdict != "real" ? (check.Verdict == "fictional" ? "not a real place" : "not sure it is a real place")
+                // The small checker does not know every known place (Eldhraun, Hallormsstadaskogur), so for those only
+                // "fictional" is a no.
+                var real = check.Verdict == "real" || (known is not null && check.Verdict == "unsure");
+                var why = !real ? (check.Verdict == "fictional" ? "not a real place" : "not sure it is a real place")
                     : known is not null ? (known.Landscape == pick.Landscape ? null : $"not {pick.Landscape} country")
                     : !check.Landscapes.Contains(pick.Landscape) ? $"not {pick.Landscape} country"
                     : null;
