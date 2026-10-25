@@ -95,7 +95,7 @@ public static class DirectorPrompts
         really happens there: no snow in hot deserts, jungles or on the savanna; a rainbow only straight after
         rain. Time only goes forward. The weather is always gentle: no storms.
         Each request says what kind of step to take: a change of weather, the time of day moving on, or a journey
-        to a new place. fact is one short true sentence about the place.
+        to a new place. On a journey, fact is one short true sentence about the new place.
         Answer only with JSON that matches the schema you are given. Never add text around it.
         """;
 

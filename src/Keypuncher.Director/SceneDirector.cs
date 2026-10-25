@@ -88,7 +88,8 @@ public sealed record ScenePick
     [JsonPropertyName("landscape")] public required Landscape Landscape { get; init; }
     [JsonPropertyName("timeOfDay")] public required TimeOfDay TimeOfDay { get; init; }
     [JsonPropertyName("weather")] public required Weather Weather { get; init; }
-    [JsonPropertyName("fact")] public required string Fact { get; init; }
+    /// <summary>Only asked for on a journey: a place keeps the fact it was given when the world went there.</summary>
+    [JsonPropertyName("fact")] public string? Fact { get; init; }
 }
 
 /// <summary>One scene the director tried, kept for the grown-ups' page and the sandbox.</summary>
@@ -108,23 +109,28 @@ public static class SceneSchema
     public static JsonElement For(SceneRequest request)
     {
         var now = request.Current;
+        var journey = request.Change == SceneChange.Journey || now.Place is null;
         var schema = new JsonObject
         {
             ["type"] = "object",
             ["additionalProperties"] = false,
-            ["required"] = new JsonArray("place", "landscape", "timeOfDay", "weather", "fact"),
+            ["required"] = journey ? new JsonArray("place", "landscape", "timeOfDay", "weather", "fact") : new JsonArray("place", "landscape", "timeOfDay", "weather"),
             ["properties"] = new JsonObject
             {
-                ["place"] = new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
+                // Staying put, or going where told, the place is held to its name: the model would otherwise shorten
+                // it ("Jok: Jokulsarlon") and waste a try.
+                ["place"] = request.MustGoTo is { } to ? Enum([to.Name])
+                    : !journey && now.Place is { } here ? Enum([here])
+                    : new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
                 ["landscape"] = Enum(request.MustGoTo is { } must ? [must.Landscape.ToString()]
                     : request.Change == SceneChange.Journey ? Enum<Landscape>() : [now.Landscape.ToString()]),
                 ["timeOfDay"] = Enum([(request.Change == SceneChange.Time ? Scene.Next(now.TimeOfDay) : now.TimeOfDay).ToString()]),
                 ["weather"] = Enum(Enum<Weather>()
                     .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
                     .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())),
-                ["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 },
             },
         };
+        if (journey) schema["properties"]!["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 };
         return JsonDocument.Parse(schema.ToJsonString()).RootElement.Clone();
     }
 
@@ -179,9 +185,8 @@ public static class SceneRules
         var named = place.Split(',')[0].Trim().ToLowerInvariant();
         if (KindWords.Contains(named) || KindWords.Contains(named.Replace("the ", "")) || named.Contains("not yet")) { error = "a kind of country, not a named place"; return false; }
         if (request.MustGoTo is { } must && !SamePlace(place, must.Name)) { error = $"should have been {must.Name}"; return false; }
-        if (string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
-
         newPlace = !SamePlace(place, now.Place);
+        if (newPlace && string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
         var asked = request.Change switch
         {
             SceneChange.Journey when !newPlace => "should have gone somewhere new",
@@ -202,7 +207,7 @@ public static class SceneRules
         if (changed == 3) { error = "changed everything at once"; return false; }
 
         // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
-        var fact = new string(pick.Fact.Trim().Where(c => c < 0x2E80).ToArray());
+        var fact = new string((pick.Fact ?? "").Trim().Where(c => c < 0x2E80).ToArray());
         // A place's fact is settled on the journey there; a change of weather or time keeps it.
         scene = newPlace
             ? new Scene(pick.Landscape, pick.TimeOfDay, pick.Weather, place, fact, false)
@@ -277,7 +282,9 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
                 }
                 // The fact is for grown-ups, and a small model's facts about places are often wrong: a known place
                 // has its own, and any other keeps the model's only if a cold second look agrees with it.
-                var fact = known?.Fact ?? (await checker.ConfirmFactAsync(pick.Place, scene!.Fact!, cancellationToken) ? scene.Fact : null);
+                // A sentence cut off by the schema's length limit is not checked, only dropped.
+                var whole = scene!.Fact is { } f && f.TrimEnd().EndsWith('.');
+                var fact = known?.Fact ?? (whole && await checker.ConfirmFactAsync(pick.Place, scene.Fact!, cancellationToken) ? scene.Fact : null);
                 scene = scene! with { Snows = check.SnowsThere, Fact = fact };
                 attempts.Add(new SceneAttempt(Describe(pick), fact ?? $"(fact not confirmed: {pick.Fact})", null, check));
             }

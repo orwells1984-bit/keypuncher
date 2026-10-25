@@ -24,6 +24,10 @@ public class SceneTests
         Assert.Equal(["Beach"], Values(weather, "landscape"));
         Assert.Equal(["Morning"], Values(weather, "timeOfDay"));
         Assert.DoesNotContain("Cloudy", Values(weather, "weather"));
+        // Staying, the place is held to its name and no new fact is asked for; a journey asks for one.
+        Assert.Equal(["Reynisfjara, Iceland"], Values(weather, "place"));
+        Assert.False(weather.TryGetProperty("fact", out _));
+        Assert.True(journey.TryGetProperty("fact", out _));
 
         var evening = SceneSchema.For(FromVik with { Change = SceneChange.Time, Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
         Assert.Equal(["Dawn"], Values(evening, "timeOfDay"));
@@ -320,13 +324,17 @@ public class SceneTests
     [InlineData("true", "A real fact about the place.")]
     [InlineData("false", null)]
     [InlineData("unsure", null)]
+    [InlineData("cut off", null)]
     public async Task Another_places_fact_is_kept_only_if_a_second_look_agrees(string verdict, string? fact)
     {
-        var author = new ScriptedModel(Step("Ring of Kerry, Ireland", "Farm", "Morning", "Cloudy"));
-        var checker = new ScriptedModel(Place("a road around a peninsula in Ireland", "real", ["Farm", "Mountains"]), JsonSerializer.Serialize(new { verdict }));
+        var step = Step("Ring of Kerry, Ireland", "Farm", "Morning", "Cloudy");
+        if (verdict == "cut off") step = step.Replace("about the place.", "about the");
+        var author = new ScriptedModel(step);
+        var checker = new ScriptedModel(Place("a road around a peninsula in Ireland", "real", ["Farm", "Mountains"]), JsonSerializer.Serialize(new { verdict = "true" == verdict ? "true" : "false" }));
         var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
         Assert.Equal(fact, outcome.Scene!.Fact);
-        Assert.Contains("A real fact about the place.", checker.Prompts[1]);
+        if (verdict == "cut off") Assert.Single(checker.Prompts);
+        else Assert.Contains("A real fact about the place.", checker.Prompts[1]);
     }
 
     [Fact]
