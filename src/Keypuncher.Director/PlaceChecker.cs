@@ -67,6 +67,31 @@ public sealed class PlaceChecker(ILanguageModel model)
         snows: "true" if snow really falls there in some years, "false" if it never does, "unsure" if you do not know.
         """;
 
+    private static readonly JsonElement FactSchema = JsonDocument.Parse("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict"],
+          "properties": { "verdict": { "type": "string", "enum": ["true", "false", "unsure"] } }
+        }
+        """).RootElement.Clone();
+
+    public static string FactPrompt(string place, string fact) =>
+        $"""
+        Place: "{place}"
+        Sentence: "{fact}"
+
+        verdict: "true" only if everything in the sentence is true of this place, including where it is.
+        "false" if any part is wrong. "unsure" if you do not know.
+        """;
+
+    /// <summary>Whether a cold call agrees that <paramref name="fact"/> is true of <paramref name="place"/>; "unsure" is no.</summary>
+    public async Task<bool> ConfirmFactAsync(string place, string fact, CancellationToken cancellationToken = default)
+    {
+        var result = await model.GenerateJsonAsync(System, FactPrompt(place, fact), FactSchema, cancellationToken);
+        return result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.GetString() == "true";
+    }
+
     public async Task<PlaceCheck> CheckAsync(string place, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, Prompt(place), Schema, cancellationToken);

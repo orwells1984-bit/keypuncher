@@ -118,7 +118,7 @@ public sealed class PlayPage : ContentPage
     private string TestOverlay()
     {
         var latest = _host.Director.Log.FirstOrDefault()?.Lines().LastOrDefault(l => !l.Contains("turned down"));
-        return $"Test mode{(_host.Director.Busy ? ", asking the model" : "")}.  Scene: {_host.World.Scene}.  {latest}";
+        return $"Test mode{(_host.Director.Busy ? ", asking the model" : "")}.\nScene: {_host.World.Scene}.{(latest is null ? "" : "\n" + latest)}";
     }
 
     private void OnTouch(object? sender, SKTouchEventArgs e)

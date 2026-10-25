@@ -208,7 +208,7 @@ static int Tour(string outDir, CalmLevel calm)
             {
                 world.Tick(step);
                 clock = new DateTime(2026, 1, 1, 12, 0, 0).AddSeconds(t);
-                renderer.Draw(surface.Canvas, w, h, world, $"Tour: {scene}");
+                renderer.Draw(surface.Canvas, w, h, world, $"Tour, step {steps.IndexOf(scene) + 1} of {steps.Count}.\nScene: {scene}.");
                 recorder.Offer(surface, w, h, t);
             }
         }
