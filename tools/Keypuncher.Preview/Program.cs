@@ -9,6 +9,8 @@
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
 // --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
+// --tour instead records a video (as test mode does) of the backdrop moving through every landscape, time of day
+// and weather, with the toy's real fades, to tour.avi.
 // --calls instead writes every animal noise as a WAV, bold and baby (gentle) versions, for a quick listen.
 
 using Keypuncher.Audio;
@@ -28,6 +30,7 @@ Directory.CreateDirectory(outDir);
 if (args.Contains("--sheet")) return Sheet(outDir);
 if (args.Contains("--calls")) return Calls(outDir);
 if (args.Contains("--scenes")) return Scenes(outDir);
+if (args.Contains("--tour")) return Tour(outDir, calm);
 
 var world = new World();
 var mixer = new Mixer();
@@ -174,6 +177,47 @@ static int Scenes(string outDir)
         using (var f = File.Create(path)) data.SaveTo(f);
         Console.WriteLine(path);
     }
+    return 0;
+}
+
+static int Tour(string outDir, CalmLevel calm)
+{
+    const int w = 1280, h = 720;
+    var world = new World { Style = ArtStyle.For(calm), Limits = CalmLimits.For(calm) with { SceneFadeSeconds = 3 } };
+    var duck = BuiltInRecipes.Animals.All.First(a => a.Body.Shape == Shape.Duck);
+    world.Load(0, [new Entity { Id = 1, Role = EntityRole.Thing, Recipe = duck, X = 0.3, Y = 0.5, Born = -1, Phase = 0.05, Scale = 1 }], []);
+    var steps = new List<Scene>();
+    foreach (var landscape in Enum.GetValues<Landscape>())
+    {
+        steps.Add(new Scene(landscape, TimeOfDay.Morning, Weather.Clear, landscape.ToString()));
+        steps.Add(new Scene(landscape, TimeOfDay.Evening, Scene.Hot(landscape) ? Weather.Cloudy : Weather.Snow, landscape.ToString()));
+    }
+    using var renderer = new SceneRenderer(Fonts.LoadAndika());
+    using var surface = SKSurface.Create(new SKImageInfo(w, h));
+    var folder = Path.Combine(outDir, "tour");
+    if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+    var clock = new DateTime(2026, 1, 1, 12, 0, 0);
+    using (var recorder = new SessionRecorder(folder, () => clock))
+    {
+        var t = 0.0;
+        const double step = 1.0 / SessionRecorder.Fps;
+        foreach (var scene in steps)
+        {
+            world.SetScene(scene);
+            for (var end = t + 5; t < end; t += step)
+            {
+                world.Tick(step);
+                clock = new DateTime(2026, 1, 1, 12, 0, 0).AddSeconds(t);
+                renderer.Draw(surface.Canvas, w, h, world, $"Tour: {scene}");
+                recorder.Offer(surface, w, h, t);
+            }
+        }
+    }
+    var file = Directory.GetFiles(folder).Single();
+    var path = Path.Combine(outDir, "tour.avi");
+    File.Move(file, path, overwrite: true);
+    Directory.Delete(folder);
+    Console.WriteLine(path);
     return 0;
 }
 

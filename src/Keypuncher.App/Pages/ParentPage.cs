@@ -72,7 +72,7 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Let the model change things", _director));
         _directorTest = new Switch { IsToggled = s.DirectorTest };
         layout.Add(Row("Test mode", _directorTest));
-        layout.Add(new Label { Text = "For trying the model out, not for the child: keys and the scene change as fast as the model can answer (a few seconds each), each new thing appears as soon as it is chosen, the choice is written at the top of the screen, scenes fade in over 3 seconds and there is no goodnight. Switch it off before the child plays.", FontSize = 13 });
+        layout.Add(new Label { Text = $"For trying the model out, not for the child: keys and the scene change as fast as the model can answer (a few seconds each), each new thing appears as soon as it is chosen, the choice is written at the top of the screen, scenes fade in over 3 seconds and there is no goodnight. The screen is also recorded as a small video (4 frames a second, stamped with the time the log uses) to {Path.Combine(host.DataFolder, ToyHost.TestVideosName)}; the oldest videos are deleted past 4 GB. Switch it off before the child plays.", FontSize = 13 });
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
         layout.Add(Heading("Voices"));

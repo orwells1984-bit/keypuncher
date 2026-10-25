@@ -20,6 +20,7 @@ public sealed class PlayPage : ContentPage
     private int _width = 1, _height = 1;
     private int _frames;
     private TimeSpan _fpsStart;
+    private SessionRecorder? _recorder;
 
     public PlayPage(ToyHost host)
     {
@@ -47,6 +48,11 @@ public sealed class PlayPage : ContentPage
         base.OnAppearing();
         _host.Mode = HostMode.Play;
         _host.Engine.StartSession();
+        if (_host.Engine.Settings.DirectorTest)
+        {
+            _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.TestVideosName));
+            _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  test mode: recording the screen to {Path.Combine(_host.DataFolder, ToyHost.TestVideosName)}");
+        }
         _last = _clock.Elapsed;
         _timer.Start();
     }
@@ -55,6 +61,7 @@ public sealed class PlayPage : ContentPage
     {
         _timer.Stop();
         _host.SaveWorld();
+        StopRecording();
         base.OnDisappearing();
     }
 
@@ -95,6 +102,16 @@ public sealed class PlayPage : ContentPage
             : _host.Engine.Settings.DirectorTest ? TestOverlay()
             : null;
         _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay);
+        _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
+    }
+
+    private void StopRecording()
+    {
+        if (_recorder is null) return;
+        var file = _recorder.CurrentFile;
+        _recorder.Dispose();
+        _recorder = null;
+        if (file is not null) _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  test mode: video saved as {file}");
     }
 
     /// <summary>In the director's test mode: the scene and the latest pick, at the top for the grown-up.</summary>
@@ -123,6 +140,7 @@ public sealed class PlayPage : ContentPage
     {
         _host.Engine.GrownUpRequested -= OnGrownUp;
         _timer.Stop();
+        StopRecording();
         ToyApp.Show(new ParentPage(_host));
     }
 }
