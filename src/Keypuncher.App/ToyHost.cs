@@ -61,6 +61,10 @@ public sealed class ToyHost : IDisposable
         OllamaAddress = ollama;
         _directorLog = Path.Combine(DataFolder, DirectorLogName);
         Director.Noted += WriteDirectorLog;
+        Director.Restyled += (_, recipe) =>
+        {
+            if (Engine.Settings.DirectorTest) Engine.Show(recipe);
+        };
         WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
 
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));

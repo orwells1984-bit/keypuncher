@@ -13,6 +13,9 @@ namespace Keypuncher.Storage;
 /// <param name="SessionMinutes">Play time before the goodnight: null for the calm level's default, 0 for never.</param>
 /// <param name="AnimalNoises">Animals now and then make their noise (moo, woof, roar) when they appear.</param>
 /// <param name="Director">The local model now and then turns a key's invented thing into a real one.</param>
+/// <param name="DirectorTest">For grown-ups trying the director out: keys and the scene change as fast as the model
+/// can answer, each new thing is shown as soon as it is chosen, what was chosen is written at the top of the
+/// screen, a new scene fades in over a few seconds, and there is no goodnight. Not for a child's play.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -21,16 +24,19 @@ public sealed record ToySettings(
     CalmLevel Calm = CalmLevel.Toddler,
     int? SessionMinutes = null,
     bool AnimalNoises = true,
-    bool Director = true)
+    bool Director = true,
+    bool DirectorTest = false)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 
-    public CalmLimits Limits => CalmLimits.For(Calm);
+    public CalmLimits Limits => DirectorTest
+        ? CalmLimits.For(Calm) with { RestyleMinutes = 0, SceneMinutes = 0, SceneFadeSeconds = 3 }
+        : CalmLimits.For(Calm);
 
     public ArtStyle Style => ArtStyle.For(Calm);
 
     /// <summary>The goodnight comes after this much play; null means never.</summary>
-    public TimeSpan? SessionLength => (SessionMinutes ?? Limits.SessionMinutes) is > 0 and var m ? TimeSpan.FromMinutes(m) : null;
+    public TimeSpan? SessionLength => DirectorTest ? null : (SessionMinutes ?? Limits.SessionMinutes) is > 0 and var m ? TimeSpan.FromMinutes(m) : null;
 }
 
 public sealed class SettingsStore(string path)

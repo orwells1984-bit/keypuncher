@@ -11,7 +11,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _noises, _director;
+    private readonly Switch _upper, _words, _noises, _director, _directorTest;
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
 
@@ -70,6 +70,9 @@ public sealed class ParentPage : ContentPage
         layout.Add(new Label { Text = $"Every {Minutes(s.Limits.RestyleMinutes)} of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Every {Minutes(s.Limits.SceneMinutes)} it also moves the scene a step: the weather changes, the time of day moves on, or the world travels to a new real place, fading in slowly. Each new thing and place is checked by a second question to the model, and story creatures and places are turned away. Names and facts below are for grown-ups only: the child never sees or hears them." });
         _director = new Switch { IsToggled = s.Director };
         layout.Add(Row("Let the model change things", _director));
+        _directorTest = new Switch { IsToggled = s.DirectorTest };
+        layout.Add(Row("Test mode", _directorTest));
+        layout.Add(new Label { Text = "For trying the model out, not for the child: keys and the scene change as fast as the model can answer (a few seconds each), each new thing appears as soon as it is chosen, the choice is written at the top of the screen, scenes fade in over 3 seconds and there is no goodnight. Switch it off before the child plays.", FontSize = 13 });
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
         layout.Add(Heading("Voices"));
@@ -106,7 +109,7 @@ public sealed class ParentPage : ContentPage
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled));
+            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled));
         base.OnDisappearing();
     }
 

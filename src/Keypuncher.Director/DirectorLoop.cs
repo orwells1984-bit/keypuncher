@@ -77,6 +77,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     private Scene? _sceneWas;
     private double? _familyDue, _sceneDue;
     private int _stepsHere;
+    private bool _lastWasScene;
 
     public string ModelName => director.ModelName;
 
@@ -102,14 +103,16 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (_scene is { IsCompleted: true } scene) Finish(world, scene, limits);
         if (!enabled || Busy) return;
 
-        _familyDue ??= world.Time + FirstAfterSeconds;
+        _familyDue ??= world.Time + Math.Min(FirstAfterSeconds, limits.RestyleMinutes * 60);
         _sceneDue ??= world.Time + Math.Min(FirstSceneAfterSeconds, limits.SceneMinutes * 60);
-        var sceneFirst = scenes is not null && world.Time >= _sceneDue && _sceneDue <= _familyDue;
+        // The job waiting longer goes; when both are due together (as in test mode), they take turns.
+        var sceneFirst = scenes is not null && world.Time >= _sceneDue && (_sceneDue < _familyDue || (_sceneDue == _familyDue && !_lastWasScene));
         if (sceneFirst)
         {
             _sceneDue = world.Time + (limits.SceneMinutes * 60);
             var sceneRequest = NextSceneRequest(world);
             Note($"asking for a scene step ({sceneRequest.Change}) from {world.Scene}");
+            _lastWasScene = true;
             _sceneWas = world.Scene;
             var sceneToken = _stop.Token;
             _scene = Task.Run(() => scenes!.ProposeAsync(sceneRequest, sceneToken), sceneToken);
@@ -121,6 +124,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var request = NextRequest(world.Families, world.Scene);
         if (request is null) return;
         _asked = (request.Slot, world.Families[request.Slot]);
+        _lastWasScene = false;
         Note(request.GrowInto is { } next
             ? $"asking key family {request.Slot} to grow from {request.Current} into {next}"
             : $"asking key family {request.Slot} ({request.Current ?? world.Families[request.Slot].Name}) for {RealThingPick.Describe(request.Category).Split(':')[0]} {request.Place}");
@@ -240,6 +244,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (done.Exception is { } e)
         {
             AddLog(new DirectorLogEntry(DateTime.Now, slot, null, e.GetBaseException().Message));
+            // An unreachable model is not asked again at once, however fast the director is set to go.
+            _familyDue = world.Time + Math.Max(FirstAfterSeconds, limits.RestyleMinutes * 60);
             return;
         }
 
@@ -247,7 +253,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         AddLog(new DirectorLogEntry(DateTime.Now, slot, outcome, null));
         // Nothing usable came back: try again (another category and place, maybe another family) shortly,
         // rather than leaving the family as it is for a whole interval.
-        _familyDue = world.Time + (outcome.Accepted ? limits.RestyleMinutes * 60 : FirstAfterSeconds);
+        _familyDue = world.Time + Math.Min(outcome.Accepted ? double.MaxValue : FirstAfterSeconds, limits.RestyleMinutes * 60);
         // A fresh world, or another change, since the request was made: the answer is for something gone.
         if (outcome.Recipe is not { } recipe || !ReferenceEquals(world.Families[slot], was)) return;
         if (world.Families.Restyle(slot, recipe, world.Time)) Restyled?.Invoke(slot, recipe);
@@ -262,12 +268,13 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (done.Exception is { } e)
         {
             AddLog(new DirectorLogEntry(DateTime.Now, -1, null, e.GetBaseException().Message));
+            _sceneDue = world.Time + Math.Max(FirstAfterSeconds, limits.SceneMinutes * 60);
             return;
         }
 
         var outcome = done.Result;
         AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, outcome));
-        _sceneDue = world.Time + (outcome.Accepted ? limits.SceneMinutes * 60 : FirstAfterSeconds);
+        _sceneDue = world.Time + Math.Min(outcome.Accepted ? double.MaxValue : FirstAfterSeconds, limits.SceneMinutes * 60);
         if (outcome.Scene is not { } scene || world.Scene != was) return;
         _stepsHere = SceneRules.SamePlace(world.Scene.Place, scene.Place) ? _stepsHere + 1 : 0;
         if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, scene.Place))
