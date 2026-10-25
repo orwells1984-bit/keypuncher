@@ -117,6 +117,7 @@ fog, a rainbow). The loop chooses the kind of step (a journey from the starting 
    A weather step must change the weather, a journey must go somewhere new. Half of the later requests for an animal or plant ask for one really found at the scene's place.
 2. **Rules** (`SceneRules`): no snow in deserts, jungles or the savanna, a new landscape needs a new place,
    not all three things at once, no going back to one of the last eight places.
+   A journey offers five well-known real places (Icelandic and Bulgarian ones among them, `KnownPlace.All`); if all three tries miss, it goes to one of them. A kind of country with a country after it ("Savannah, Botswana") is not a place.
 3. **Place check** (`PlaceChecker`): a new place goes to a second, cold call that sees only its name, must
    say it is real, lists the landscapes found there itself (the claimed one must be among them) and, for
    snow, must say snow falls there.

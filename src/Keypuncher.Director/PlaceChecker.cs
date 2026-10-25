@@ -57,8 +57,10 @@ public sealed class PlaceChecker(ILanguageModel model)
         Place: "{place}"
 
         whatItIs: say in a few plain words where on Earth this is, or "unknown".
-        verdict: "real" only if it is a real place on Earth that you know. "fictional" if it comes from myths,
-        stories, films, cartoons or games, or if the name is made up. "unsure" if you do not know it well.
+        verdict: "real" only if it is a real, named place on Earth that you know: a town, park, island, lake,
+        mountain, beach, forest or region. "fictional" if it comes from myths, stories, films, cartoons or games,
+        or if the name is made up. "unsure" if you do not know it well, or if it is only a kind of country with a
+        country's name after it ("Desert, Egypt", "Savannah, Botswana"), or if the place is not in that country.
         landscapes: the kinds of country really found at this place, one to four of: Meadow, Farm, Forest, Jungle,
         Mountains, Beach, Lake, Desert, Savanna, SnowyHills (hills under snow for much of the year), LavaField
         (old lava under moss). Empty if it is not real.

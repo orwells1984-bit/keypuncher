@@ -100,7 +100,7 @@ public static class DirectorPrompts
         """;
 
     /// <summary>The ask for one scene step.</summary>
-    public static string SceneStep(SceneRequest request, IReadOnlyList<string> turnedDown)
+    public static string SceneStep(SceneRequest request, IReadOnlyList<string> turnedDown, IReadOnlyList<KnownPlace>? suggestions = null)
     {
         var now = request.Current;
         var here = now.Place is { } place ? $"{place}, {Scene.Describe(now.Landscape)}" : "a meadow, not yet a named place";
@@ -108,14 +108,16 @@ public static class DirectorPrompts
         {
             SceneChange.Weather => $"Change the weather: keep place exactly \"{now.Place}\", landscape {now.Landscape} and the time of day, and choose new weather that really happens there.",
             SceneChange.Time => $"Let time move on to {Scene.Next(now.TimeOfDay)}: keep place exactly \"{now.Place}\" and landscape {now.Landscape}. The weather may stay or change gently.",
-            _ => "Travel to a new real place on Earth, written as \"Name, Country\" (never \"meadow\" or a description), and choose the landscape it looks like. The time of day stays; the weather may change.",
+            _ when request.MustGoTo is { } must => $"Travel to {must.Name}: place must be exactly \"{must.Name}\", landscape {must.Landscape}. The time of day stays; the weather may change.",
+            _ => $"Travel somewhere new: leave {now.Place ?? "the meadow"} and choose a different real place on Earth, a named town, park, island, lake, mountain, beach or forest, written as \"Name, Country\" (never just a kind of country like \"Savannah, Botswana\"), and the landscape it looks like. The time of day stays; the weather may change.",
         };
         return $"""
             Now: {here}, {now.TimeOfDay.ToString().ToLowerInvariant()}, weather {now.Weather}.
             {ask}
-            {(request.Things.Count == 0 ? "" : "If you choose a new place, one where some of these really live or grow is good: " + string.Join(", ", request.Things) + ".")}
+            {(request.Things.Count == 0 || request.Change != SceneChange.Journey ? "" : "If you choose a new place, one where some of these really live or grow is good: " + string.Join(", ", request.Things) + ".")}
             {(request.RecentPlaces.Count == 0 ? "" : "Not these places, which the world has been to lately: " + string.Join("; ", request.RecentPlaces) + ".")}
             {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
+            {(suggestions is { Count: > 0 } ? "If you are not sure of a place, choose one of these: " + string.Join("; ", suggestions.Select(p => $"{p.Name} ({p.Landscape})")) + "." : "")}
             """;
     }
 }

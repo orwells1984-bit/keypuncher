@@ -116,7 +116,54 @@ public class SceneTests
         var checker = new ScriptedModel(Place("a beach in Sydney", "real", ["Beach"], "false"));
         var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
         Assert.False(outcome.Accepted);
-        Assert.All(outcome.Attempts, a => Assert.Equal("checker: it does not snow there", a.Refused));
+        Assert.All(outcome.Attempts.Take(SceneDirector.MaxAttempts), a => Assert.Equal("checker: it does not snow there", a.Refused));
+        Assert.StartsWith("should have been ", outcome.Attempts[^1].Refused);
+    }
+
+    [Fact]
+    public async Task A_journey_offers_known_places_and_if_every_try_misses_goes_to_one()
+    {
+        var stuck = Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain");
+        var author = new GoesWhereTold(stuck);
+        var checker = new ScriptedModel(Place("a valley in Iceland", "real", ["Forest"], "true"));
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker), new Random(2)).ProposeAsync(FromVik);
+
+        Assert.Equal(SceneDirector.MaxAttempts + 1, outcome.Attempts.Count);
+        Assert.All(outcome.Attempts.Take(SceneDirector.MaxAttempts), a => Assert.Equal("should have gone somewhere new", a.Refused));
+        Assert.Contains("If you are not sure of a place, choose one of these:", author.Prompts[0]);
+        Assert.DoesNotContain("Reynisfjara, Iceland (Beach)", author.Prompts[0]);
+        Assert.DoesNotContain("Lake Myvatn, Iceland (Lake)", author.Prompts[0]);
+        // The known place's own landscape is used, even though the checker named another.
+        var known = KnownPlace.All.Single(p => p.Name == outcome.Scene!.Place);
+        Assert.Equal(known.Landscape, outcome.Scene!.Landscape);
+        Assert.Contains($"Travel to {known.Name}", author.Prompts[^1]);
+    }
+
+    [Theory]
+    [InlineData("Savannah, Botswana")]
+    [InlineData("Desert, Egypt")]
+    [InlineData("Meadow, not yet a named place")]
+    [InlineData("The Lake, Iceland")]
+    public void A_kind_of_country_is_not_a_named_place(string place)
+    {
+        Assert.False(Build(Step(place, "Savanna", "Morning", "Clear"), FromVik, out _, out _, out var error));
+        Assert.Equal("a kind of country, not a named place", error);
+    }
+
+    /// <summary>Answers with a fixed step until told where it must go, then goes there.</summary>
+    private sealed class GoesWhereTold(string answer) : Keypuncher.Inference.ILanguageModel
+    {
+        public List<string> Prompts { get; } = [];
+        public string ModelName => "scripted";
+
+        public Task<Keypuncher.Inference.GenerationResult> GenerateJsonAsync(string systemPrompt, string userPrompt, JsonElement jsonSchema, CancellationToken cancellationToken = default)
+        {
+            Prompts.Add(userPrompt);
+            var must = System.Text.RegularExpressions.Regex.Match(userPrompt, "place must be exactly \"([^\"]+)\", landscape (\\w+)");
+            var raw = must.Success ? Step(must.Groups[1].Value, must.Groups[2].Value, "Morning", "Clear") : answer;
+            return Task.FromResult(new Keypuncher.Inference.GenerationResult(raw, JsonDocument.Parse(raw),
+                new Keypuncher.Inference.GenerationTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 0, 0)));
+        }
     }
 
     [Fact]
