@@ -62,7 +62,9 @@ while it is in front; use the grown-up exit below to get back.
 - The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
 - Clicks and taps work too; three fingers make a burst.
 - When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
-  3 minutes) and then puts things to sleep.
+  3 minutes) and then puts things to sleep. Only play counts: time more than 20 s after the last press or
+  tap does not, so a toy left running stays awake. After a goodnight, a rest as long as the play time
+  makes the next press start a new session.
 - **Calm level** (grown-ups' page): Baby, Toddler or Big toddler sets how many things stay on screen
   and move, and how they are drawn. Younger levels draw things bigger, with thicker dark outlines and
   fewer, fully saturated colours, because an infant's acuity and contrast sensitivity are a fraction

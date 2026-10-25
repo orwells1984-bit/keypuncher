@@ -28,7 +28,7 @@ public sealed class ToyEngine
     /// <summary>Mash bursts are at least this far apart, well under the three-flashes-a-second limit.</summary>
     private const double MinBurstGap = 0.7;
     private const double MaxBurstScale = 1.6;
-    /// <summary>With no input for this long the scene settles faster.</summary>
+    /// <summary>With no input for this long the scene settles faster, and the time stops counting as play.</summary>
     public const double QuietAfter = 20;
     /// <summary>The goodnight dims the sky and puts things to sleep over this many seconds.</summary>
     public const double GoodnightSeconds = 8;
@@ -62,7 +62,10 @@ public sealed class ToyEngine
     private LanguageMix _mix;
     private SpawnLimiter _limiter;
     private double _lastBurst = double.NegativeInfinity;
-    private double _sessionStart, _lastInput;
+    /// <summary>Seconds of play this session: time within <see cref="QuietAfter"/> of a press or tap. A toy left
+    /// running on its own does not use up the child's play time.</summary>
+    private double _played;
+    private double _lastInput;
     private double? _windDownSince, _asleepSince;
 
     /// <param name="callRandom">Decides when animals make their noise; kept apart from <paramref name="random"/> so
@@ -121,7 +124,8 @@ public sealed class ToyEngine
     /// goodnight; call when play starts.</summary>
     public void StartSession()
     {
-        _sessionStart = _lastInput = _world.Time;
+        _played = 0;
+        _lastInput = _world.Time;
         SessionLanguage = _mix.Pick(_random);
         _windDownSince = _asleepSince = null;
         _world.Night = 0;
@@ -140,6 +144,7 @@ public sealed class ToyEngine
             _mash.Feed(press);
             return;
         }
+        WakeAfterRest();
         _lastInput = _world.Time;
         if (IsAsleep)
         {
@@ -182,6 +187,7 @@ public sealed class ToyEngine
     /// <summary>A tap or press on the screen at 0..1 coordinates.</summary>
     public void OnTouch(double x, double y, int fingers)
     {
+        WakeAfterRest();
         _lastInput = _world.Time;
         if (IsAsleep)
         {
@@ -205,7 +211,8 @@ public sealed class ToyEngine
     /// <summary>Advances the world and runs scheduled counting and words.</summary>
     public void Update(double dt)
     {
-        if (_windDownSince is null && _settings.SessionLength is { } length && _world.Time - _sessionStart >= length.TotalSeconds)
+        if (_world.Time - _lastInput < QuietAfter) _played += dt;
+        if (_windDownSince is null && _settings.SessionLength is { } length && _played >= length.TotalSeconds)
             _windDownSince = _world.Time;
         if (IsWindingDown && (_world.Time - _lastInput >= PauseBeforeGoodnight || _world.Time - _windDownSince >= MaxWindDown))
         {
@@ -245,6 +252,13 @@ public sealed class ToyEngine
             else if (_world.Time < unsaid.Until) return;
             _unsaidWord = null;
         }
+    }
+
+    /// <summary>After a goodnight, a rest as long as the play time makes the next press a new session, so a toy
+    /// left running is awake again when the child comes back. Pressing on through the night keeps it asleep.</summary>
+    private void WakeAfterRest()
+    {
+        if (IsAsleep && _settings.SessionLength is { } length && _world.Time - _lastInput >= length.TotalSeconds) StartSession();
     }
 
     /// <summary>Clears key state after the window loses focus (key-ups went elsewhere).</summary>
