@@ -14,6 +14,8 @@ namespace Keypuncher.Director;
 /// <param name="Place">Where such a thing is found ("in a pond", "in the Ice Age"); drawn at random per request,
 /// because a small model asked for "an animal" offers the same three every time.</param>
 /// <param name="GrowInto">When the current thing really grows into something (a tadpole), the next pick must be that.</param>
+/// <param name="MustBe">The director's last resort for a category the model keeps missing: the pick must be this
+/// well-known real thing, which is still checked like any other.</param>
 public sealed record DirectorRequest(
     int Slot,
     RecipeKind Kind,
@@ -21,7 +23,8 @@ public sealed record DirectorRequest(
     IReadOnlyList<string> Existing,
     string? GrowInto = null,
     RealCategory Category = RealCategory.Animal,
-    string? Place = null);
+    string? Place = null,
+    string? MustBe = null);
 
 /// <summary>
 /// The checks a pick must pass before anything is asked about whether it is real. They cannot prove a thing
@@ -59,6 +62,12 @@ public static class RealThingRules
         "animal", "animals", "creature", "dinosaur", "dinosaurs", "bird", "mammal", "reptile", "insect", "bug",
         "plant", "flower", "tree", "vegetable", "fruit", "vehicle", "object", "thing", "toy", "baby", "fossil",
     ];
+
+    /// <summary>Words that describe rather than name: "extinct marine reptile" is not one kind of thing.</summary>
+    private static readonly HashSet<string> DescribingWords = ["extinct", "prehistoric", "ancient", "fossil", "unknown", "some", "any", "kind", "type"];
+
+    /// <summary>Group words that end a description rather than a name: "sea animal", "flying reptile".</summary>
+    private static readonly HashSet<string> GroupEndings = ["animal", "animals", "creature", "creatures", "reptile", "reptiles", "mammal", "mammals", "beast", "species", "dinosaur", "dinosaurs", "thing"];
 
     /// <summary>What a model writes when it means no life stage.</summary>
     private static readonly HashSet<string> Nothing = ["null", "none", "nothing", "n/a", "na", "no", "-"];
@@ -102,7 +111,9 @@ public static class RealThingRules
         if (name.Length is < 2 or > 24) return "name length";
         if (!name.All(c => c is (>= 'a' and <= 'z') or ' ' or '-' or '\'' or '.')) return "not a plain English name";
         if (name.Count(c => c == ' ') > 3) return "too many words";
-        if (GroupWords.Contains(name)) return "too general, not one kind";
+        var parts = name.Split(' ');
+        if (GroupWords.Contains(name) || parts.Any(DescribingWords.Contains) || GroupEndings.Contains(parts[^1]))
+            return "too general, not one kind";
         if (RealDespiteTheWord.Contains(name)) return null;
         var words = name.Split(' ', '-');
         if (FantasyWords.Contains(name) || words.Any(FantasyWords.Contains)) return "from a story, not real";
@@ -127,7 +138,7 @@ public static class RealThingRules
         if (NameProblem(subject) is { } problem) { error = problem; return false; }
         if (string.IsNullOrWhiteSpace(parsed.Fact)) { error = "no fact"; return false; }
 
-        if (request.GrowInto is { } next && subject != Tidy(next)) { error = $"should have been {next}"; return false; }
+        if ((request.GrowInto ?? request.MustBe) is { } next && subject != Tidy(next)) { error = $"should have been {next}"; return false; }
         if (request.GrowInto is null && (request.Existing.Any(e => SameThing(e, subject)) || (request.Current is { } now && SameThing(now, subject))))
         {
             error = "already in the world";

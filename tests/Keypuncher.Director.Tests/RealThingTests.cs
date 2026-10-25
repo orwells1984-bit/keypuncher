@@ -125,6 +125,10 @@ public class RealThingTests
     [InlineData("dinosaur")]
     [InlineData("flower")]
     [InlineData("bird")]
+    [InlineData("extinct marine reptile")]
+    [InlineData("extinct animal")]
+    [InlineData("sea animal")]
+    [InlineData("prehistoric bird")]
     public void Group_words_are_refused(string name) =>
         Assert.Equal("too general, not one kind", Build(Pick(name, "Animal", "Blob"), CreatureFamily, out _, out _, out var e) ? null : e);
 
@@ -200,11 +204,27 @@ public class RealThingTests
         var outcome = await new RealThingDirector(author, new FactChecker(checker), new Random(1)).ProposeAsync(request);
 
         Assert.Equal("moa", outcome.Recipe!.Name);
-        Assert.DoesNotContain("choose one of these", author.Prompts[1]);
+        Assert.Contains("choose one of these", author.Prompts[0]);
         var last = author.Prompts[2];
         Assert.Contains("choose one of these: ", last);
         var offered = last[(last.IndexOf("choose one of these: ") + 21)..].TrimEnd('.', '\n', ' ').Split(", ");
         Assert.Equal(["dodo", "moa"], offered.Order());
+    }
+
+    [Fact]
+    public async Task An_extinct_animal_request_that_misses_three_times_draws_a_well_known_one()
+    {
+        var author = new ScriptedModel(
+            Pick("extinct animal", "ExtinctAnimal", "Blob"), Pick("extinct animal", "ExtinctAnimal", "Blob"),
+            Pick("extinct animal", "ExtinctAnimal", "Blob"), Pick("dodo", "ExtinctAnimal", "Bird"));
+        var checker = new ScriptedModel(Check("an extinct bird", "real", kind: "ExtinctAnimal"));
+        var request = Extinct with { Existing = [.. RealThingPick.WellKnownExtinct.Where(n => n != "dodo")] };
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(request);
+
+        Assert.Equal("dodo", outcome.Recipe!.Name);
+        Assert.Equal(RealThingDirector.MaxAttempts + 1, outcome.Attempts.Count);
+        Assert.Contains("subject must be \"dodo\"", author.Prompts[3]);
+        Assert.Single(checker.Prompts);   // the group words never reached the checker
     }
 
     [Fact]

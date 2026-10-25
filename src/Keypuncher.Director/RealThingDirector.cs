@@ -23,10 +23,11 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 ///    with a fact, and the schema's enums keep the drawing to shapes the toy knows.
 /// 2. <see cref="RealThingRules"/> turns away story creatures, odd names, impossible shapes and repeats.
 /// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing.
-/// A refused pick is named in the next try's prompt; after <see cref="MaxAttempts"/> the family stays as it is,
-/// which is always safe.
+/// A refused pick is named in the next try's prompt. A request for an extinct animal also offers a few well-known
+/// ones on every try and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
+/// Any other request that misses leaves the family as it is, which is always safe.
 /// </summary>
-/// <param name="random">Picks the suggestions for a last try at an extinct animal.</param>
+/// <param name="random">Picks the well-known extinct animals to offer.</param>
 public sealed class RealThingDirector(ILanguageModel author, FactChecker checker, Random? random = null)
 {
     private readonly Random _random = random ?? new Random();
@@ -42,7 +43,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         var turnedDown = new List<string>();
         for (var i = 0; i < MaxAttempts; i++)
         {
-            var suggestions = i == MaxAttempts - 1 ? Suggestions(request, attempts) : null;
+            var suggestions = Suggestions(request, attempts);
             var result = await author.GenerateJsonAsync(
                 DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown, suggestions), RealThingSchema.For(request), cancellationToken);
             if (!RealThingRules.TryBuild(result.Json, request, out var pick, out var recipe, out var error))
@@ -73,6 +74,26 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, null, check));
             return new DirectorOutcome(request, recipe, attempts, DateTime.UtcNow - started);
         }
+
+        // An extinct animal must not come back empty: draw a well-known one not yet in the world, checked as usual.
+        if (Suggestions(request, attempts) is [var fallback, ..])
+        {
+            var forced = request with { MustBe = fallback };
+            var result = await author.GenerateJsonAsync(
+                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(forced, []), RealThingSchema.For(forced), cancellationToken);
+            if (RealThingRules.TryBuild(result.Json, forced, out var pick, out var recipe, out var error))
+            {
+                var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, cancellationToken);
+                if (check.Passes(pick.Category))
+                {
+                    if (recipe!.GrowsInto is not null && !check.GrowsIntoConfirmed) recipe = recipe with { GrowsInto = null };
+                    attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, null, check));
+                    return new DirectorOutcome(request, recipe, attempts, DateTime.UtcNow - started);
+                }
+                attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, $"checker: {check.Verdict}, {check.Kind}", check));
+            }
+            else attempts.Add(new DirectorAttempt(pick?.Subject ?? fallback, pick?.Fact, error, null));
+        }
         return new DirectorOutcome(request, null, attempts, DateTime.UtcNow - started);
     }
 
@@ -80,7 +101,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
     /// otherwise tends to offer a living animal or a dinosaur that is already there.</summary>
     private List<string>? Suggestions(DirectorRequest request, List<DirectorAttempt> attempts)
     {
-        if (request.Category != RealCategory.ExtinctAnimal || request.GrowInto is not null) return null;
+        if (request.Category != RealCategory.ExtinctAnimal || request.GrowInto is not null || request.MustBe is not null) return null;
         var free = RealThingPick.WellKnownExtinct
             .Where(n => !request.Existing.Any(e => RealThingRules.SameThing(e, n)) && !attempts.Any(a => RealThingRules.SameThing(a.Subject, n)))
             .ToList();

@@ -68,6 +68,8 @@ public static class DirectorPrompts
         var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $". It should be something {place}" : "");
         var ask = request.GrowInto is { } next
             ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
+            : request.MustBe is { } must
+            ? $"Draw the real {must}, {RealThingPick.Describe(request.Category)}: subject must be \"{must}\"."
             : $"Choose {what}. Name one particular kind, not a group word like dinosaur, bird or flower."
               + (request.Category == RealCategory.ExtinctAnimal
                   ? " Dinosaurs, Ice Age mammals, sea reptiles, flying reptiles and birds that died out all count. An animal that still lives anywhere today does not."
