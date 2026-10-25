@@ -2,12 +2,15 @@ using Keypuncher.Core;
 
 namespace Keypuncher.Director;
 
-/// <summary>One line of the director's log: what it was asked, what came of it, or why it could not run.</summary>
-public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error);
+/// <summary>One line of the director's log: what it was asked, what came of it, or why it could not run.
+/// <paramref name="Slot"/> is -1 for a scene step, whose result is in <paramref name="Scene"/>.</summary>
+public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error, SceneOutcome? Scene = null);
 
 /// <summary>
-/// The director loop. Every few minutes of play (the calm level's <see cref="CalmLimits.RestyleMinutes"/>) it asks
-/// the <see cref="RealThingDirector"/> for a real thing for one key family and, if one comes back, restyles that family.
+/// The director loop. It keeps the local model busy with two jobs, one request at a time: every
+/// <see cref="CalmLimits.RestyleMinutes"/> it asks the <see cref="RealThingDirector"/> for a real thing for one key
+/// family, and every <see cref="CalmLimits.SceneMinutes"/> it asks the <see cref="SceneDirector"/> for the scene's
+/// next step (a real place, its weather, the time of day moving on). When both are due, the one waiting longer goes.
 /// Families still holding an invented built-in thing go first; after that, a thing that really grows into
 /// something becomes it (tadpole, then frog), and otherwise the family changed longest ago is next.
 /// Call <see cref="Update"/> from the UI thread each frame; the model runs on the thread pool and its answer is
@@ -15,12 +18,16 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
 /// </summary>
 /// <param name="creatureCategories">What a creature family may be asked for, drawn evenly; defaults to
 /// <see cref="CreatureMix"/>.</param>
-public sealed class DirectorLoop(RealThingDirector director, Random? random = null, IReadOnlyList<RealCategory>? creatureCategories = null) : IDisposable
+/// <param name="scenes">Changes the scene; without one the scene stays.</param>
+public sealed class DirectorLoop(RealThingDirector director, Random? random = null, IReadOnlyList<RealCategory>? creatureCategories = null,
+    SceneDirector? scenes = null) : IDisposable
 {
-    /// <summary>The first request comes this long into play, so starting the toy is not when things change; a
-    /// request that came back empty is tried again this long after.</summary>
+    /// <summary>The first family request comes this long into play, so starting the toy is not when things change;
+    /// a request that came back empty is tried again this long after.</summary>
     public const double FirstAfterSeconds = 30;
-    public const int LogLength = 12;
+    public const int LogLength = 16;
+    /// <summary>Places the scene has been, remembered so it moves on somewhere new.</summary>
+    public const int RecentPlaces = 8;
 
     /// <summary>Plain names for the built-in animals whose recipe names are shorthand.</summary>
     private static readonly Dictionary<string, string> PlainNames = new()
@@ -32,43 +39,71 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     private readonly Random _random = random ?? new Random();
     private readonly CancellationTokenSource _stop = new();
     private readonly List<DirectorLogEntry> _log = [];
-    private Task<DirectorOutcome>? _running;
+    private readonly List<string> _places = [];
+    private Task<DirectorOutcome>? _family;
+    private Task<SceneOutcome>? _scene;
     private (int Slot, Recipe Was)? _asked;
-    private double? _startedAt, _lastAsked;
+    private Scene? _sceneWas;
+    private double? _familyDue, _sceneDue;
 
     public string ModelName => director.ModelName;
 
     /// <summary>Newest first.</summary>
     public IReadOnlyList<DirectorLogEntry> Log => _log;
 
-    public bool Busy => _running is not null;
+    public bool Busy => _family is not null || _scene is not null;
 
     /// <summary>Raised on the UI thread when a family has been restyled.</summary>
     public event Action<int, Recipe>? Restyled;
 
-    /// <param name="world">The world whose families change.</param>
-    /// <param name="restyleMinutes">Minutes of play between requests.</param>
+    /// <param name="world">The world whose families and scene change.</param>
+    /// <param name="limits">How often each job comes round.</param>
     /// <param name="enabled">False while the director is switched off or the child is asleep: nothing new
     /// is asked, though an answer already on its way is still used.</param>
-    public void Update(World world, double restyleMinutes, bool enabled)
+    public void Update(World world, CalmLimits limits, bool enabled)
     {
-        if (_running is { IsCompleted: true } done) Finish(world, done);
-        if (!enabled || _running is not null) return;
+        if (_family is { IsCompleted: true } family) Finish(world, family, limits);
+        if (_scene is { IsCompleted: true } scene) Finish(world, scene, limits);
+        if (!enabled || Busy) return;
 
-        _startedAt ??= world.Time;
-        var due = _lastAsked is { } last ? last + (restyleMinutes * 60) : _startedAt.Value + FirstAfterSeconds;
-        if (world.Time < due) return;
+        _familyDue ??= world.Time + FirstAfterSeconds;
+        _sceneDue ??= world.Time + (limits.SceneMinutes * 60);
+        var sceneFirst = scenes is not null && world.Time >= _sceneDue && _sceneDue <= _familyDue;
+        if (sceneFirst)
+        {
+            _sceneDue = world.Time + (limits.SceneMinutes * 60);
+            var sceneRequest = NextSceneRequest(world);
+            _sceneWas = world.Scene;
+            var sceneToken = _stop.Token;
+            _scene = Task.Run(() => scenes!.ProposeAsync(sceneRequest, sceneToken), sceneToken);
+            return;
+        }
+        if (world.Time < _familyDue) return;
 
-        var request = NextRequest(world.Families);
-        _lastAsked = world.Time;
+        _familyDue = world.Time + (limits.RestyleMinutes * 60);
+        var request = NextRequest(world.Families, world.Scene);
         if (request is null) return;
         _asked = (request.Slot, world.Families[request.Slot]);
         var token = _stop.Token;
-        _running = Task.Run(() => director.ProposeAsync(request, token), token);
+        _family = Task.Run(() => director.ProposeAsync(request, token), token);
+    }
+
+    /// <summary>The scene step to ask for: the scene now, where it has been, and the real things in the world.</summary>
+    public SceneRequest NextSceneRequest(World world)
+    {
+        var things = world.Families.All
+            .Where((r, i) => !KeyFamilies.CanRestyle(i) || world.Families.ChangedAt(i) is not null)
+            .Select(r => PlainNames.GetValueOrDefault(r.Name, r.Name))
+            .Distinct()
+            .OrderBy(_ => _random.Next())
+            .Take(12)
+            .ToList();
+        return new SceneRequest(world.Scene, [.. _places.Where(p => !SceneRules.SamePlace(p, world.Scene.Place))], things);
     }
 
     /// <summary>The next family to restyle and what to ask for it; null if no family may change.</summary>
-    public DirectorRequest? NextRequest(KeyFamilies families)
+    /// <param name="scene">The scene now: half the requests for a living animal or a plant ask for one found there.</param>
+    public DirectorRequest? NextRequest(KeyFamilies families, Scene? scene = null)
     {
         var slots = Enumerable.Range(0, families.Count).Where(KeyFamilies.CanRestyle).ToList();
         if (slots.Count == 0) return null;
@@ -83,7 +118,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         if (invented.Count > 0)
         {
             var slot = invented[_random.Next(invented.Count)];
-            return Ask(slot, families[slot].Kind, null, existing);
+            return Ask(slot, families[slot].Kind, null, existing, scene);
         }
 
         var growing = slots.Where(i => families[i].GrowsInto is not null).OrderBy(i => families.ChangedAt(i)).ToList();
@@ -91,15 +126,23 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var current = families[pick];
         return current.GrowsInto is { } next
             ? new DirectorRequest(pick, current.Kind, current.Name, existing, next, current.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal)
-            : Ask(pick, current.Kind, current.Name, existing);
+            : Ask(pick, current.Kind, current.Name, existing, scene);
     }
 
     /// <summary>A request with a category and place drawn at random, so the picks range widely.</summary>
-    private DirectorRequest Ask(int slot, RecipeKind kind, string? current, IReadOnlyList<string> existing)
+    private DirectorRequest Ask(int slot, RecipeKind kind, string? current, IReadOnlyList<string> existing, Scene? scene)
     {
         var category = kind == RecipeKind.Plant ? RealCategory.Plant : Pick(creatureCategories ?? CreatureMix);
-        return new DirectorRequest(slot, kind, current, existing, Category: category, Place: Pick(Places[category]));
+        var place = scene is not null && category is RealCategory.Animal or RealCategory.Plant && _random.NextDouble() < 0.5
+            ? HerePlace(scene, category)
+            : Pick(Places[category]);
+        return new DirectorRequest(slot, kind, current, existing, Category: category, Place: place);
     }
+
+    /// <summary>Where the scene is, as a request's place: "that really lives at Reynisfjara, Iceland".</summary>
+    private static string HerePlace(Scene scene, RealCategory category) => scene.Place is { } named
+        ? $"that really {(category == RealCategory.Plant ? "grows" : "lives")} at {named}"
+        : Scene.Describe(scene.Landscape);
 
     /// <summary>The places a request for <paramref name="category"/> may name.</summary>
     public static IReadOnlyList<string> PlacesFor(RealCategory category) => Places[category];
@@ -137,10 +180,10 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         [RealCategory.Object] = ["in a kitchen", "at the beach", "in a playground", "in a garden", "at bedtime", "at a birthday party"],
     };
 
-    private void Finish(World world, Task<DirectorOutcome> done)
+    private void Finish(World world, Task<DirectorOutcome> done, CalmLimits limits)
     {
         var (slot, was) = _asked!.Value;
-        _running = null;
+        _family = null;
         _asked = null;
         if (done.IsCanceled) return;
         if (done.Exception is { } e)
@@ -153,10 +196,34 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         AddLog(new DirectorLogEntry(DateTime.Now, slot, outcome, null));
         // Nothing usable came back: try again (another category and place, maybe another family) shortly,
         // rather than leaving the family as it is for a whole interval.
-        if (!outcome.Accepted) (_startedAt, _lastAsked) = (world.Time, null);
+        _familyDue = world.Time + (outcome.Accepted ? limits.RestyleMinutes * 60 : FirstAfterSeconds);
         // A fresh world, or another change, since the request was made: the answer is for something gone.
         if (outcome.Recipe is not { } recipe || !ReferenceEquals(world.Families[slot], was)) return;
         if (world.Families.Restyle(slot, recipe, world.Time)) Restyled?.Invoke(slot, recipe);
+    }
+
+    private void Finish(World world, Task<SceneOutcome> done, CalmLimits limits)
+    {
+        var was = _sceneWas;
+        _scene = null;
+        _sceneWas = null;
+        if (done.IsCanceled) return;
+        if (done.Exception is { } e)
+        {
+            AddLog(new DirectorLogEntry(DateTime.Now, -1, null, e.GetBaseException().Message));
+            return;
+        }
+
+        var outcome = done.Result;
+        AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, outcome));
+        _sceneDue = world.Time + (outcome.Accepted ? limits.SceneMinutes * 60 : FirstAfterSeconds);
+        if (outcome.Scene is not { } scene || world.Scene != was) return;
+        if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, scene.Place))
+        {
+            _places.Insert(0, left);
+            if (_places.Count > RecentPlaces) _places.RemoveAt(_places.Count - 1);
+        }
+        world.SetScene(scene);
     }
 
     private void AddLog(DirectorLogEntry entry)

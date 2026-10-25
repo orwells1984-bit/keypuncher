@@ -83,4 +83,35 @@ public static class DirectorPrompts
             {(suggestions is { Count: > 0 } ? "If you are not sure of one, choose one of these: " + string.Join(", ", suggestions) + "." : "")}
             """;
     }
+
+    /// <summary>The standing orders for scene steps: real places, real weather, time going forward, small changes.</summary>
+    public const string SceneSystem = """
+        You choose where a picture toy for a baby takes place, and its weather and time of day, a small step at a
+        time. The place must be a real place on Earth that you know well, written as "Name, Country", like
+        "Reynisfjara, Iceland" or "Serengeti, Tanzania": a real beach, forest, lake, mountain, valley, desert,
+        island, farmland or national park. Never a place from myths, stories, films, cartoons or games, and never
+        a made-up name. Places in Iceland are especially welcome, but anywhere on Earth is fine.
+        landscape is the one that best describes what the place looks like. The weather must be weather that
+        really happens there: no snow in hot deserts, jungles or on the savanna; a rainbow only straight after
+        rain. Time only goes forward. The weather is always gentle: no storms.
+        Change one or two things, never all three: often just the weather, or the time of day moving on;
+        sometimes a journey to a new place. fact is one short true sentence about the place.
+        Answer only with JSON that matches the schema you are given. Never add text around it.
+        """;
+
+    /// <summary>The ask for one scene step.</summary>
+    public static string SceneStep(SceneRequest request, IReadOnlyList<string> turnedDown)
+    {
+        var now = request.Current;
+        var here = now.Place is { } place ? $"{place}, {Scene.Describe(now.Landscape)}" : "a meadow, not yet a named place";
+        var stay = now.Place is null ? "Choose a real place to begin." : $"To stay, keep place exactly \"{now.Place}\" and landscape {now.Landscape}.";
+        return $"""
+            Now: {here}, {now.TimeOfDay.ToString().ToLowerInvariant()}, weather {now.Weather}.
+            {stay}
+            Time of day: keep {now.TimeOfDay} or move on to {Scene.Next(now.TimeOfDay)}.
+            {(request.Things.Count == 0 ? "" : "If you choose a new place, one where some of these really live or grow is good: " + string.Join(", ", request.Things) + ".")}
+            {(request.RecentPlaces.Count == 0 ? "" : "Not these places, which the world has been to lately: " + string.Join("; ", request.RecentPlaces) + ".")}
+            {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
+            """;
+    }
 }

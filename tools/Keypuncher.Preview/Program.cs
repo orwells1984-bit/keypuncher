@@ -8,6 +8,7 @@
 // --mash N adds N palm mashes at the end. --calm Baby|Toddler|BigToddler picks the calm level (default Toddler). Frames are written after every press and at the end.
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
+// --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
 // --calls instead writes every animal noise as a WAV, bold and baby (gentle) versions, for a quick listen.
 
 using Keypuncher.Audio;
@@ -26,6 +27,7 @@ var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignor
 Directory.CreateDirectory(outDir);
 if (args.Contains("--sheet")) return Sheet(outDir);
 if (args.Contains("--calls")) return Calls(outDir);
+if (args.Contains("--scenes")) return Scenes(outDir);
 
 var world = new World();
 var mixer = new Mixer();
@@ -129,6 +131,46 @@ static int Sheet(string outDir)
         using var snapshot = sheet.Snapshot();
         using var data = snapshot.Encode(SKEncodedImageFormat.Png, 90);
         var path = Path.Combine(outDir, $"animals-{level}.png");
+        using (var f = File.Create(path)) data.SaveTo(f);
+        Console.WriteLine(path);
+    }
+    return 0;
+}
+
+static int Scenes(string outDir)
+{
+    const int tileW = 480, tileH = 270;
+    (TimeOfDay Time, Weather Weather)[] columns =
+    [
+        (TimeOfDay.Morning, Weather.Clear), (TimeOfDay.Dawn, Weather.Cloudy), (TimeOfDay.Midday, Weather.Rain),
+        (TimeOfDay.Afternoon, Weather.Rainbow), (TimeOfDay.Evening, Weather.Fog), (TimeOfDay.Morning, Weather.Snow),
+    ];
+    var landscapes = Enum.GetValues<Landscape>();
+    using var label = new SKFont(Fonts.LoadAndika(), 16);
+    using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70) };
+    var duck = BuiltInRecipes.Animals.All.First(a => a.Body.Shape == Shape.Duck);
+    foreach (var level in Enum.GetValues<CalmLevel>())
+    {
+        using var sheet = SKSurface.Create(new SKImageInfo(tileW * columns.Length, tileH * landscapes.Length));
+        for (var row = 0; row < landscapes.Length; row++)
+            for (var col = 0; col < columns.Length; col++)
+            {
+                var (time, weather) = columns[col];
+                var scene = new Scene(landscapes[row], time, weather == Weather.Snow && Scene.Hot(landscapes[row]) ? Weather.Clear : weather);
+                // A thing in each tile, to judge it against the backdrop.
+                var world = new World { Style = ArtStyle.For(level), Limits = CalmLimits.For(level) };
+                world.Load(0, [new Entity { Id = 1, Role = EntityRole.Thing, Recipe = duck, X = 0.3, Y = 0.5, Born = -1, Phase = 0.05, Scale = 1 }], [], scene: scene);
+                using var renderer = new SceneRenderer(Fonts.LoadAndika());
+                using var tile = SKSurface.Create(new SKImageInfo(tileW, tileH));
+                renderer.Draw(tile.Canvas, tileW, tileH, world, null);
+                using var image = tile.Snapshot();
+                var (x, y) = (col * tileW, row * tileH);
+                sheet.Canvas.DrawImage(image, x, y, SKSamplingOptions.Default);
+                sheet.Canvas.DrawText($"{scene.Landscape}, {scene.TimeOfDay}, {scene.Weather}", x + 8, y + 20, SKTextAlign.Left, label, ink);
+            }
+        using var snapshot = sheet.Snapshot();
+        using var data = snapshot.Encode(SKEncodedImageFormat.Png, 90);
+        var path = Path.Combine(outDir, $"scenes-{level}.png");
         using (var f = File.Create(path)) data.SaveTo(f);
         Console.WriteLine(path);
     }

@@ -32,6 +32,13 @@ public sealed class World
     /// <summary>What each key and screen spot makes; saved with the world.</summary>
     public KeyFamilies Families { get; } = new();
 
+    /// <summary>The backdrop: where the world is, the time of day and the weather; saved with the world.</summary>
+    public Scene Scene { get; private set; } = Scene.Default;
+    /// <summary>The scene before the last change, which the renderer fades out of; null once there is none.</summary>
+    public Scene? PreviousScene { get; private set; }
+    /// <summary>World time of the last scene change.</summary>
+    public double SceneChangedAt { get; private set; } = double.NegativeInfinity;
+
     public CalmLimits Limits { get; set; } = CalmLimits.Toddler;
     /// <summary>How things are drawn; chosen by the same calm level as <see cref="Limits"/>.</summary>
     public ArtStyle Style { get; set; } = ArtStyle.Toddler;
@@ -126,12 +133,23 @@ public sealed class World
         return any;
     }
 
+    /// <summary>Moves the world to <paramref name="scene"/>; the old one fades out over a while.</summary>
+    public void SetScene(Scene scene)
+    {
+        if (scene == Scene) return;
+        PreviousScene = Scene;
+        Scene = scene;
+        SceneChangedAt = Time;
+        Dirty = true;
+    }
+
     public void MarkSaved() => Dirty = false;
 
     public void Load(double time, IEnumerable<Entity> live, IEnumerable<Entity> baked,
-        IEnumerable<(int Slot, Recipe Recipe, double At)>? families = null)
+        IEnumerable<(int Slot, Recipe Recipe, double At)>? families = null, Scene? scene = null)
     {
         Families.Load(families ?? []);
+        (Scene, PreviousScene, SceneChangedAt) = (scene ?? Scene.Default, null, double.NegativeInfinity);
         _live.Clear();
         _baked.Clear();
         Time = time;
@@ -146,6 +164,7 @@ public sealed class World
     public void Clear()
     {
         Families.Reset();
+        SetScene(Scene.Default);
         _live.Clear();
         _baked.Clear();
         BakedGeneration++;

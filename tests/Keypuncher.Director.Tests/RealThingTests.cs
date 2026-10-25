@@ -257,10 +257,10 @@ public class RealThingTests
         for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
             if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
         var plants = world.Families.Restyled().Count();
-        loop.Update(world, restyleMinutes: 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         Assert.False(loop.Busy);
         Tick(world, DirectorLoop.FirstAfterSeconds);
-        loop.Update(world, 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         Assert.True(loop.Busy);
         await Settle(loop, world);
 
@@ -278,10 +278,10 @@ public class RealThingTests
         Assert.Contains("tadpole", next.Existing);
 
         Tick(world, 59);
-        loop.Update(world, 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         Assert.False(loop.Busy);
         Tick(world, 1);
-        loop.Update(world, 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         await Settle(loop, world);
         Assert.Equal("frog", world.Families[slot].Name);
     }
@@ -291,14 +291,14 @@ public class RealThingTests
     {
         var world = new World();
         using var loop = new DirectorLoop(new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel())));
-        loop.Update(world, 1, enabled: false);
+        loop.Update(world, Every(1), enabled: false);
         Tick(world, 600);
-        loop.Update(world, 1, enabled: false);
+        loop.Update(world, Every(1), enabled: false);
         Assert.False(loop.Busy);
 
-        loop.Update(world, 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         Tick(world, DirectorLoop.FirstAfterSeconds);
-        loop.Update(world, 1, enabled: true);
+        loop.Update(world, Every(1), enabled: true);
         await Settle(loop, world);
         Assert.Contains("refused", Assert.Single(loop.Log).Error);
         Assert.Empty(world.Families.Restyled());
@@ -314,14 +314,14 @@ public class RealThingTests
             if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
         var before = world.Families.Restyled().Count();
 
-        loop.Update(world, restyleMinutes: 10, enabled: true);
+        loop.Update(world, Every(10), enabled: true);
         Tick(world, DirectorLoop.FirstAfterSeconds);
-        loop.Update(world, 10, enabled: true);
+        loop.Update(world, Every(10), enabled: true);
         await Settle(loop, world);
         Assert.False(Assert.Single(loop.Log).Outcome!.Accepted);
 
         Tick(world, DirectorLoop.FirstAfterSeconds);
-        loop.Update(world, 10, enabled: true);
+        loop.Update(world, Every(10), enabled: true);
         Assert.True(loop.Busy);
         await Settle(loop, world);
         Assert.Equal(before + 1, world.Families.Restyled().Count());
@@ -336,9 +336,9 @@ public class RealThingTests
         using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(new ScriptedModel(Check("a seabird", "real")))), creatureCategories: [RealCategory.Animal]);
         for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
             if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
-        loop.Update(world, 1, true);
+        loop.Update(world, Every(1), enabled: true);
         Tick(world, DirectorLoop.FirstAfterSeconds);
-        loop.Update(world, 1, true);
+        loop.Update(world, Every(1), enabled: true);
         for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
             world.Families.Restyle(i, world.Families[i] with { Name = "changed" }, world.Time);
         gate.SetResult();
@@ -347,7 +347,10 @@ public class RealThingTests
         Assert.True(Assert.Single(loop.Log).Outcome!.Accepted);
     }
 
-    private static void Tick(World world, double seconds)
+    /// <summary>Limits with a family change every <paramref name="minutes"/> and no scene change for a long while.</summary>
+    internal static CalmLimits Every(double minutes) => CalmLimits.Toddler with { RestyleMinutes = minutes, SceneMinutes = 1000 };
+
+    internal static void Tick(World world, double seconds)
     {
         for (var t = 0.0; t < seconds - 1e-9; t += 0.5) world.Tick(Math.Min(0.5, seconds - t));
     }
@@ -357,7 +360,7 @@ public class RealThingTests
         for (var i = 0; i < 200 && loop.Busy; i++)
         {
             await Task.Delay(10);
-            loop.Update(world, 1, enabled: false);
+            loop.Update(world, Every(1), enabled: false);
         }
         Assert.False(loop.Busy);
     }
@@ -377,7 +380,7 @@ public class RealThingTests
         JsonSerializer.Serialize(new { whatItIs = what, verdict, kind, growsInto });
 
     /// <summary>Answers each prompt with the next scripted JSON and remembers the prompts.</summary>
-    private sealed class ScriptedModel(params string[] answers) : ILanguageModel
+    internal sealed class ScriptedModel(params string[] answers) : ILanguageModel
     {
         private int _next;
         public List<string> Prompts { get; } = [];
@@ -393,7 +396,7 @@ public class RealThingTests
         }
     }
 
-    private sealed class BrokenModel : ILanguageModel
+    internal sealed class BrokenModel : ILanguageModel
     {
         public string ModelName => "broken";
         public Task<GenerationResult> GenerateJsonAsync(string systemPrompt, string userPrompt, JsonElement jsonSchema, CancellationToken cancellationToken = default) =>

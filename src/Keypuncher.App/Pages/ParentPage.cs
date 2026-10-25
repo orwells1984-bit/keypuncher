@@ -67,7 +67,7 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Goodnight after", _session));
 
         layout.Add(Heading("Real things"));
-        layout.Add(new Label { Text = $"Every {s.Limits.RestyleMinutes:0} minutes of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Each pick is checked by a second question to the model, and story creatures are turned away. Names and facts below are for grown-ups only: the child never sees or hears them." });
+        layout.Add(new Label { Text = $"Every {Minutes(s.Limits.RestyleMinutes)} of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Every {Minutes(s.Limits.SceneMinutes)} it also moves the scene a step: the weather changes, the time of day moves on, or the world travels to a new real place, fading in slowly. Each new thing and place is checked by a second question to the model, and story creatures and places are turned away. Names and facts below are for grown-ups only: the child never sees or hears them." });
         _director = new Switch { IsToggled = s.Director };
         layout.Add(Row("Let the model change things", _director));
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
@@ -136,6 +136,7 @@ public sealed class ParentPage : ContentPage
         {
             $"Model: {host.Director.ModelName} at {host.OllamaAddress}{(host.Director.Busy ? ", thinking now" : "")}.",
             $"Keys now making real things: {(real.Count == 0 ? "none yet" : string.Join(", ", real))}; {BuiltInRecipes.InventedFamilies - real.Count} still make invented shapes.",
+            $"Scene now: {host.World.Scene}.{(host.World.Scene.Fact is { } fact ? " " + fact : "")}",
         };
         if (host.Director.Log.Count == 0) lines.Add("No picks yet in this run.");
         foreach (var entry in host.Director.Log)
@@ -145,6 +146,14 @@ public sealed class ParentPage : ContentPage
                 lines.Add($"{entry.At:HH:mm}  could not reach the model: {error}");
                 continue;
             }
+            if (entry.Scene is { } scene)
+            {
+                foreach (var a in scene.Attempts)
+                    lines.Add(a.Refused is null
+                        ? $"{entry.At:HH:mm}  scene: {a.Tried}. {a.Fact}"
+                        : $"{entry.At:HH:mm}  scene turned down: {a.Tried} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}");
+                continue;
+            }
             foreach (var a in entry.Outcome!.Attempts)
                 lines.Add(a.Refused is null
                     ? $"{entry.At:HH:mm}  used: {a.Subject}. {a.Fact}"
@@ -152,6 +161,9 @@ public sealed class ParentPage : ContentPage
         }
         return string.Join("\n", lines);
     }
+
+    private static string Minutes(double minutes) =>
+        minutes == 1 ? "minute" : minutes < 1 ? $"{minutes * 60:0} seconds" : $"{minutes:0.#} minutes";
 
     private static IEnumerable<string> SafeVoices()
     {

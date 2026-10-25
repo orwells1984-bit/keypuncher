@@ -69,6 +69,13 @@ public sealed class WorldStore : IDisposable
                 world.Families.Restyled().Select(f => new SavedFamily(f.Slot, f.Recipe, f.At)).ToList()));
             families.ExecuteNonQuery();
         }
+        using (var scene = _db.CreateCommand())
+        {
+            scene.Transaction = tx;
+            scene.CommandText = "INSERT OR REPLACE INTO World VALUES ('scene', $json);";
+            scene.Parameters.AddWithValue("$json", JsonSerializer.Serialize(world.Scene));
+            scene.ExecuteNonQuery();
+        }
         tx.Commit();
         world.MarkSaved();
     }
@@ -93,6 +100,17 @@ public sealed class WorldStore : IDisposable
                     families.AddRange(saved.Where(f => f.Recipe is not null).Select(f => (f.Slot, f.Recipe, f.At)));
             }
             catch (JsonException) { /* a damaged list leaves the built-in families */ }
+        }
+
+        Scene? scene = null;
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT Value FROM World WHERE Key = 'scene';";
+            try
+            {
+                if (cmd.ExecuteScalar() is string s) scene = JsonSerializer.Deserialize<Scene>(s);
+            }
+            catch (JsonException) { /* a damaged scene leaves the starting meadow */ }
         }
 
         var live = new List<Entity>();
@@ -123,7 +141,7 @@ public sealed class WorldStore : IDisposable
                 (r.GetInt64(1) == 1 ? baked : live).Add(e);
             }
         }
-        world.Load(time, live, baked, families);
+        world.Load(time, live, baked, families, scene);
     }
 
     public void Dispose() => _db.Dispose();

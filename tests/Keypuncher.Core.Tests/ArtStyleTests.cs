@@ -6,6 +6,17 @@ public class ArtStyleTests
 {
     private static readonly ArtStyle[] Levels = [ArtStyle.For(CalmLevel.Baby), ArtStyle.For(CalmLevel.Toddler), ArtStyle.For(CalmLevel.BigToddler)];
 
+    /// <summary>Every scene the director can choose: each landscape at each time of day in each weather.</summary>
+    private static IEnumerable<Scene> Scenes() =>
+        from l in Enum.GetValues<Landscape>()
+        from t in Enum.GetValues<TimeOfDay>()
+        from w in Enum.GetValues<Weather>()
+        where !(w == Weather.Snow && Scene.Hot(l))
+        select new Scene(l, t, w);
+
+    /// <summary>The style's own ground and every scene's ground at that style.</summary>
+    private static IEnumerable<Ground> Grounds(ArtStyle style) => Scenes().Select(s => SceneGround.For(style, s)).Prepend(style.Ground);
+
     [Fact]
     public void Art_gets_finer_with_age()
     {
@@ -46,8 +57,9 @@ public class ArtStyleTests
         // WCAG contrast ratios. The outline carries the luminance contrast, since a yellow body can
         // never differ much from a pale sky; the fill's job is saturated colour.
         foreach (var style in Levels)
+        foreach (var scene in Grounds(style))
         {
-            var ground = new[] { style.Ground.SkyTop, style.Ground.SkyBottom, style.Ground.FarHill, style.Ground.NearHill };
+            var ground = new[] { scene.SkyTop, scene.SkyBottom, scene.FarHill, scene.NearHill };
             var floor = style == ArtStyle.Baby ? 9 : style == ArtStyle.Toddler ? 7 : 4.5;
             foreach (var colour in style.Colors)
             {
@@ -62,15 +74,33 @@ public class ArtStyleTests
     [Fact]
     public void The_ground_stays_quiet()
     {
-        // Sky and hills close in tone, so a saturated thing is what stands out.
+        // Sky and hills close in tone, so a saturated thing is what stands out, in every scene.
         foreach (var style in Levels)
+        foreach (var g in Grounds(style))
         {
-            var g = style.Ground;
             Assert.True(Contrast(g.SkyTop, g.SkyBottom) < 1.5);
             Assert.True(Contrast(g.SkyBottom, g.FarHill) < 1.6);
             Assert.True(Contrast(g.FarHill, g.NearHill) < 1.5);
             Assert.True(Luminance(g.NearHill) > 0.4);
         }
+    }
+
+    [Fact]
+    public void A_scene_keeps_the_brightness_of_the_ground_and_only_snow_and_fog_lighten_it()
+    {
+        foreach (var style in Levels)
+        foreach (var scene in Scenes())
+        {
+            var g = SceneGround.For(style, scene);
+            var lighter = scene.Weather is Weather.Snow or Weather.Fog || scene.Landscape == Landscape.SnowyHills;
+            Assert.InRange(Luminance(g.SkyTop), Luminance(style.Ground.SkyTop) - 0.01, Luminance(style.Ground.SkyTop) + 0.01);
+            Assert.InRange(Luminance(g.SkyBottom), Luminance(style.Ground.SkyBottom) - 0.01, Luminance(style.Ground.SkyBottom) + 0.01);
+            foreach (var (hill, own) in new[] { (g.FarHill, style.Ground.FarHill), (g.NearHill, style.Ground.NearHill) })
+                if (lighter) Assert.True(Luminance(hill) >= Luminance(own) - 0.01, $"{scene}");
+                else Assert.InRange(Luminance(hill), Luminance(own) - 0.01, Luminance(own) + 0.01);
+        }
+        Assert.Equal(ArtStyle.Toddler.Ground, SceneGround.For(ArtStyle.Toddler, Scene.Default));
+        Assert.NotEqual(ArtStyle.Toddler.Ground, SceneGround.For(ArtStyle.Toddler, new Scene(Landscape.Beach, TimeOfDay.Evening)));
     }
 
     [Fact]

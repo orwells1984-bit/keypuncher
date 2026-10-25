@@ -2,6 +2,8 @@
 //
 //   dotnet run --project tools/Keypuncher.Sandbox -- picks [model] [count]     ask for real things, as the toy does
 //   dotnet run --project tools/Keypuncher.Sandbox -- extinct [model] [count]   only extinct animals, in creature families
+//   dotnet run --project tools/Keypuncher.Sandbox -- scenes [model] [count]    walk the scene through real places, weather and time
+//   dotnet run --project tools/Keypuncher.Sandbox -- places [model]            score the place checker on known places
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
 //   dotnet run --project tools/Keypuncher.Sandbox -- recipe [model] "a round sleepy cat"   the Phase 0 prompt
 //
@@ -17,7 +19,9 @@ var mode = args.Length > 0 ? args[0] : "picks";
 var model = args.Length > 1 ? args[1] : "qwen3:4b";
 var host = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } h ? (h.Contains("://") ? h : "http://" + h) : "http://localhost:11434");
 var author = new OllamaLanguageModel(host, model);
-var checker = new FactChecker(new OllamaLanguageModel(host, model, temperature: 0));
+var cold = new OllamaLanguageModel(host, model, temperature: 0);
+var checker = new FactChecker(cold);
+var placeChecker = new PlaceChecker(cold);
 
 switch (mode)
 {
@@ -30,11 +34,17 @@ switch (mode)
     case "check":
         await Check();
         break;
+    case "scenes":
+        await Scenes(args.Length > 2 ? int.Parse(args[2]) : 12);
+        break;
+    case "places":
+        await Places();
+        break;
     case "recipe":
         await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
         break;
     default:
-        Console.WriteLine("modes: picks, extinct, check, recipe");
+        Console.WriteLine("modes: picks, extinct, scenes, places, check, recipe");
         break;
 }
 
@@ -82,6 +92,67 @@ async Task Picks(int count, bool extinctOnly = false)
     Console.WriteLine();
     Console.WriteLine($"{used} of {count} requests gave a real thing, in {tries} tries.");
     Console.WriteLine("Families now: " + string.Join(", ", world.Families.All.Take(BuiltInRecipes.InventedFamilies).Select(f => f.GrowsInto is { } n ? $"{f.Name} (grows into {n})" : f.Name)));
+}
+
+// Steps the scene the way the toy would, back to back, and prints every attempt.
+async Task Scenes(int count)
+{
+    var world = new World();
+    var loop = new DirectorLoop(new RealThingDirector(author, checker), new Random(Environment.TickCount));
+    var scenes = new SceneDirector(author, placeChecker);
+    Console.WriteLine($"# Director scene steps, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    Console.WriteLine();
+    Console.WriteLine("| # | from | tried | result | fact / checker | s |");
+    Console.WriteLine("| --- | --- | --- | --- | --- | --- |");
+    int used = 0, tries = 0;
+    var places = new List<string>();
+    for (var i = 0; i < count; i++)
+    {
+        var request = loop.NextSceneRequest(world) with { RecentPlaces = [.. places] };
+        var outcome = await scenes.ProposeAsync(request);
+        foreach (var a in outcome.Attempts)
+        {
+            tries++;
+            var detail = a.Check is { } k ? $"{a.Fact} / checker: {k.Verdict}, {string.Join(" ", k.Landscapes)}, snows {k.Snows}, \"{k.WhatItIs}\"" : a.Fact;
+            Console.WriteLine($"| {i + 1} | {world.Scene} | {a.Tried} | {a.Refused ?? "used"} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
+        }
+        if (outcome.Scene is { } s)
+        {
+            used++;
+            if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, s.Place)) places.Insert(0, left);
+            world.SetScene(s);
+        }
+    }
+    Console.WriteLine();
+    Console.WriteLine($"{used} of {count} steps changed the scene, in {tries} tries. Places visited: {string.Join("; ", places.Append(world.Scene.Place ?? "meadow"))}.");
+}
+
+// Real places, including Icelandic ones, and made-up or story places.
+async Task Places()
+{
+    (string Name, bool Real)[] cases =
+    [
+        ("Reynisfjara, Iceland", true), ("Thingvellir, Iceland", true), ("Lake Myvatn, Iceland", true), ("Vatnajokull, Iceland", true),
+        ("Serengeti, Tanzania", true), ("Sahara, Morocco", true), ("Amazon rainforest, Brazil", true), ("Black Forest, Germany", true),
+        ("Lake Bled, Slovenia", true), ("Rila Mountains, Bulgaria", true), ("Bondi Beach, Australia", true), ("Yosemite, USA", true),
+        ("Narnia", false), ("Hogwarts, Scotland", false), ("Neverland", false), ("Mordor, New Zealand", false),
+        ("Atlantis", false), ("Whispering Pines Valley, Iceland", false), ("Glimmerlake, Norway", false), ("Candy Mountain, Canada", false),
+    ];
+    Console.WriteLine($"# Place checker, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    Console.WriteLine();
+    Console.WriteLine("| place | checker | landscapes | snows | what it is | right? |");
+    Console.WriteLine("| --- | --- | --- | --- | --- | --- |");
+    var right = 0;
+    var clock = Stopwatch.StartNew();
+    foreach (var (name, real) in cases)
+    {
+        var check = await placeChecker.CheckAsync(name);
+        var ok = (check.Verdict == "real") == real;
+        if (ok) right++;
+        Console.WriteLine($"| {name} | {check.Verdict} | {string.Join(" ", check.Landscapes)} | {check.Snows} | {check.WhatItIs.Replace("|", "/")} | {(ok ? "yes" : "NO")} |");
+    }
+    Console.WriteLine();
+    Console.WriteLine($"{right} of {cases.Length} right; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");
 }
 
 // Real things, including ones a small model might not know, and inventions, including plausible-sounding ones.

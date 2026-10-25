@@ -163,6 +163,59 @@ public sealed class ArtRulesTests : IDisposable
     }
 
     [Fact]
+    public void A_new_scene_fades_in_slowly_and_is_saved_with_the_world()
+    {
+        var world = new World { Style = ArtStyle.Toddler, Limits = CalmLimits.Toddler };
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        var meadow = Render(renderer, world, 400, 300);
+        world.SetScene(new Scene(Landscape.Beach, TimeOfDay.Evening, Weather.Clear, "Reynisfjara, Iceland", "A black sand beach."));
+        Assert.Equal(meadow, Render(renderer, world, 400, 300));
+
+        var half = CalmLimits.Toddler.SceneFadeSeconds / 2;
+        world.Tick(half);
+        var midway = Render(renderer, world, 400, 300);
+        world.Tick(half);
+        var beach = Render(renderer, world, 400, 300);
+        using (var fresh = new SceneRenderer(Fonts.LoadAndika()))
+            Assert.Equal(Render(fresh, world, 400, 300), beach);
+        // The evening sky top and the sea where the meadow's far hill was are new colours, reached gradually.
+        foreach (var (x, y) in new[] { (200, 5), (200, 200) })
+        {
+            var (a, m, b) = (meadow[(y * 400) + x], midway[(y * 400) + x], beach[(y * 400) + x]);
+            Assert.NotEqual(a, b);
+            Assert.InRange(m.Red, Math.Min(a.Red, b.Red), Math.Max(a.Red, b.Red));
+            Assert.InRange(m.Blue, Math.Min(a.Blue, b.Blue), Math.Max(a.Blue, b.Blue));
+            Assert.NotEqual(a, m);
+            Assert.NotEqual(b, m);
+        }
+
+        var path = Path.Combine(_dir, "scene.db");
+        using (var store = new WorldStore(path)) store.Save(world);
+        var loaded = new World();
+        using (var store = new WorldStore(path)) store.Load(loaded);
+        Assert.Equal(world.Scene, loaded.Scene);
+        Assert.Null(loaded.PreviousScene);
+        loaded.Clear();
+        Assert.Equal(Scene.Default, loaded.Scene);
+    }
+
+    [Fact]
+    public void Every_landscape_and_weather_draws_its_own_backdrop()
+    {
+        var drawn = new HashSet<string>();
+        foreach (var landscape in Enum.GetValues<Landscape>())
+            foreach (var weather in Enum.GetValues<Weather>())
+            {
+                if (weather == Weather.Snow && Scene.Hot(landscape)) continue;
+                var world = new World { Style = ArtStyle.Baby };
+                world.Load(0, [], [], scene: new Scene(landscape, TimeOfDay.Midday, weather));
+                using var renderer = new SceneRenderer(Fonts.LoadAndika());
+                var pixels = Render(renderer, world, 160, 90);
+                Assert.True(drawn.Add(string.Join(",", pixels.Select(p => (uint)p))), $"{landscape} {weather}");
+            }
+    }
+
+    [Fact]
     public void A_settled_thing_fades_towards_the_sky_not_towards_its_outline()
     {
         // Everything at rest is drawn at six tenths; the outline under a fill must not darken the fill.

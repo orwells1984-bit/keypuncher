@@ -1,0 +1,169 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using Keypuncher.Core;
+using Keypuncher.Inference;
+
+namespace Keypuncher.Director;
+
+/// <summary>What the director is asked for: the next step for the scene.</summary>
+/// <param name="Current">The scene now.</param>
+/// <param name="RecentPlaces">Places the world has been lately, newest first, so it moves on somewhere new.</param>
+/// <param name="Things">The real things the keys make now, so a new place can be one where they are really found.</param>
+public sealed record SceneRequest(Scene Current, IReadOnlyList<string> RecentPlaces, IReadOnlyList<string> Things);
+
+/// <summary>The model's answer for one scene step.</summary>
+public sealed record ScenePick
+{
+    [JsonPropertyName("place")] public required string Place { get; init; }
+    [JsonPropertyName("landscape")] public required Landscape Landscape { get; init; }
+    [JsonPropertyName("timeOfDay")] public required TimeOfDay TimeOfDay { get; init; }
+    [JsonPropertyName("weather")] public required Weather Weather { get; init; }
+    [JsonPropertyName("fact")] public required string Fact { get; init; }
+}
+
+/// <summary>One scene the director tried, kept for the grown-ups' page and the sandbox.</summary>
+public sealed record SceneAttempt(string Tried, string? Fact, string? Refused, PlaceCheck? Check);
+
+/// <summary>What came of one scene request: the new scene, or nothing, and every attempt on the way.</summary>
+public sealed record SceneOutcome(SceneRequest Request, Scene? Scene, IReadOnlyList<SceneAttempt> Attempts, TimeSpan Took)
+{
+    public bool Accepted => Scene is not null;
+}
+
+/// <summary>The JSON schema for <see cref="ScenePick"/>, narrowed per request so that time only goes forward and a
+/// rainbow only follows rain. Ollama holds enums at decode time.</summary>
+public static class SceneSchema
+{
+    public static JsonElement For(SceneRequest request)
+    {
+        var now = request.Current;
+        var schema = new JsonObject
+        {
+            ["type"] = "object",
+            ["additionalProperties"] = false,
+            ["required"] = new JsonArray("place", "landscape", "timeOfDay", "weather", "fact"),
+            ["properties"] = new JsonObject
+            {
+                ["place"] = new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
+                ["landscape"] = Enum(Enum<Landscape>()),
+                ["timeOfDay"] = Enum([now.TimeOfDay.ToString(), Scene.Next(now.TimeOfDay).ToString()]),
+                ["weather"] = Enum(Enum<Weather>().Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)),
+                ["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 },
+            },
+        };
+        return JsonDocument.Parse(schema.ToJsonString()).RootElement.Clone();
+    }
+
+    private static IEnumerable<string> Enum<T>() where T : struct, Enum => System.Enum.GetNames<T>();
+
+    private static JsonObject Enum(IEnumerable<string> values) =>
+        new() { ["type"] = "string", ["enum"] = new JsonArray([.. values.Select(v => (JsonNode)v)]) };
+}
+
+/// <summary>
+/// The checks a scene must pass before its place is asked about. Like <see cref="RealThingRules"/>, they cannot
+/// prove the place is real, but they hold the scene to how the real world works: time goes forward, a rainbow comes
+/// after rain, it does not snow in the desert, a new landscape is a new place, and only one or two things change.
+/// </summary>
+public static class SceneRules
+{
+    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Single spaces, no quotes round it.</summary>
+    public static string Tidy(string place) =>
+        string.Join(' ', place.Trim().Trim('"', '\'', '.', '!').Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    public static bool SamePlace(string? a, string? b) =>
+        a is not null && b is not null && string.Equals(Tidy(a), Tidy(b), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Turns the model's JSON into the next scene, or says why not. <paramref name="newPlace"/> is true when
+    /// the place changed, so the place must be checked before the scene is used.</summary>
+    public static bool TryBuild(JsonDocument? json, SceneRequest request, out ScenePick? pick, out Scene? scene, out bool newPlace, out string? error)
+    {
+        pick = null;
+        scene = null;
+        newPlace = false;
+        error = null;
+        if (json is null) { error = "not JSON"; return false; }
+        try { pick = json.RootElement.Deserialize<ScenePick>(Options); }
+        catch (JsonException e) { error = "bad JSON: " + e.Message; return false; }
+        if (pick is null) { error = "empty"; return false; }
+
+        var now = request.Current;
+        var place = Tidy(pick.Place);
+        pick = pick with { Place = place };
+        if (place.Length is < 3 or > 48) { error = "place name length"; return false; }
+        if (!place.All(c => char.IsLetter(c) || c is ' ' or ',' or '-' or '\'' or '.')) { error = "not a plain place name"; return false; }
+        if (string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
+
+        newPlace = !SamePlace(place, now.Place);
+        if (pick.TimeOfDay != now.TimeOfDay && pick.TimeOfDay != Scene.Next(now.TimeOfDay)) { error = "time only goes forward"; return false; }
+        if (pick.Weather == Weather.Rainbow && now.Weather != Weather.Rain) { error = "a rainbow only comes after rain"; return false; }
+        if (pick.Weather == Weather.Snow && Scene.Hot(pick.Landscape)) { error = $"it never snows {Scene.Describe(pick.Landscape)}"; return false; }
+        if (pick.Weather == Weather.Snow && !newPlace && !now.Snows) { error = "it never snows there"; return false; }
+        if (pick.Landscape != now.Landscape && !newPlace) { error = "a new landscape needs a new place"; return false; }
+        if (newPlace && request.RecentPlaces.Any(p => SamePlace(p, place))) { error = "been there lately"; return false; }
+
+        var changed = (newPlace ? 1 : 0) + (pick.TimeOfDay != now.TimeOfDay ? 1 : 0) + (pick.Weather != now.Weather ? 1 : 0);
+        if (changed == 0) { error = "nothing changed"; return false; }
+        if (changed == 3) { error = "changed everything at once"; return false; }
+
+        // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
+        var fact = new string(pick.Fact.Trim().Where(c => c < 0x2E80).ToArray());
+        scene = new Scene(pick.Landscape, pick.TimeOfDay, pick.Weather, place, fact, newPlace ? false : now.Snows);
+        return true;
+    }
+}
+
+/// <summary>
+/// Asks the model for the scene's next step: often a change of weather or the time of day moving on, sometimes a
+/// journey to a new real place. Three layers, as for things: the prompt and schema, <see cref="SceneRules"/>, and
+/// for a new place <see cref="PlaceChecker"/>, a cold second call that must say the place is real, that it looks
+/// like the landscape claimed, and, for snow, that it snows there. A step that misses leaves the scene as it is.
+/// </summary>
+public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker)
+{
+    public const int MaxAttempts = 3;
+
+    public async Task<SceneOutcome> ProposeAsync(SceneRequest request, CancellationToken cancellationToken = default)
+    {
+        var started = DateTime.UtcNow;
+        var attempts = new List<SceneAttempt>();
+        var turnedDown = new List<string>();
+        for (var i = 0; i < MaxAttempts; i++)
+        {
+            var result = await author.GenerateJsonAsync(DirectorPrompts.SceneSystem, DirectorPrompts.SceneStep(request, turnedDown), SceneSchema.For(request), cancellationToken);
+            if (!SceneRules.TryBuild(result.Json, request, out var pick, out var scene, out var newPlace, out var error))
+            {
+                var tried = pick is null ? "?" : Describe(pick);
+                attempts.Add(new SceneAttempt(tried, pick?.Fact, error, null));
+                if (pick is not null) turnedDown.Add($"{tried} ({error})");
+                continue;
+            }
+
+            if (newPlace)
+            {
+                var check = await checker.CheckAsync(pick!.Place, cancellationToken);
+                var why = check.Verdict != "real" ? (check.Verdict == "fictional" ? "not a real place" : "not sure it is a real place")
+                    : !check.Landscapes.Contains(pick.Landscape) ? $"not {pick.Landscape} country"
+                    : pick.Weather == Weather.Snow && !check.SnowsThere ? "it does not snow there"
+                    : null;
+                if (why is not null)
+                {
+                    attempts.Add(new SceneAttempt(Describe(pick), pick.Fact, $"checker: {why}", check));
+                    turnedDown.Add($"{Describe(pick)} ({why})");
+                    continue;
+                }
+                scene = scene! with { Snows = check.SnowsThere };
+                attempts.Add(new SceneAttempt(Describe(pick), pick.Fact, null, check));
+            }
+            else attempts.Add(new SceneAttempt(Describe(pick!), pick!.Fact, null, null));
+            return new SceneOutcome(request, scene, attempts, DateTime.UtcNow - started);
+        }
+        return new SceneOutcome(request, null, attempts, DateTime.UtcNow - started);
+    }
+
+    private static string Describe(ScenePick p) =>
+        $"{p.Place}, {p.Landscape}, {p.TimeOfDay}, {p.Weather}";
+}
