@@ -29,28 +29,56 @@ public sealed record SceneRequest(Scene Current, IReadOnlyList<string> RecentPla
     SceneChange Change = SceneChange.Journey, KnownPlace? MustGoTo = null);
 
 /// <summary>A real place whose landscape is known here rather than asked of the model.</summary>
-public sealed record KnownPlace(string Name, Landscape Landscape)
+/// <param name="Fact">One true sentence about the place, written by hand, shown to grown-ups instead of the model's.</param>
+public sealed record KnownPlace(string Name, Landscape Landscape, string Fact)
 {
     /// <summary>Well-known real places, Icelandic and Bulgarian ones among them, offered to the model on every journey
     /// so that it does not stay where it is or make up a name ("Savannah, Botswana"), and drawn from as a last resort.
     /// The model still chooses, and its choice is still checked. Names are written without accents.</summary>
     public static readonly IReadOnlyList<KnownPlace> All =
     [
-        new("Thorsmork, Iceland", Landscape.Meadow), new("Alpe di Siusi, Italy", Landscape.Meadow), new("Lauterbrunnen, Switzerland", Landscape.Meadow),
-        new("Fljotshlid, Iceland", Landscape.Farm), new("Tuscany, Italy", Landscape.Farm), new("Cotswolds, England", Landscape.Farm),
-        new("Hallormsstadaskogur, Iceland", Landscape.Forest), new("Black Forest, Germany", Landscape.Forest), new("Bialowieza Forest, Poland", Landscape.Forest),
-        new("Amazon rainforest, Brazil", Landscape.Jungle), new("Daintree Rainforest, Australia", Landscape.Jungle), new("Borneo, Malaysia", Landscape.Jungle),
-        new("Landmannalaugar, Iceland", Landscape.Mountains), new("Rila Mountains, Bulgaria", Landscape.Mountains), new("Swiss Alps, Switzerland", Landscape.Mountains),
-        new("Banff, Canada", Landscape.Mountains),
-        new("Reynisfjara, Iceland", Landscape.Beach), new("Raudasandur, Iceland", Landscape.Beach), new("Sunny Beach, Bulgaria", Landscape.Beach),
-        new("Bondi Beach, Australia", Landscape.Beach),
-        new("Lake Myvatn, Iceland", Landscape.Lake), new("Jokulsarlon, Iceland", Landscape.Lake), new("Lake Bled, Slovenia", Landscape.Lake),
-        new("Seven Rila Lakes, Bulgaria", Landscape.Lake),
-        new("Sahara, Morocco", Landscape.Desert), new("Namib Desert, Namibia", Landscape.Desert), new("Wadi Rum, Jordan", Landscape.Desert),
-        new("Serengeti, Tanzania", Landscape.Savanna), new("Masai Mara, Kenya", Landscape.Savanna), new("Kruger National Park, South Africa", Landscape.Savanna),
-        new("Vatnajokull, Iceland", Landscape.SnowyHills), new("Lapland, Finland", Landscape.SnowyHills), new("Svalbard, Norway", Landscape.SnowyHills),
-        new("Eldhraun, Iceland", Landscape.LavaField), new("Thingvellir, Iceland", Landscape.LavaField), new("Reykjanes, Iceland", Landscape.LavaField),
+        new("Thorsmork, Iceland", Landscape.Meadow, "Þórsmörk is a green valley between three glaciers in the south of Iceland."),
+        new("Alpe di Siusi, Italy", Landscape.Meadow, "Alpe di Siusi, in the Dolomites, is the largest high mountain meadow in Europe."),
+        new("Lauterbrunnen, Switzerland", Landscape.Meadow, "Lauterbrunnen is a valley in the Swiss Alps with over seventy waterfalls."),
+        new("Fljotshlid, Iceland", Landscape.Farm, "Fljótshlíð is a farming district in south Iceland that looks across to the Eyjafjallajökull glacier."),
+        new("Tuscany, Italy", Landscape.Farm, "Tuscany's farms grow grapes, olives and sunflowers on rolling hills."),
+        new("Cotswolds, England", Landscape.Farm, "Sheep farming made the Cotswolds rich, and its villages are built of golden limestone."),
+        new("Hallormsstadaskogur, Iceland", Landscape.Forest, "Hallormsstaðaskógur in east Iceland is the country's largest forest, of birch and planted trees."),
+        new("Black Forest, Germany", Landscape.Forest, "The Black Forest in south-west Germany is named for its dark fir and spruce trees."),
+        new("Bialowieza Forest, Poland", Landscape.Forest, "Białowieża Forest is one of the last old forests of Europe's lowlands, and wild bison live there."),
+        new("Amazon rainforest, Brazil", Landscape.Jungle, "The Amazon is the largest rainforest on Earth."),
+        new("Daintree Rainforest, Australia", Landscape.Jungle, "The Daintree in Queensland is one of the oldest rainforests in the world."),
+        new("Borneo, Malaysia", Landscape.Jungle, "Borneo's rainforests are one of the few places where wild orangutans live."),
+        new("Landmannalaugar, Iceland", Landscape.Mountains, "Landmannalaugar has colourful rhyolite mountains and hot springs to bathe in."),
+        new("Rila Mountains, Bulgaria", Landscape.Mountains, "Musala, in the Rila Mountains, is the highest peak in Bulgaria and the Balkans."),
+        new("Swiss Alps, Switzerland", Landscape.Mountains, "The Matterhorn, in the Swiss Alps, is one of the best-known mountains in the world."),
+        new("Banff, Canada", Landscape.Mountains, "Banff, in the Rocky Mountains, is Canada's oldest national park."),
+        new("Reynisfjara, Iceland", Landscape.Beach, "Reynisfjara is a black sand beach with cliffs of basalt columns."),
+        new("Raudasandur, Iceland", Landscape.Beach, "Rauðasandur, in the Westfjords, is a long beach of red and golden sand."),
+        new("Sunny Beach, Bulgaria", Landscape.Beach, "Sunny Beach is a long sandy beach on Bulgaria's Black Sea coast."),
+        new("Bondi Beach, Australia", Landscape.Beach, "Bondi Beach in Sydney is one of Australia's best-known beaches."),
+        new("Lake Myvatn, Iceland", Landscape.Lake, "Lake Mývatn in north Iceland is full of nesting ducks in summer."),
+        new("Jokulsarlon, Iceland", Landscape.Lake, "Jökulsárlón is a glacier lagoon where icebergs float out to the sea."),
+        new("Lake Bled, Slovenia", Landscape.Lake, "Lake Bled has a small island with a church on it."),
+        new("Seven Rila Lakes, Bulgaria", Landscape.Lake, "The Seven Rila Lakes lie one above another, high in the Rila Mountains."),
+        new("Sahara, Morocco", Landscape.Desert, "The Sahara is the largest hot desert in the world."),
+        new("Namib Desert, Namibia", Landscape.Desert, "The Namib is thought to be the oldest desert in the world, and has tall red dunes."),
+        new("Wadi Rum, Jordan", Landscape.Desert, "Wadi Rum is a desert valley of sand and red sandstone mountains."),
+        new("Serengeti, Tanzania", Landscape.Savanna, "Every year more than a million wildebeest walk across the Serengeti."),
+        new("Masai Mara, Kenya", Landscape.Savanna, "The Masai Mara in Kenya is famous for its lions, cheetahs and wildebeest."),
+        new("Kruger National Park, South Africa", Landscape.Savanna, "Kruger National Park is one of the largest wildlife reserves in Africa."),
+        new("Vatnajokull, Iceland", Landscape.SnowyHills, "Vatnajökull is the largest glacier in Iceland."),
+        new("Lapland, Finland", Landscape.SnowyHills, "Finnish Lapland is snowy for much of the year, and reindeer live there."),
+        new("Svalbard, Norway", Landscape.SnowyHills, "Svalbard, far north of mainland Norway, has more polar bears than people."),
+        new("Eldhraun, Iceland", Landscape.LavaField, "Eldhraun is a huge lava field from the Laki eruption of 1783, now under thick moss."),
+        new("Thingvellir, Iceland", Landscape.LavaField, "At Þingvellir you can see the gap between the North American and Eurasian plates."),
+        new("Reykjanes, Iceland", Landscape.LavaField, "Reykjanes is a peninsula of lava fields and volcanoes in south-west Iceland."),
     ];
+
+    /// <summary>Whether <paramref name="claimed"/> fits a place where <paramref name="found"/> are found: snowy hills
+    /// also fit mountains where it snows (the Rila Mountains).</summary>
+    public static bool Fits(Landscape claimed, IEnumerable<Landscape> found, bool snows) =>
+        found.Contains(claimed) || (claimed == Landscape.SnowyHills && snows && found.Contains(Landscape.Mountains));
 }
 
 /// <summary>The model's answer for one scene step.</summary>
@@ -60,7 +88,8 @@ public sealed record ScenePick
     [JsonPropertyName("landscape")] public required Landscape Landscape { get; init; }
     [JsonPropertyName("timeOfDay")] public required TimeOfDay TimeOfDay { get; init; }
     [JsonPropertyName("weather")] public required Weather Weather { get; init; }
-    [JsonPropertyName("fact")] public required string Fact { get; init; }
+    /// <summary>Only asked for on a journey: a place keeps the fact it was given when the world went there.</summary>
+    [JsonPropertyName("fact")] public string? Fact { get; init; }
 }
 
 /// <summary>One scene the director tried, kept for the grown-ups' page and the sandbox.</summary>
@@ -80,23 +109,28 @@ public static class SceneSchema
     public static JsonElement For(SceneRequest request)
     {
         var now = request.Current;
+        var journey = request.Change == SceneChange.Journey || now.Place is null;
         var schema = new JsonObject
         {
             ["type"] = "object",
             ["additionalProperties"] = false,
-            ["required"] = new JsonArray("place", "landscape", "timeOfDay", "weather", "fact"),
+            ["required"] = journey ? new JsonArray("place", "landscape", "timeOfDay", "weather", "fact") : new JsonArray("place", "landscape", "timeOfDay", "weather"),
             ["properties"] = new JsonObject
             {
-                ["place"] = new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
+                // Staying put, or going where told, the place is held to its name: the model would otherwise shorten
+                // it ("Jok: Jokulsarlon") and waste a try.
+                ["place"] = request.MustGoTo is { } to ? Enum([to.Name])
+                    : !journey && now.Place is { } here ? Enum([here])
+                    : new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
                 ["landscape"] = Enum(request.MustGoTo is { } must ? [must.Landscape.ToString()]
                     : request.Change == SceneChange.Journey ? Enum<Landscape>() : [now.Landscape.ToString()]),
                 ["timeOfDay"] = Enum([(request.Change == SceneChange.Time ? Scene.Next(now.TimeOfDay) : now.TimeOfDay).ToString()]),
                 ["weather"] = Enum(Enum<Weather>()
                     .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
                     .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())),
-                ["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 },
             },
         };
+        if (journey) schema["properties"]!["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 };
         return JsonDocument.Parse(schema.ToJsonString()).RootElement.Clone();
     }
 
@@ -151,9 +185,8 @@ public static class SceneRules
         var named = place.Split(',')[0].Trim().ToLowerInvariant();
         if (KindWords.Contains(named) || KindWords.Contains(named.Replace("the ", "")) || named.Contains("not yet")) { error = "a kind of country, not a named place"; return false; }
         if (request.MustGoTo is { } must && !SamePlace(place, must.Name)) { error = $"should have been {must.Name}"; return false; }
-        if (string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
-
         newPlace = !SamePlace(place, now.Place);
+        if (newPlace && string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
         var asked = request.Change switch
         {
             SceneChange.Journey when !newPlace => "should have gone somewhere new",
@@ -174,8 +207,11 @@ public static class SceneRules
         if (changed == 3) { error = "changed everything at once"; return false; }
 
         // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
-        var fact = new string(pick.Fact.Trim().Where(c => c < 0x2E80).ToArray());
-        scene = new Scene(pick.Landscape, pick.TimeOfDay, pick.Weather, place, fact, newPlace ? false : now.Snows);
+        var fact = new string((pick.Fact ?? "").Trim().Where(c => c < 0x2E80).ToArray());
+        // A place's fact is settled on the journey there; a change of weather or time keeps it.
+        scene = newPlace
+            ? new Scene(pick.Landscape, pick.TimeOfDay, pick.Weather, place, fact, false)
+            : new Scene(pick.Landscape, pick.TimeOfDay, pick.Weather, now.Place ?? place, now.Fact, now.Snows);
         return true;
     }
 }
@@ -235,8 +271,7 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
                 // "fictional" is a no.
                 var real = check.Verdict == "real" || (known is not null && check.Verdict == "unsure");
                 var why = !real ? (check.Verdict == "fictional" ? "not a real place" : "not sure it is a real place")
-                    : known is not null ? (known.Landscape == pick.Landscape ? null : $"not {pick.Landscape} country")
-                    : !check.Landscapes.Contains(pick.Landscape) ? $"not {pick.Landscape} country"
+                    : !KnownPlace.Fits(pick.Landscape, known is not null ? [known.Landscape] : check.Landscapes, check.SnowsThere) ? $"not {pick.Landscape} country"
                     : null;
                 if (why is null && pick.Weather == Weather.Snow && !check.SnowsThere) why = "it does not snow there";
                 if (why is not null)
@@ -245,8 +280,13 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
                     turnedDown.Add($"{Describe(pick)} ({why})");
                     continue;
                 }
-                scene = scene! with { Snows = check.SnowsThere };
-                attempts.Add(new SceneAttempt(Describe(pick), pick.Fact, null, check));
+                // The fact is for grown-ups, and a small model's facts about places are often wrong: a known place
+                // has its own, and any other keeps the model's only if a cold second look agrees with it.
+                // A sentence cut off by the schema's length limit is not checked, only dropped.
+                var whole = scene!.Fact is { } f && f.TrimEnd().EndsWith('.');
+                var fact = known?.Fact ?? (whole && await checker.ConfirmFactAsync(pick.Place, scene.Fact!, cancellationToken) ? scene.Fact : null);
+                scene = scene! with { Snows = check.SnowsThere, Fact = fact };
+                attempts.Add(new SceneAttempt(Describe(pick), fact ?? $"(fact not confirmed: {pick.Fact})", null, check));
             }
             else attempts.Add(new SceneAttempt(Describe(pick!), pick!.Fact, null, null));
             return scene;

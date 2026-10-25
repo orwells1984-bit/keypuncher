@@ -24,6 +24,10 @@ public class SceneTests
         Assert.Equal(["Beach"], Values(weather, "landscape"));
         Assert.Equal(["Morning"], Values(weather, "timeOfDay"));
         Assert.DoesNotContain("Cloudy", Values(weather, "weather"));
+        // Staying, the place is held to its name and no new fact is asked for; a journey asks for one.
+        Assert.Equal(["Reynisfjara, Iceland"], Values(weather, "place"));
+        Assert.False(weather.TryGetProperty("fact", out _));
+        Assert.True(journey.TryGetProperty("fact", out _));
 
         var evening = SceneSchema.For(FromVik with { Change = SceneChange.Time, Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
         Assert.Equal(["Dawn"], Values(evening, "timeOfDay"));
@@ -45,7 +49,8 @@ public class SceneTests
     {
         Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), FromVik with { Change = SceneChange.Weather }, out var scene, out var newPlace, out var error), error);
         Assert.False(newPlace);
-        Assert.Equal(Vik with { Weather = Weather.Rain, Fact = "A real fact about the place." }, scene);
+        // The model's new fact is ignored: a place keeps the fact it was given on the journey there.
+        Assert.Equal(Vik with { Weather = Weather.Rain }, scene);
 
         Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Midday", "Clear"), FromVik with { Change = SceneChange.Time }, out scene, out newPlace, out error), error);
         Assert.Equal((TimeOfDay.Midday, Weather.Clear), (scene!.TimeOfDay, scene.Weather));
@@ -97,7 +102,9 @@ public class SceneTests
         var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
 
         Assert.Equal(["checker: not a real place", "checker: not Desert country", null], outcome.Attempts.Select(a => a.Refused));
-        Assert.Equal(new Scene(Landscape.LavaField, TimeOfDay.Morning, Weather.Snow, "Thingvellir, Iceland", "A real fact about the place.", Snows: true), outcome.Scene);
+        // A known place's own fact replaces the model's.
+        var thingvellir = KnownPlace.All.Single(p => p.Name == "Thingvellir, Iceland");
+        Assert.Equal(new Scene(Landscape.LavaField, TimeOfDay.Morning, Weather.Snow, "Thingvellir, Iceland", thingvellir.Fact, Snows: true), outcome.Scene);
         Assert.Contains("Narnia, England", author.Prompts[1]);
         Assert.Contains("puffin", author.Prompts[0]);
         Assert.Contains("Lake Myvatn, Iceland", author.Prompts[0]);
@@ -312,6 +319,43 @@ public class SceneTests
 
     private static bool Build(string json, SceneRequest request, out Scene? scene, out bool newPlace, out string? error) =>
         SceneRules.TryBuild(JsonDocument.Parse(json), request, out _, out scene, out newPlace, out error);
+
+    [Theory]
+    [InlineData("true", "A real fact about the place.")]
+    [InlineData("false", null)]
+    [InlineData("unsure", null)]
+    [InlineData("cut off", null)]
+    public async Task Another_places_fact_is_kept_only_if_a_second_look_agrees(string verdict, string? fact)
+    {
+        var step = Step("Ring of Kerry, Ireland", "Farm", "Morning", "Cloudy");
+        if (verdict == "cut off") step = step.Replace("about the place.", "about the");
+        var author = new ScriptedModel(step);
+        var checker = new ScriptedModel(Place("a road around a peninsula in Ireland", "real", ["Farm", "Mountains"]), JsonSerializer.Serialize(new { verdict = "true" == verdict ? "true" : "false" }));
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
+        Assert.Equal(fact, outcome.Scene!.Fact);
+        if (verdict == "cut off") Assert.Single(checker.Prompts);
+        else Assert.Contains("A real fact about the place.", checker.Prompts[1]);
+    }
+
+    [Fact]
+    public async Task Snowy_hills_fit_a_mountain_place_where_it_snows()
+    {
+        // The model chose snowy hills for the Rila Mountains, a known mountain place, and was turned down.
+        var author = new ScriptedModel(Step("Rila Mountains, Bulgaria", "SnowyHills", "Morning", "Cloudy"));
+        var checker = new ScriptedModel(Place("mountains in Bulgaria", "real", ["Mountains"], "true"));
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
+        Assert.Equal(Landscape.SnowyHills, outcome.Scene!.Landscape);
+
+        Assert.False(KnownPlace.Fits(Landscape.SnowyHills, [Landscape.Mountains], snows: false));
+        Assert.False(KnownPlace.Fits(Landscape.Mountains, [Landscape.SnowyHills], snows: true));
+    }
+
+    [Fact]
+    public void Every_known_place_has_one_short_fact_of_its_own()
+    {
+        Assert.All(KnownPlace.All, p => Assert.InRange(p.Fact.Length, 30, 120));
+        Assert.Equal(KnownPlace.All.Count, KnownPlace.All.Select(p => p.Fact).Distinct().Count());
+    }
 
     private static string Step(string place, string landscape, string time, string weather) =>
         JsonSerializer.Serialize(new { place, landscape, timeOfDay = time, weather, fact = "A real fact about the place." });

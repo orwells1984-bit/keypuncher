@@ -4,6 +4,7 @@
 //   dotnet run --project tools/Keypuncher.Sandbox -- extinct [model] [count]   only extinct animals, in creature families
 //   dotnet run --project tools/Keypuncher.Sandbox -- scenes [model] [count]    walk the scene through real places, weather and time
 //   dotnet run --project tools/Keypuncher.Sandbox -- places [model]            score the place checker on known places
+//   dotnet run --project tools/Keypuncher.Sandbox -- facts [model]             score the place-fact check on true and false sentences
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
 //   dotnet run --project tools/Keypuncher.Sandbox -- recipe [model] "a round sleepy cat"   the Phase 0 prompt
 //
@@ -40,11 +41,14 @@ switch (mode)
     case "places":
         await Places();
         break;
+    case "facts":
+        await Facts();
+        break;
     case "recipe":
         await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
         break;
     default:
-        Console.WriteLine("modes: picks, extinct, scenes, places, check, recipe");
+        Console.WriteLine("modes: picks, extinct, scenes, places, facts, check, recipe");
         break;
 }
 
@@ -157,6 +161,46 @@ async Task Places()
     }
     Console.WriteLine();
     Console.WriteLine($"{right} of {cases.Length} right; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");
+}
+
+// True and false sentences about real places, the false ones including those the model wrote in a test run.
+async Task Facts()
+{
+    (string Place, string Fact, bool True)[] cases =
+    [
+        ("Hallormsstadaskogur, Iceland", "Hallormsstadaskogur in east Iceland is the country's largest forest.", true),
+        ("Bondi Beach, Australia", "Bondi Beach is a famous beach in Sydney.", true),
+        ("Wadi Rum, Jordan", "Wadi Rum is a desert valley in southern Jordan.", true),
+        ("Lake Bled, Slovenia", "Lake Bled has a small island with a church on it.", true),
+        ("Serengeti, Tanzania", "Wildebeest migrate across the Serengeti every year.", true),
+        ("Yosemite, USA", "Yosemite is a national park in California with tall granite cliffs.", true),
+        ("Lake Myvatn, Iceland", "Lake Myvatn is a lake in north Iceland.", true),
+        ("Banff, Canada", "Banff is a national park in the Rocky Mountains.", true),
+        ("Hallormsstadaskogur, Iceland", "Hallormsstadaskogur is a small village in the western part of Iceland.", false),
+        ("Hallormsstadaskogur, Iceland", "Hallormsstadaskogur is in the north of Iceland, with a dense forest of ancient oak trees.", false),
+        ("Bondi Beach, Australia", "Bondi Beach is a beach in Melbourne.", false),
+        ("Wadi Rum, Jordan", "Wadi Rum is a rainforest in Jordan.", false),
+        ("Lake Bled, Slovenia", "Lake Bled is a lake in Austria.", false),
+        ("Lake Myvatn, Iceland", "Lake Myvatn is a lake in the south of Iceland.", false),
+        ("Sahara, Morocco", "The Sahara is a desert in South America.", false),
+        ("Banff, Canada", "Banff is a beach town on the coast of Canada.", false),
+    ];
+    Console.WriteLine($"# Place-fact check, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    Console.WriteLine();
+    Console.WriteLine("| place | sentence | true? | confirmed | right? |");
+    Console.WriteLine("| --- | --- | --- | --- | --- |");
+    int right = 0, keptTrue = 0, keptFalse = 0;
+    var clock = Stopwatch.StartNew();
+    foreach (var (place, fact, isTrue) in cases)
+    {
+        var confirmed = await placeChecker.ConfirmFactAsync(place, fact);
+        if (confirmed == isTrue) right++;
+        if (confirmed && isTrue) keptTrue++;
+        if (confirmed && !isTrue) keptFalse++;
+        Console.WriteLine($"| {place} | {fact} | {(isTrue ? "yes" : "no")} | {(confirmed ? "yes" : "no")} | {(confirmed == isTrue ? "yes" : "NO")} |");
+    }
+    Console.WriteLine();
+    Console.WriteLine($"{right} of {cases.Length} right: {keptTrue} of {cases.Count(c => c.True)} true sentences kept, {keptFalse} of {cases.Count(c => !c.True)} false ones let through; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");
 }
 
 // Real things, including ones a small model might not know, and inventions, including plausible-sounding ones.

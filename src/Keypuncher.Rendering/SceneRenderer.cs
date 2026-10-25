@@ -69,7 +69,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         foreach (var e in world.Live)
             if (e.Role is EntityRole.Letter or EntityRole.Word) DrawText(canvas, e, world.Time, width, height, unit, world.Style);
 
-        if (overlay is not null) DrawOverlay(canvas, overlay, height);
+        if (overlay is not null) DrawOverlay(canvas, overlay, width, height);
     }
 
     public void Dispose()
@@ -327,11 +327,39 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         });
     }
 
-    private void DrawOverlay(SKCanvas canvas, string text, int height)
+    /// <summary>Text for the grown-up at the top left: lines split on newlines and wrapped to the screen's width, on
+    /// a pale panel so it reads over anything, at a size that still reads in a test-mode video.</summary>
+    private void DrawOverlay(SKCanvas canvas, string text, int width, int height)
     {
-        using var font = new SKFont(typeface, Math.Max(14, height * 0.025f));
-        using var paint = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70, 200) };
-        canvas.DrawText(text, height * 0.02f, height * 0.04f, SKTextAlign.Left, font, paint);
+        using var font = new SKFont(typeface, Math.Max(14, height * 0.03f));
+        using var paint = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70, 230) };
+        using var panel = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(170) };
+        var margin = height * 0.02f;
+        var lines = Wrap(text, font, width - (4 * margin)).Take(5).ToList();
+        var lineHeight = font.Size * 1.25f;
+        var widest = lines.Count == 0 ? 0 : lines.Max(l => font.MeasureText(l));
+        canvas.DrawRoundRect(new SKRect(margin * 0.5f, margin * 0.5f, (margin * 1.5f) + widest, margin + (lineHeight * lines.Count)), margin * 0.5f, margin * 0.5f, panel);
+        for (var i = 0; i < lines.Count; i++)
+            canvas.DrawText(lines[i], margin, margin + (lineHeight * (i + 0.8f)), SKTextAlign.Left, font, paint);
+    }
+
+    private static IEnumerable<string> Wrap(string text, SKFont font, float width)
+    {
+        foreach (var paragraph in text.Split('\n'))
+        {
+            var line = "";
+            foreach (var word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var next = line.Length == 0 ? word : line + " " + word;
+                if (line.Length > 0 && font.MeasureText(next) > width)
+                {
+                    yield return line;
+                    line = word;
+                }
+                else line = next;
+            }
+            if (line.Length > 0) yield return line;
+        }
     }
 
     /// <summary>The scene's backdrop. A change of scene fades the new one in over the calm level's
