@@ -28,6 +28,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     public const int LogLength = 16;
     /// <summary>Places the scene has been, remembered so it moves on somewhere new.</summary>
     public const int RecentPlaces = 8;
+    /// <summary>After this many steps at one place the next step is always a journey.</summary>
+    public const int StepsBeforeJourney = 3;
 
     /// <summary>Plain names for the built-in animals whose recipe names are shorthand.</summary>
     private static readonly Dictionary<string, string> PlainNames = new()
@@ -45,6 +47,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     private (int Slot, Recipe Was)? _asked;
     private Scene? _sceneWas;
     private double? _familyDue, _sceneDue;
+    private int _stepsHere;
 
     public string ModelName => director.ModelName;
 
@@ -88,7 +91,10 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         _family = Task.Run(() => director.ProposeAsync(request, token), token);
     }
 
-    /// <summary>The scene step to ask for: the scene now, where it has been, and the real things in the world.</summary>
+    /// <summary>The scene step to ask for: what kind of step, the scene now, where it has been, and the real things in
+    /// the world. A small model left to choose only ever moves the clock on, so the loop chooses the kind: a journey
+    /// from the starting meadow and after <see cref="StepsBeforeJourney"/> steps at one place, otherwise mostly the
+    /// weather or the time of day, now and then a journey early.</summary>
     public SceneRequest NextSceneRequest(World world)
     {
         var things = world.Families.All
@@ -98,8 +104,16 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             .OrderBy(_ => _random.Next())
             .Take(12)
             .ToList();
-        return new SceneRequest(world.Scene, [.. _places.Where(p => !SceneRules.SamePlace(p, world.Scene.Place))], things);
+        return new SceneRequest(world.Scene, [.. _places.Where(p => !SceneRules.SamePlace(p, world.Scene.Place))], things,
+            ChooseChange(world.Scene, _stepsHere, _random.NextDouble()));
     }
+
+    /// <summary>The kind of step to take from <paramref name="current"/> after <paramref name="stepsHere"/> steps at
+    /// its place, for a roll between 0 and 1.</summary>
+    public static SceneChange ChooseChange(Scene current, int stepsHere, double roll) =>
+        current.Place is null || stepsHere >= StepsBeforeJourney || roll < 0.2 ? SceneChange.Journey
+        : roll < 0.6 ? SceneChange.Weather
+        : SceneChange.Time;
 
     /// <summary>The next family to restyle and what to ask for it; null if no family may change.</summary>
     /// <param name="scene">The scene now: half the requests for a living animal or a plant ask for one found there.</param>
@@ -218,6 +232,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, outcome));
         _sceneDue = world.Time + (outcome.Accepted ? limits.SceneMinutes * 60 : FirstAfterSeconds);
         if (outcome.Scene is not { } scene || world.Scene != was) return;
+        _stepsHere = SceneRules.SamePlace(world.Scene.Place, scene.Place) ? _stepsHere + 1 : 0;
         if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, scene.Place))
         {
             _places.Insert(0, left);

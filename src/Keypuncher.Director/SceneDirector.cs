@@ -6,11 +6,24 @@ using Keypuncher.Inference;
 
 namespace Keypuncher.Director;
 
+/// <summary>The kind of step a scene request asks for. The loop chooses it, because left to choose, a small model
+/// only ever lets the time of day move on; the model chooses what the new weather is, or where to go.</summary>
+public enum SceneChange
+{
+    /// <summary>The weather changes; the place and time stay.</summary>
+    Weather,
+    /// <summary>The time of day moves on; the weather may change too.</summary>
+    Time,
+    /// <summary>A new real place; the weather may change too, the time stays.</summary>
+    Journey,
+}
+
 /// <summary>What the director is asked for: the next step for the scene.</summary>
 /// <param name="Current">The scene now.</param>
 /// <param name="RecentPlaces">Places the world has been lately, newest first, so it moves on somewhere new.</param>
 /// <param name="Things">The real things the keys make now, so a new place can be one where they are really found.</param>
-public sealed record SceneRequest(Scene Current, IReadOnlyList<string> RecentPlaces, IReadOnlyList<string> Things);
+/// <param name="Change">What kind of step to take.</param>
+public sealed record SceneRequest(Scene Current, IReadOnlyList<string> RecentPlaces, IReadOnlyList<string> Things, SceneChange Change = SceneChange.Journey);
 
 /// <summary>The model's answer for one scene step.</summary>
 public sealed record ScenePick
@@ -31,8 +44,9 @@ public sealed record SceneOutcome(SceneRequest Request, Scene? Scene, IReadOnlyL
     public bool Accepted => Scene is not null;
 }
 
-/// <summary>The JSON schema for <see cref="ScenePick"/>, narrowed per request so that time only goes forward and a
-/// rainbow only follows rain. Ollama holds enums at decode time.</summary>
+/// <summary>The JSON schema for <see cref="ScenePick"/>, narrowed per request to the kind of step asked for, so that
+/// time only goes forward, a weather step really changes the weather, and a rainbow only follows rain. Ollama holds
+/// enums at decode time.</summary>
 public static class SceneSchema
 {
     public static JsonElement For(SceneRequest request)
@@ -46,9 +60,11 @@ public static class SceneSchema
             ["properties"] = new JsonObject
             {
                 ["place"] = new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
-                ["landscape"] = Enum(Enum<Landscape>()),
-                ["timeOfDay"] = Enum([now.TimeOfDay.ToString(), Scene.Next(now.TimeOfDay).ToString()]),
-                ["weather"] = Enum(Enum<Weather>().Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)),
+                ["landscape"] = Enum(request.Change == SceneChange.Journey ? Enum<Landscape>() : [now.Landscape.ToString()]),
+                ["timeOfDay"] = Enum([(request.Change == SceneChange.Time ? Scene.Next(now.TimeOfDay) : now.TimeOfDay).ToString()]),
+                ["weather"] = Enum(Enum<Weather>()
+                    .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
+                    .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())),
                 ["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 },
             },
         };
@@ -98,6 +114,14 @@ public static class SceneRules
         if (string.IsNullOrWhiteSpace(pick.Fact)) { error = "no fact"; return false; }
 
         newPlace = !SamePlace(place, now.Place);
+        var asked = request.Change switch
+        {
+            SceneChange.Journey when !newPlace => "should have gone somewhere new",
+            SceneChange.Weather when newPlace || pick.Weather == now.Weather => "should have changed only the weather",
+            SceneChange.Time when newPlace || pick.TimeOfDay == now.TimeOfDay => "should have moved the time on",
+            _ => null,
+        };
+        if (asked is not null) { error = asked; return false; }
         if (pick.TimeOfDay != now.TimeOfDay && pick.TimeOfDay != Scene.Next(now.TimeOfDay)) { error = "time only goes forward"; return false; }
         if (pick.Weather == Weather.Rainbow && now.Weather != Weather.Rain) { error = "a rainbow only comes after rain"; return false; }
         if (pick.Weather == Weather.Snow && Scene.Hot(pick.Landscape)) { error = $"it never snows {Scene.Describe(pick.Landscape)}"; return false; }

@@ -98,8 +98,9 @@ async Task Picks(int count, bool extinctOnly = false)
 async Task Scenes(int count)
 {
     var world = new World();
-    var loop = new DirectorLoop(new RealThingDirector(author, checker), new Random(Environment.TickCount));
+    var random = new Random(Environment.TickCount);
     var scenes = new SceneDirector(author, placeChecker);
+    var stepsHere = 0;
     Console.WriteLine($"# Director scene steps, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
     Console.WriteLine();
     Console.WriteLine("| # | from | tried | result | fact / checker | s |");
@@ -108,17 +109,20 @@ async Task Scenes(int count)
     var places = new List<string>();
     for (var i = 0; i < count; i++)
     {
-        var request = loop.NextSceneRequest(world) with { RecentPlaces = [.. places] };
+        var change = DirectorLoop.ChooseChange(world.Scene, stepsHere, random.NextDouble());
+        var things = world.Families.All.Skip(BuiltInRecipes.InventedFamilies).Select(r => r.Name).OrderBy(_ => random.Next()).Take(12).ToList();
+        var request = new SceneRequest(world.Scene, [.. places], things, change);
         var outcome = await scenes.ProposeAsync(request);
         foreach (var a in outcome.Attempts)
         {
             tries++;
             var detail = a.Check is { } k ? $"{a.Fact} / checker: {k.Verdict}, {string.Join(" ", k.Landscapes)}, snows {k.Snows}, \"{k.WhatItIs}\"" : a.Fact;
-            Console.WriteLine($"| {i + 1} | {world.Scene} | {a.Tried} | {a.Refused ?? "used"} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
+            Console.WriteLine($"| {i + 1} | {request.Change}: {world.Scene} | {a.Tried} | {a.Refused ?? "used"} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
         }
         if (outcome.Scene is { } s)
         {
             used++;
+            stepsHere = SceneRules.SamePlace(world.Scene.Place, s.Place) ? stepsHere + 1 : 0;
             if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, s.Place)) places.Insert(0, left);
             world.SetScene(s);
         }

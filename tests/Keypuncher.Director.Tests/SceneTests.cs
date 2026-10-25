@@ -11,51 +11,76 @@ public class SceneTests
     private static readonly SceneRequest FromVik = new(Vik, ["Lake Myvatn, Iceland"], ["puffin", "seal"]);
 
     [Fact]
-    public void Time_only_goes_forward_and_a_rainbow_only_follows_rain_in_the_schema()
+    public void The_schema_holds_each_kind_of_step_time_only_goes_forward_and_a_rainbow_only_follows_rain()
     {
-        var props = SceneSchema.For(FromVik).GetProperty("properties");
-        Assert.Equal(["Morning", "Midday"], props.GetProperty("timeOfDay").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
-        Assert.DoesNotContain("Rainbow", props.GetProperty("weather").ToString());
-        var evening = SceneSchema.For(FromVik with { Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
-        Assert.Equal(["Evening", "Dawn"], evening.GetProperty("timeOfDay").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
-        Assert.Contains("Rainbow", evening.GetProperty("weather").ToString());
+        static string[] Values(JsonElement props, string name) => [.. props.GetProperty(name).GetProperty("enum").EnumerateArray().Select(e => e.GetString()!)];
+
+        var journey = SceneSchema.For(FromVik).GetProperty("properties");
+        Assert.Equal(["Morning"], Values(journey, "timeOfDay"));
+        Assert.Equal(Enum.GetNames<Landscape>(), Values(journey, "landscape"));
+        Assert.DoesNotContain("Rainbow", Values(journey, "weather"));
+
+        var weather = SceneSchema.For(FromVik with { Change = SceneChange.Weather }).GetProperty("properties");
+        Assert.Equal(["Beach"], Values(weather, "landscape"));
+        Assert.Equal(["Morning"], Values(weather, "timeOfDay"));
+        Assert.DoesNotContain("Cloudy", Values(weather, "weather"));
+
+        var evening = SceneSchema.For(FromVik with { Change = SceneChange.Time, Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
+        Assert.Equal(["Dawn"], Values(evening, "timeOfDay"));
+        Assert.Contains("Rainbow", Values(evening, "weather"));
+    }
+
+    [Fact]
+    public void The_loop_chooses_the_kind_of_step_so_the_scene_really_travels()
+    {
+        Assert.Equal(SceneChange.Journey, DirectorLoop.ChooseChange(Scene.Default, 0, 0.9));
+        Assert.Equal(SceneChange.Journey, DirectorLoop.ChooseChange(Vik, DirectorLoop.StepsBeforeJourney, 0.9));
+        Assert.Equal(SceneChange.Journey, DirectorLoop.ChooseChange(Vik, 0, 0.1));
+        Assert.Equal(SceneChange.Weather, DirectorLoop.ChooseChange(Vik, 1, 0.5));
+        Assert.Equal(SceneChange.Time, DirectorLoop.ChooseChange(Vik, 1, 0.9));
     }
 
     [Fact]
     public void A_small_real_step_is_taken()
     {
-        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), FromVik, out var scene, out var newPlace, out var error), error);
+        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), FromVik with { Change = SceneChange.Weather }, out var scene, out var newPlace, out var error), error);
         Assert.False(newPlace);
         Assert.Equal(Vik with { Weather = Weather.Rain, Fact = "A real fact about the place." }, scene);
 
-        Assert.True(Build(Step("Thingvellir, Iceland", "LavaField", "Midday", "Cloudy"), FromVik, out scene, out newPlace, out error), error);
+        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Midday", "Clear"), FromVik with { Change = SceneChange.Time }, out scene, out newPlace, out error), error);
+        Assert.Equal((TimeOfDay.Midday, Weather.Clear), (scene!.TimeOfDay, scene.Weather));
+
+        Assert.True(Build(Step("Thingvellir, Iceland", "LavaField", "Morning", "Rain"), FromVik, out scene, out newPlace, out error), error);
         Assert.True(newPlace);
-        Assert.Equal((Landscape.LavaField, TimeOfDay.Midday, "Thingvellir, Iceland"), (scene!.Landscape, scene.TimeOfDay, scene.Place));
+        Assert.Equal((Landscape.LavaField, Weather.Rain, "Thingvellir, Iceland"), (scene!.Landscape, scene.Weather, scene.Place));
         Assert.False(scene.Snows);   // until the place check says so
     }
 
     [Theory]
-    [InlineData("Reynisfjara, Iceland", "Beach", "Dawn", "Rain", "time only goes forward")]
-    [InlineData("Reynisfjara, Iceland", "Beach", "Morning", "Rainbow", "a rainbow only comes after rain")]
-    [InlineData("Sahara, Morocco", "Desert", "Morning", "Snow", "it never snows in the desert")]
-    [InlineData("Reynisfjara, Iceland", "Forest", "Morning", "Cloudy", "a new landscape needs a new place")]
-    [InlineData("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy", "nothing changed")]
-    [InlineData("Bondi Beach, Australia", "Beach", "Midday", "Clear", "changed everything at once")]
-    [InlineData("Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy", "been there lately")]
-    [InlineData("Hogwarts {castle}", "Mountains", "Morning", "Cloudy", "not a plain place name")]
-    public void Steps_the_real_world_does_not_take_are_refused(string place, string landscape, string time, string weather, string why)
+    [InlineData(SceneChange.Time, "Reynisfjara, Iceland", "Beach", "Dawn", "Rain", "time only goes forward")]
+    [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Beach", "Morning", "Rainbow", "a rainbow only comes after rain")]
+    [InlineData(SceneChange.Journey, "Sahara, Morocco", "Desert", "Morning", "Snow", "it never snows in the desert")]
+    [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Forest", "Morning", "Rain", "a new landscape needs a new place")]
+    [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Beach", "Morning", "Cloudy", "should have changed only the weather")]
+    [InlineData(SceneChange.Weather, "Bondi Beach, Australia", "Beach", "Morning", "Clear", "should have changed only the weather")]
+    [InlineData(SceneChange.Time, "Reynisfjara, Iceland", "Beach", "Morning", "Rain", "should have moved the time on")]
+    [InlineData(SceneChange.Journey, "Reynisfjara, Iceland", "Beach", "Morning", "Rain", "should have gone somewhere new")]
+    [InlineData(SceneChange.Journey, "Bondi Beach, Australia", "Beach", "Midday", "Clear", "changed everything at once")]
+    [InlineData(SceneChange.Journey, "Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy", "been there lately")]
+    [InlineData(SceneChange.Journey, "Seren: Tanzania", "Savanna", "Morning", "Cloudy", "not a plain place name")]
+    public void Steps_the_real_world_does_not_take_are_refused(SceneChange change, string place, string landscape, string time, string weather, string why)
     {
-        Assert.False(Build(Step(place, landscape, time, weather), FromVik, out _, out _, out var error));
+        Assert.False(Build(Step(place, landscape, time, weather), FromVik with { Change = change }, out _, out _, out var error));
         Assert.Equal(why, error);
     }
 
     [Fact]
     public void Snow_at_the_same_place_needs_the_place_to_have_snow()
     {
-        var noSnow = FromVik with { Current = Vik with { Snows = false } };
+        var noSnow = FromVik with { Current = Vik with { Snows = false }, Change = SceneChange.Weather };
         Assert.False(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), noSnow, out _, out _, out var error));
         Assert.Equal("it never snows there", error);
-        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), FromVik, out _, out _, out _));
+        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), noSnow with { Current = Vik }, out _, out _, out _));
     }
 
     [Fact]
@@ -79,7 +104,7 @@ public class SceneTests
 
         var stay = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Midday", "Cloudy"));
         var neverAsked = new ScriptedModel("not json");
-        var staying = await new SceneDirector(stay, new PlaceChecker(neverAsked)).ProposeAsync(FromVik);
+        var staying = await new SceneDirector(stay, new PlaceChecker(neverAsked)).ProposeAsync(FromVik with { Change = SceneChange.Time });
         Assert.Equal(TimeOfDay.Midday, staying.Scene!.TimeOfDay);
         Assert.Empty(neverAsked.Prompts);
     }
@@ -98,7 +123,9 @@ public class SceneTests
     public async Task The_loop_moves_the_scene_between_family_changes_and_remembers_where_it_has_been()
     {
         var world = new World();
-        var author = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy"), Step("Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy"));
+        // The second step may be any kind; one of its three tries fits each.
+        var author = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy"),
+            Step("Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy"), Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), Step("Reynisfjara, Iceland", "Beach", "Midday", "Cloudy"));
         var checker = new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"], "true"), Place("a lake in Iceland", "real", ["Lake"], "true"));
         var things = new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel()));
         using var loop = new DirectorLoop(things, new Random(1), scenes: new SceneDirector(author, new PlaceChecker(checker)));
@@ -130,11 +157,13 @@ public class SceneTests
         Assert.Contains(places, p => p!.Contains("Reynisfjara, Iceland"));
         Assert.Contains(places, p => !p!.Contains("Reynisfjara"));
 
+        var first = world.Scene;
         Tick(world, 120);
         loop.Update(world, limits, enabled: true);
         await Settle(loop, world, limits);
-        Assert.Equal("Lake Myvatn, Iceland", world.Scene.Place);
-        Assert.Equal(["Reynisfjara, Iceland"], loop.NextSceneRequest(world).RecentPlaces);
+        Assert.NotEqual(first, world.Scene);
+        if (world.Scene.Place == "Lake Myvatn, Iceland") Assert.Equal(["Reynisfjara, Iceland"], loop.NextSceneRequest(world).RecentPlaces);
+        else Assert.Equal("Reynisfjara, Iceland", world.Scene.Place);
     }
 
     [Fact]

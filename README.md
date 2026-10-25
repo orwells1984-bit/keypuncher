@@ -111,10 +111,10 @@ Only real things are allowed, and that is held in three layers:
 The backdrop is a `Scene`: a real place (named for grown-ups, such as "Reynisfjara, Iceland"), one of eleven
 landscapes (meadow, farm, forest, jungle, mountains, beach, lake, desert, savanna, snowy hills, lava field),
 a time of day (dawn to evening; the goodnight is the only night) and the weather (clear, cloudy, rain, snow,
-fog, a rainbow). Each step changes one or two of place, time and weather, and is held to the real world:
+fog, a rainbow). The loop chooses the kind of step (a journey from the starting meadow and after three steps at one place, otherwise mostly a weather change or the time moving on; a small model left to choose only moves the clock) and the model chooses the weather or where to go. Each step is held to the real world:
 
 1. **Prompt and schema.** The time of day may only stay or move on; a rainbow is offered only after rain.
-   Half of the later requests for an animal or plant ask for one really found at the scene's place.
+   A weather step must change the weather, a journey must go somewhere new. Half of the later requests for an animal or plant ask for one really found at the scene's place.
 2. **Rules** (`SceneRules`): no snow in deserts, jungles or the savanna, a new landscape needs a new place,
    not all three things at once, no going back to one of the last eight places.
 3. **Place check** (`PlaceChecker`): a new place goes to a second, cold call that sees only its name, must

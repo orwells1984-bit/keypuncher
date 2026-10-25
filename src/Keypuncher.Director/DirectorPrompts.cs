@@ -94,8 +94,8 @@ public static class DirectorPrompts
         landscape is the one that best describes what the place looks like. The weather must be weather that
         really happens there: no snow in hot deserts, jungles or on the savanna; a rainbow only straight after
         rain. Time only goes forward. The weather is always gentle: no storms.
-        Change one or two things, never all three: often just the weather, or the time of day moving on;
-        sometimes a journey to a new place. fact is one short true sentence about the place.
+        Each request says what kind of step to take: a change of weather, the time of day moving on, or a journey
+        to a new place. fact is one short true sentence about the place.
         Answer only with JSON that matches the schema you are given. Never add text around it.
         """;
 
@@ -104,11 +104,15 @@ public static class DirectorPrompts
     {
         var now = request.Current;
         var here = now.Place is { } place ? $"{place}, {Scene.Describe(now.Landscape)}" : "a meadow, not yet a named place";
-        var stay = now.Place is null ? "Choose a real place to begin." : $"To stay, keep place exactly \"{now.Place}\" and landscape {now.Landscape}.";
+        var ask = request.Change switch
+        {
+            SceneChange.Weather => $"Change the weather: keep place exactly \"{now.Place}\", landscape {now.Landscape} and the time of day, and choose new weather that really happens there.",
+            SceneChange.Time => $"Let time move on to {Scene.Next(now.TimeOfDay)}: keep place exactly \"{now.Place}\" and landscape {now.Landscape}. The weather may stay or change gently.",
+            _ => "Travel to a new real place on Earth, written as \"Name, Country\" (never \"meadow\" or a description), and choose the landscape it looks like. The time of day stays; the weather may change.",
+        };
         return $"""
             Now: {here}, {now.TimeOfDay.ToString().ToLowerInvariant()}, weather {now.Weather}.
-            {stay}
-            Time of day: keep {now.TimeOfDay} or move on to {Scene.Next(now.TimeOfDay)}.
+            {ask}
             {(request.Things.Count == 0 ? "" : "If you choose a new place, one where some of these really live or grow is good: " + string.Join(", ", request.Things) + ".")}
             {(request.RecentPlaces.Count == 0 ? "" : "Not these places, which the world has been to lately: " + string.Join("; ", request.RecentPlaces) + ".")}
             {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
