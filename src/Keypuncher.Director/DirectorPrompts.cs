@@ -39,8 +39,8 @@ public static class DirectorPrompts
         Never choose anything from myths, fairy tales, stories, films, cartoons, games or toys. Never a character,
         a brand, a mix of two animals, or a made-up name. Dragons, unicorns, fairies, mermaids and monsters are
         not real. If you are not sure something is real, choose something more common that you are sure of.
-        subject is the thing's ordinary English name in small letters, like "puffin", "oak tree", "fire engine"
-        or "woolly mammoth". fact is one short true sentence about where it lives or grows, or when it lived.
+        subject is the thing's ordinary English name in small letters, one to three words, like "oak tree" or
+        "fire engine". fact is one short true sentence about where it lives or grows, or when it lived.
 
         Draw it with the nearest shape:
         - Animals with a shape of their own: Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear,
@@ -63,18 +63,24 @@ public static class DirectorPrompts
 
     /// <summary>The ask for one key family. <paramref name="turnedDown"/> lists earlier picks for this request and
     /// why they were refused, so the model does not offer them again.</summary>
-    public static string RealThing(DirectorRequest request, IReadOnlyList<string> turnedDown)
+    public static string RealThing(DirectorRequest request, IReadOnlyList<string> turnedDown, IReadOnlyList<string>? suggestions = null)
     {
-        var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $" that you would find {place}" : "");
+        var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $". It should be something {place}" : "");
         var ask = request.GrowInto is { } next
             ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
-            : $"Choose one {what}. Name one particular kind, not a group word like dinosaur, bird or flower.";
+            : request.MustBe is { } must
+            ? $"Draw the real {must}, {RealThingPick.Describe(request.Category)}: subject must be \"{must}\"."
+            : $"Choose {what}. Name one particular kind, not a group word like dinosaur, bird or flower."
+              + (request.Category == RealCategory.ExtinctAnimal
+                  ? " Dinosaurs, Ice Age mammals, sea reptiles, flying reptiles and birds that died out all count. An animal that still lives anywhere today does not."
+                  : "");
         return $"""
             {ask}
             Not any of these, which are already in the world: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
             growsInto: if it really grows or turns into something else in nature (tadpole to frog, caterpillar to
             butterfly, acorn to oak tree, egg to chick), name that; otherwise null.
             {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
+            {(suggestions is { Count: > 0 } ? "If you are not sure of one, choose one of these: " + string.Join(", ", suggestions) + "." : "")}
             """;
     }
 }

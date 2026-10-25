@@ -17,7 +17,8 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
 /// <see cref="CreatureMix"/>.</param>
 public sealed class DirectorLoop(RealThingDirector director, Random? random = null, IReadOnlyList<RealCategory>? creatureCategories = null) : IDisposable
 {
-    /// <summary>The first request comes this long into play, so starting the toy is not when things change.</summary>
+    /// <summary>The first request comes this long into play, so starting the toy is not when things change; a
+    /// request that came back empty is tried again this long after.</summary>
     public const double FirstAfterSeconds = 30;
     public const int LogLength = 12;
 
@@ -100,6 +101,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         return new DirectorRequest(slot, kind, current, existing, Category: category, Place: Pick(Places[category]));
     }
 
+    /// <summary>The places a request for <paramref name="category"/> may name.</summary>
+    public static IReadOnlyList<string> PlacesFor(RealCategory category) => Places[category];
+
     private T Pick<T>(IReadOnlyList<T> items) => items[_random.Next(items.Count)];
 
     /// <summary>A creature family is mostly animals: half alive today, a fifth extinct, the rest vehicles and objects.</summary>
@@ -118,7 +122,12 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             "on the African savanna", "in a garden", "in a river", "in the mountains", "in Iceland", "in Australia",
             "in South America", "on a beach", "in the Antarctic", "in a meadow",
         ],
-        [RealCategory.ExtinctAnimal] = ["in the time of the dinosaurs", "in the Ice Age", "in the sea long ago", "on an island long ago", "in the sky long ago"],
+        [RealCategory.ExtinctAnimal] =
+        [
+            "from the time of the dinosaurs", "from the Ice Age", "that swam in the sea in the time of the dinosaurs",
+            "that flew in the time of the dinosaurs", "that died out in the last few hundred years",
+            "from millions of years ago, before the dinosaurs",
+        ],
         [RealCategory.Plant] =
         [
             "in a garden", "in a forest", "in a vegetable patch", "in a meadow", "in an orchard", "by a pond",
@@ -142,6 +151,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
         var outcome = done.Result;
         AddLog(new DirectorLogEntry(DateTime.Now, slot, outcome, null));
+        // Nothing usable came back: try again (another category and place, maybe another family) shortly,
+        // rather than leaving the family as it is for a whole interval.
+        if (!outcome.Accepted) (_startedAt, _lastAsked) = (world.Time, null);
         // A fresh world, or another change, since the request was made: the answer is for something gone.
         if (outcome.Recipe is not { } recipe || !ReferenceEquals(world.Families[slot], was)) return;
         if (world.Families.Restyle(slot, recipe, world.Time)) Restyled?.Invoke(slot, recipe);

@@ -1,6 +1,7 @@
 // Prompt playground for the director.
 //
 //   dotnet run --project tools/Keypuncher.Sandbox -- picks [model] [count]     ask for real things, as the toy does
+//   dotnet run --project tools/Keypuncher.Sandbox -- extinct [model] [count]   only extinct animals, in creature families
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
 //   dotnet run --project tools/Keypuncher.Sandbox -- recipe [model] "a round sleepy cat"   the Phase 0 prompt
 //
@@ -23,6 +24,9 @@ switch (mode)
     case "picks":
         await Picks(args.Length > 2 ? int.Parse(args[2]) : 12);
         break;
+    case "extinct":
+        await Picks(args.Length > 2 ? int.Parse(args[2]) : 12, extinctOnly: true);
+        break;
     case "check":
         await Check();
         break;
@@ -30,17 +34,19 @@ switch (mode)
         await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
         break;
     default:
-        Console.WriteLine("modes: picks, check, recipe");
+        Console.WriteLine("modes: picks, extinct, check, recipe");
         break;
 }
 
 // Restyles a fresh set of families the way the toy would, back to back, and prints every attempt.
-async Task Picks(int count)
+async Task Picks(int count, bool extinctOnly = false)
 {
     var world = new World();
-    var loop = new DirectorLoop(new RealThingDirector(author, checker), new Random(Environment.TickCount));
-    var director = new RealThingDirector(author, checker);
-    Console.WriteLine($"# Director picks, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    var random = new Random(Environment.TickCount);
+    var loop = new DirectorLoop(new RealThingDirector(author, checker), random);
+    var director = new RealThingDirector(author, checker, random);
+    var creatureSlots = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).Where(i => world.Families[i].Kind == RecipeKind.Creature).ToList();
+    Console.WriteLine($"# Director {(extinctOnly ? "extinct-animal " : "")}picks, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
     Console.WriteLine();
     Console.WriteLine("| # | family | asked | tried | result | fact / checker | s |");
     Console.WriteLine("| --- | --- | --- | --- | --- | --- | --- |");
@@ -48,6 +54,17 @@ async Task Picks(int count)
     for (var i = 0; i < count; i++)
     {
         var request = loop.NextRequest(world.Families)!;
+        if (extinctOnly)
+        {
+            var slot = creatureSlots[i % creatureSlots.Count];
+            var places = DirectorLoop.PlacesFor(RealCategory.ExtinctAnimal);
+            request = request with
+            {
+                Slot = slot, Kind = RecipeKind.Creature, GrowInto = null, Category = RealCategory.ExtinctAnimal,
+                Current = world.Families.ChangedAt(slot) is null ? null : world.Families[slot].Name,
+                Place = places[random.Next(places.Count)],
+            };
+        }
         var outcome = await director.ProposeAsync(request);
         var asked = request.GrowInto is { } g ? $"grow {request.Current} into {g}" : $"{request.Category} {request.Place}" + (request.Current is { } c ? $", replacing {c}" : "");
         foreach (var a in outcome.Attempts)

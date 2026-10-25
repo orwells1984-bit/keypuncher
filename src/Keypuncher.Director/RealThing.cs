@@ -41,12 +41,24 @@ public sealed record RealThingPick
     /// <summary>What it really grows or turns into, if anything: tadpole to frog, acorn to oak tree.</summary>
     [JsonPropertyName("growsInto")] public string? GrowsInto { get; init; }
 
+    /// <summary>Well-known extinct animals, offered to the model as suggestions on its last try at an extinct
+    /// animal so that such a request does not come back empty. The model still chooses, and its choice is still
+    /// checked like any other.</summary>
+    public static readonly IReadOnlyList<string> WellKnownExtinct =
+    [
+        "woolly mammoth", "dodo", "sabre-toothed cat", "woolly rhinoceros", "cave bear", "giant ground sloth",
+        "great auk", "moa", "mastodon", "ankylosaurus", "diplodocus", "brachiosaurus", "velociraptor",
+        "parasaurolophus", "iguanodon", "spinosaurus", "allosaurus", "pteranodon", "ichthyosaur", "plesiosaur",
+        "megalodon", "ammonite", "trilobite", "dimetrodon", "archaeopteryx", "irish elk", "glyptodon",
+        "thylacine", "steller's sea cow", "passenger pigeon",
+    ];
+
     public static RecipeKind KindOf(RealCategory category) => category == RealCategory.Plant ? RecipeKind.Plant : RecipeKind.Creature;
 
     public static string Describe(RealCategory category) => category switch
     {
         RealCategory.Animal => "a kind of animal alive today",
-        RealCategory.ExtinctAnimal => "an animal that lived long ago, known from fossils or history",
+        RealCategory.ExtinctAnimal => "an extinct animal: one that has died out and is alive nowhere today, known from fossils or history",
         RealCategory.Plant => "a plant, flower, tree, fruit or vegetable",
         RealCategory.Vehicle => "a vehicle",
         _ => "an everyday object",
