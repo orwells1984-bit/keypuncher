@@ -14,7 +14,7 @@ public enum HostMode { Play, Parent, Recording }
 
 /// <summary>
 /// Owns everything that lives as long as the app: the world and its file, the mixer and the sound
-/// card, the recordings, the settings and the keyboard hook. Pages borrow it.
+/// card, the recordings, the settings, the keyboard hook and the Sticky Keys shortcuts being off. Pages borrow it.
 /// </summary>
 /// <remarks>
 /// Data lives in %LOCALAPPDATA%\Keypuncher, or in the folder named by the KEYPUNCHER_DATA environment
@@ -26,6 +26,7 @@ public sealed class ToyHost : IDisposable
 {
     private readonly ConcurrentQueue<KeyPress> _keys = new();
     private readonly SettingsStore _settingsStore;
+    private readonly AccessibilityShortcuts _shortcuts;
     private volatile HostMode _mode = HostMode.Play;
 
     public ToyHost()
@@ -46,6 +47,7 @@ public sealed class ToyHost : IDisposable
 
         Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load());
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
+        _shortcuts = new AccessibilityShortcuts();
 
         var ollama = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } host
             ? (host.Contains("://") ? host : "http://" + host)
@@ -111,6 +113,7 @@ public sealed class ToyHost : IDisposable
     public void Dispose()
     {
         Keyboard.Dispose();
+        _shortcuts.Dispose();
         Director.Dispose();
         SaveWorld();
         WorldStore.Dispose();
