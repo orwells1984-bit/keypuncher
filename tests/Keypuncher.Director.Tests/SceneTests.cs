@@ -233,6 +233,47 @@ public class SceneTests
     }
 
     [Fact]
+    public async Task With_no_wait_set_the_loop_alternates_keys_and_scenes_back_to_back()
+    {
+        var world = new World();
+        var author = new ScriptedModel(
+            JsonSerializer.Serialize(new { subject = "hedgehog", category = "Animal", fact = "Lives in gardens.", shape = "Blob", lobes = 3, hue = 30, size = 0.4,
+                motion = new { type = "Hop", speed = 0.3 }, voice = new { wave = "Sine", attack = 0.01, decay = 0.4, scale = "pentatonic", root = "C4" }, growsInto = (string?)null }));
+        var things = new RealThingDirector(author, new FactChecker(new ScriptedModel(JsonSerializer.Serialize(new { whatItIs = "a small mammal", verdict = "real", kind = "Animal", growsInto = "none" }))));
+        var sceneAuthor = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy"));
+        var scenes = new SceneDirector(sceneAuthor, new PlaceChecker(new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"], "true"))));
+        using var loop = new DirectorLoop(things, new Random(1), [RealCategory.Animal], scenes);
+        var fast = CalmLimits.Baby with { RestyleMinutes = 0, SceneMinutes = 0 };
+
+        var kinds = new List<bool>();
+        for (var i = 0; i < 4; i++)
+        {
+            loop.Update(world, fast, enabled: true);
+            Assert.True(loop.Busy);
+            await Settle(loop, world, fast);
+            kinds.Add(loop.Log[0].Scene is not null);
+        }
+        Assert.Equal([true, false, true, false], kinds);
+        Assert.Equal("Reynisfjara, Iceland", world.Scene.Place);
+    }
+
+    [Fact]
+    public async Task An_unreachable_model_is_not_asked_again_at_once_even_with_no_wait_set()
+    {
+        var world = new World();
+        using var loop = new DirectorLoop(new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel())));
+        var fast = CalmLimits.Baby with { RestyleMinutes = 0, SceneMinutes = 0 };
+        loop.Update(world, fast, enabled: true);
+        await Settle(loop, world, fast);
+        loop.Update(world, fast, enabled: true);
+        Assert.False(loop.Busy);
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, fast, enabled: true);
+        Assert.True(loop.Busy);
+        await Settle(loop, world, fast);
+    }
+
+    [Fact]
     public async Task A_scene_for_a_world_that_was_cleared_meanwhile_is_not_used()
     {
         var world = new World();

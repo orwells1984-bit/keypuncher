@@ -91,8 +91,17 @@ public sealed class PlayPage : ContentPage
         var gate = _host.Engine.Gate;
         var overlay = gate.Challenge is { } word
             ? $"Grown-up? Type: {word}   ({gate.SecondsLeft(_host.World.Time):0})"
-            : _host.AudioError is { } err ? $"No sound: {err}" : null;
+            : _host.AudioError is { } err ? $"No sound: {err}"
+            : _host.Engine.Settings.DirectorTest ? TestOverlay()
+            : null;
         _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay);
+    }
+
+    /// <summary>In the director's test mode: the scene and the latest pick, at the top for the grown-up.</summary>
+    private string TestOverlay()
+    {
+        var latest = _host.Director.Log.FirstOrDefault()?.Lines().LastOrDefault(l => !l.Contains("turned down"));
+        return $"Test mode{(_host.Director.Busy ? ", asking the model" : "")}.  Scene: {_host.World.Scene}.  {latest}";
     }
 
     private void OnTouch(object? sender, SKTouchEventArgs e)

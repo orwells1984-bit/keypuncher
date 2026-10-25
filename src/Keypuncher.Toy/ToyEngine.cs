@@ -264,6 +264,10 @@ public sealed class ToyEngine
     /// <summary>Clears key state after the window loses focus (key-ups went elsewhere).</summary>
     public void ResetInput() => _mash.Reset();
 
+    /// <summary>Puts one of <paramref name="recipe"/> on screen, unprompted: for the director's test mode, so a
+    /// grown-up sees each new thing as soon as it is chosen.</summary>
+    public void Show(Recipe recipe) => SpawnThing(recipe, 0.2 + (_random.NextDouble() * 0.6), 0.4, 1.2);
+
     private void Respond(InputEvent ev, bool speak)
     {
         var recipe = FamilyOf(ev.ScanCode);

@@ -460,6 +460,22 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void Test_mode_makes_the_director_go_flat_out_with_no_goodnight_and_shows_each_new_thing()
+    {
+        var test = ToySettings.Default with { Calm = CalmLevel.Baby, DirectorTest = true };
+        Assert.Equal((0.0, 0.0, 3.0), (test.Limits.RestyleMinutes, test.Limits.SceneMinutes, test.Limits.SceneFadeSeconds));
+        Assert.Null(test.SessionLength);
+        Assert.Equal(CalmLimits.Baby.LiveThings, test.Limits.LiveThings);
+        Assert.Equal(CalmLimits.Baby, (test with { DirectorTest = false }).Limits);
+
+        _engine.Settings = test;
+        Assert.Equal(0, _world.Limits.SceneMinutes);
+        var hedgehog = BuiltInRecipes.Palette[0] with { Name = "hedgehog" };
+        _engine.Show(hedgehog);
+        Assert.Contains(_world.Live, e => e.Recipe == hedgehog);
+    }
+
+    [Fact]
     public void Letters_are_small_by_default()
     {
         Assert.False(ToySettings.Default.UpperCase);
