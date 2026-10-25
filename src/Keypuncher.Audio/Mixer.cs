@@ -5,7 +5,7 @@ namespace Keypuncher.Audio;
 
 /// <summary>
 /// The whole audio path: a small polyphonic synth for recipe voices, one speech channel for recorded
-/// or synthesised clips, and a master stage that caps volume, ramps up gently at start and limits
+/// or synthesised clips, a channel for animal calls, and a master stage that caps volume, ramps up gently at start and limits
 /// peaks. Any thread may call the public methods; <see cref="Read"/> runs on the audio thread and is
 /// the only place state changes, so there are no locks on the audio path.
 /// </summary>
@@ -19,6 +19,8 @@ public sealed class Mixer
     private const int MaxVoices = 24;
     private const float NoteGain = 0.3f;
     private const float SpeechGain = 0.9f;
+    /// <summary>Animal calls sit under speech, and duck under it like the notes do.</summary>
+    private const float CallGain = 0.55f;
     private const float DuckWhileSpeaking = 0.45f;
     private const float LimiterThreshold = 0.5f;
     private static readonly float LimiterRelease = (float)Math.Exp(-1.0 / (0.2 * SampleRate));
@@ -32,10 +34,14 @@ public sealed class Mixer
     private float _speechPanL = 1, _speechPanR = 1;
     private float[]? _fadingSpeech;
     private int _fadingPos, _fadingLeft;
+    private float[]? _call;
+    private int _callPos;
+    private float _callPanL = 1, _callPanR = 1;
     private float _limiterEnv;
     private long _samplesPlayed;
     private float _volume = 0.5f;
     private volatile bool _speechPlaying;
+    private volatile bool _callPlaying;
 
     /// <summary>Master volume, 0 to 1, capped at <see cref="MaxVolume"/>.</summary>
     public float Volume
@@ -45,6 +51,8 @@ public sealed class Mixer
     }
 
     public bool SpeechPlaying => _speechPlaying;
+
+    public bool CallPlaying => _callPlaying;
 
     /// <summary>Plays one note of a recipe's voice.</summary>
     /// <param name="pan">-1 left to 1 right.</param>
@@ -72,6 +80,20 @@ public sealed class Mixer
             _speech = samples;
             _speechPos = 0;
             (_speechPanL, _speechPanR) = (l, r);
+        });
+    }
+
+    /// <summary>Plays a mono animal call at <see cref="SampleRate"/>. One call at a time: a new one waits
+    /// for nothing and replaces the old, so callers should leave a gap between calls.</summary>
+    public void Call(float[] samples, double pan = 0)
+    {
+        _callPlaying = true;
+        var (l, r) = PanGains(pan * 0.6);
+        _commands.Enqueue(() =>
+        {
+            _call = samples;
+            _callPos = 0;
+            (_callPanL, _callPanR) = (l, r);
         });
     }
 
@@ -120,9 +142,16 @@ public sealed class Mixer
                 else _fadingSpeech = null;
             }
 
+            float call = 0;
+            if (_call is not null)
+            {
+                if (_callPos < _call.Length) call = _call[_callPos++] * CallGain;
+                else { _call = null; _callPlaying = false; }
+            }
+
             var duck = _speech is not null ? DuckWhileSpeaking : 1f;
-            l = (l * NoteGain * duck) + (speech * SpeechGain * _speechPanL);
-            r = (r * NoteGain * duck) + (speech * SpeechGain * _speechPanR);
+            l = (((l * NoteGain) + (call * _callPanL)) * duck) + (speech * SpeechGain * _speechPanL);
+            r = (((r * NoteGain) + (call * _callPanR)) * duck) + (speech * SpeechGain * _speechPanR);
 
             var ramp = _samplesPlayed < StartRampSamples ? _samplesPlayed / (float)StartRampSamples : 1f;
             _samplesPlayed++;

@@ -75,7 +75,7 @@ while it is in front; use the grown-up exit below to get back.
 - Data lives in `%LOCALAPPDATA%\Keypuncher` (`world.db`, `recordings\`, `settings.json`). Set
   `KEYPUNCHER_DATA` to another folder to share recordings between the child's account and yours.
 
-To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`.
+To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`. Add `--calls` to write every animal noise as a WAV instead.
 
 ## Phase 0 on the desktop
 

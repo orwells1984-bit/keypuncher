@@ -8,6 +8,7 @@
 // --mash N adds N palm mashes at the end. --calm Baby|Toddler|BigToddler picks the calm level (default Toddler). Frames are written after every press and at the end.
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
+// --calls instead writes every animal noise as a WAV, bold and baby (gentle) versions, for a quick listen.
 
 using Keypuncher.Audio;
 using Keypuncher.Core;
@@ -24,6 +25,7 @@ var height = int.Parse(Get("--height", "720"));
 var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
 Directory.CreateDirectory(outDir);
 if (args.Contains("--sheet")) return Sheet(outDir);
+if (args.Contains("--calls")) return Calls(outDir);
 
 var world = new World();
 var mixer = new Mixer();
@@ -130,6 +132,19 @@ static int Sheet(string outDir)
         using (var f = File.Create(path)) data.SaveTo(f);
         Console.WriteLine(path);
     }
+    return 0;
+}
+
+static int Calls(string outDir)
+{
+    foreach (var gentle in new[] { false, true })
+        foreach (var shape in AnimalCalls.Callers)
+        {
+            var samples = AnimalCalls.For(shape, gentle)!;
+            var path = Path.Combine(outDir, $"{shape}{(gentle ? "-baby" : "")}.wav".ToLowerInvariant());
+            using (var f = File.Create(path)) WavFile.Write(f, samples, Mixer.SampleRate);
+            Console.WriteLine($"{path}: {samples.Length / (double)Mixer.SampleRate:0.00} s, peak {samples.Max(Math.Abs):0.00}");
+        }
     return 0;
 }
 

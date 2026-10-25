@@ -11,13 +11,15 @@ namespace Keypuncher.Storage;
 /// <param name="SayWords">After a letter, say a word that starts with it when the child pauses.</param>
 /// <param name="Calm">How busy the screen may get and how boldly it is drawn; see <see cref="CalmLimits"/> and <see cref="ArtStyle"/>.</param>
 /// <param name="SessionMinutes">Play time before the goodnight: null for the calm level's default, 0 for never.</param>
+/// <param name="AnimalNoises">Animals now and then make their noise (moo, woof, roar) when they appear.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
     float Volume = 0.5f,
     bool SayWords = true,
     CalmLevel Calm = CalmLevel.Toddler,
-    int? SessionMinutes = null)
+    int? SessionMinutes = null,
+    bool AnimalNoises = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 

@@ -573,6 +573,96 @@ public sealed class ToyEngineTests : IDisposable
         new(new World(), new Mixer(), new SpeechLibrary(new ClipStore(_dir), null),
             ToySettings.Default with { LanguageWeights = new() { ["is"] = 0.4, ["en"] = 0.3, ["bg"] = 0.3 } }, random);
 
+    [Fact]
+    public void Animals_sometimes_make_their_noise_but_not_every_time()
+    {
+        var (engine, calls) = CallingEngine(ToySettings.Default);
+        var (x, y) = TouchFor(AnimalCalls.HasCall);
+        for (var i = 0; i < 60; i++)
+        {
+            engine.OnTouch(x, y, 1);
+            StepEngine(engine, CalmLimits.Toddler.CallGapSeconds + 1);
+        }
+        Assert.InRange(calls.Count, 8, 35); // about one in three
+    }
+
+    [Fact]
+    public void Animal_noises_keep_the_calm_levels_gap()
+    {
+        var (engine, calls) = CallingEngine(ToySettings.Default with { Calm = CalmLevel.Baby });
+        var times = new List<double>();
+        engine.AnimalCalled += _ => times.Add(engine.World.Time);
+        var (x, y) = TouchFor(AnimalCalls.HasCall);
+        for (var i = 0; i < 200; i++)
+        {
+            engine.OnTouch(x, y, 1);
+            StepEngine(engine, 0.5);
+        }
+        Assert.NotEmpty(calls);
+        Assert.All(times.Zip(times.Skip(1)), p => Assert.True(p.Second - p.First >= CalmLimits.Baby.CallGapSeconds - 1e-6));
+    }
+
+    [Fact]
+    public void Animals_with_no_known_noise_and_switched_off_noises_stay_quiet()
+    {
+        var (quiet, none) = CallingEngine(ToySettings.Default);
+        var (sx, sy) = TouchFor(s => s.IsAnimal() && !AnimalCalls.HasCall(s));
+        var (off, offCalls) = CallingEngine(ToySettings.Default with { AnimalNoises = false });
+        var (x, y) = TouchFor(AnimalCalls.HasCall);
+        for (var i = 0; i < 40; i++)
+        {
+            quiet.OnTouch(sx, sy, 1);
+            off.OnTouch(x, y, 1);
+            StepEngine(quiet, 7);
+            StepEngine(off, 7);
+        }
+        Assert.Empty(none);
+        Assert.Empty(offCalls);
+    }
+
+    [Fact]
+    public void A_mash_drops_a_waiting_noise()
+    {
+        var (engine, calls) = CallingEngine(ToySettings.Default, roll: 0);
+        var (x, y) = TouchFor(AnimalCalls.HasCall);
+        engine.OnTouch(x, y, 1);
+        engine.OnTouch(0.5, 0.5, 4);
+        StepEngine(engine, 4);
+        Assert.Empty(calls);
+    }
+
+    /// <summary>An engine whose noise dice always roll <paramref name="roll"/> (0 always calls), and the shapes it called.</summary>
+    private (ToyEngine Engine, List<Shape> Calls) CallingEngine(ToySettings settings, double? roll = null)
+    {
+        var engine = new ToyEngine(new World(), new Mixer(), new SpeechLibrary(new ClipStore(_dir), null),
+            settings with { LanguageWeights = new() { ["is"] = 1 } }, new Random(3), roll is { } r ? new FixedRandom(r) : new Random(11));
+        var calls = new List<Shape>();
+        engine.AnimalCalled += calls.Add;
+        return (engine, calls);
+    }
+
+    /// <summary>A screen spot whose tap makes an animal matching <paramref name="wanted"/>; see <see cref="ToyEngine.OnTouch"/>.</summary>
+    private static (double X, double Y) TouchFor(Func<Shape, bool> wanted)
+    {
+        for (var row = 0; row < 4; row++)
+            for (var column = 0; column < 6; column++)
+            {
+                var recipe = BuiltInRecipes.Palette[(column + (6 * row)) % BuiltInRecipes.Palette.Count];
+                if (wanted(recipe.Body.Shape)) return ((column + 0.5) / 6, (row + 0.5) / 4);
+            }
+        throw new InvalidOperationException("no tap spot makes that kind of animal");
+    }
+
+    private static void StepEngine(ToyEngine engine, double seconds)
+    {
+        for (var t = 0.0; t < seconds; t += 0.05) engine.Update(0.05);
+    }
+
+    private sealed class FixedRandom(double value) : Random
+    {
+        public override double NextDouble() => value;
+    }
+
     private void Press(int scan, string ch)
     {
         _engine.OnKey(new KeyPress(_clock, scan, ch, false, true));

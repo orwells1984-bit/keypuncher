@@ -36,16 +36,28 @@ public sealed class ToyEngine
     public const double PauseBeforeGoodnight = 6;
     /// <summary>The longest the goodnight waits for that pause.</summary>
     public const double MaxWindDown = 180;
+    /// <summary>An animal that appears makes its noise about one time in three, so it stays a surprise. The gap
+    /// between noises comes from the calm level.</summary>
+    public const double CallChance = 1 / 3.0;
+    /// <summary>The animal a word brings is likelier to call, right after its name: "kýr", then moo.</summary>
+    public const double WordCallChance = 0.5;
+    /// <summary>A noise starts this long after its animal appears, once the press's note has sounded.</summary>
+    private const double CallDelay = 0.35;
+    /// <summary>A noise never talks over speech: it waits this long for speech to end, then is dropped.</summary>
+    private const double CallWait = 2.5;
 
     private readonly World _world;
     private readonly Mixer _mixer;
     private readonly SpeechLibrary _speech;
     private readonly Random _random;
+    private readonly Random _callRandom;
     private readonly MashGrouper _mash = new();
     private readonly DeadKeyComposer _composer = new();
     private readonly List<(double At, Action Do)> _scheduled = [];
     private (double At, Action Do)? _pendingWord;
     private (ClipId Clip, string Text, double X, double Until)? _unsaidWord;
+    private (Shape Shape, double X, double At, double Until)? _pendingCall;
+    private double _lastCall = double.NegativeInfinity;
     private ToySettings _settings;
     private LanguageMix _mix;
     private SpawnLimiter _limiter;
@@ -53,12 +65,15 @@ public sealed class ToyEngine
     private double _sessionStart, _lastInput;
     private double? _windDownSince, _asleepSince;
 
-    public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null)
+    /// <param name="callRandom">Decides when animals make their noise; kept apart from <paramref name="random"/> so
+    /// noises never change what appears.</param>
+    public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null, Random? callRandom = null)
     {
         _world = world;
         _mixer = mixer;
         _speech = speech;
         _random = random ?? new Random();
+        _callRandom = callRandom ?? new Random();
         Gate = new GrownUpGate(_random);
         _settings = settings;
         _mix = new LanguageMix(settings.LanguageWeights);
@@ -66,6 +81,7 @@ public sealed class ToyEngine
         _limiter = LimiterFor(settings.Limits);
         _world.Limits = settings.Limits;
         _world.Style = settings.Style;
+        _ = AnimalCalls.Warm(settings.Limits.GentleCalls);
         StartSession();
     }
 
@@ -82,6 +98,9 @@ public sealed class ToyEngine
     /// <summary>Raised when the grown-up challenge is answered.</summary>
     public event Action? GrownUpRequested;
 
+    /// <summary>Raised when an animal makes its noise.</summary>
+    public event Action<Shape>? AnimalCalled;
+
     public ToySettings Settings
     {
         get => _settings;
@@ -93,6 +112,7 @@ public sealed class ToyEngine
             _limiter = LimiterFor(value.Limits);
             _world.Limits = value.Limits;
             _world.Style = value.Style;
+            _ = AnimalCalls.Warm(value.Limits.GentleCalls);
             if (value.LanguageWeights.GetValueOrDefault(SessionLanguage) <= 0) SessionLanguage = _mix.Pick(_random);
         }
     }
@@ -172,6 +192,7 @@ public sealed class ToyEngine
         _world.Touch(x, y, 0.08);
         if (fingers >= 3)
         {
+            _pendingCall = null;
             Mash(new InputEvent(DateTimeOffset.Now, 0, null, x, y, fingers));
             return;
         }
@@ -179,6 +200,7 @@ public sealed class ToyEngine
         var recipe = BuiltInRecipes.Palette[family % BuiltInRecipes.Palette.Count];
         SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
+        MaybeCall(recipe, x, CallChance);
     }
 
     /// <summary>Advances the world and runs scheduled counting and words.</summary>
@@ -205,6 +227,18 @@ public sealed class ToyEngine
         {
             _pendingWord = null;
             word.Do();
+        }
+        if (_pendingCall is { } call && call.At <= _world.Time)
+        {
+            if (_mixer.SpeechPlaying || _pendingWord is not null || _unsaidWord is not null)
+            {
+                if (_world.Time >= call.Until) _pendingCall = null;
+            }
+            else
+            {
+                _pendingCall = null;
+                Call(call.Shape, call.X);
+            }
         }
         if (_unsaidWord is { } unsaid)
         {
@@ -236,6 +270,7 @@ public sealed class ToyEngine
 
         PlayNote(recipe.Voice, midi, speak ? 0.8 : 0.45, ev.X);
         SpawnOrWake(recipe, ev.X, ev.Y, speak ? 1 : 0.7, ev.Timestamp);
+        if (speak) MaybeCall(recipe, ev.X, CallChance);
         if (meaning is null) return;
 
         ShowGlyph(meaning.Display, ev.X);
@@ -243,6 +278,25 @@ public sealed class ToyEngine
 
         Say(meaning.Clip, meaning.FallbackText, ev.X);
         if (_settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X);
+    }
+
+    /// <summary>Now and then, an animal that has just appeared makes its noise, once speech is done. Only one
+    /// noise waits at a time, and none comes sooner than the calm level's gap after the last.</summary>
+    private void MaybeCall(Recipe recipe, double x, double chance)
+    {
+        var shape = recipe.Body.Shape;
+        if (!_settings.AnimalNoises || IsWindingDown || IsAsleep || !AnimalCalls.HasCall(shape)) return;
+        if (_pendingCall is not null || _world.Time - _lastCall < _settings.Limits.CallGapSeconds) return;
+        if (_callRandom.NextDouble() >= chance) return;
+        _pendingCall = (shape, x, _world.Time + CallDelay, _world.Time + CallDelay + CallWait);
+    }
+
+    private void Call(Shape shape, double x)
+    {
+        if (AnimalCalls.For(shape, _settings.Limits.GentleCalls) is not { } samples) return;
+        _lastCall = _world.Time;
+        _mixer.Call(samples, (x * 2) - 1);
+        AnimalCalled?.Invoke(shape);
     }
 
     /// <summary>Digits: 0 says zero; 1 up to the calm level's limit make that many things, one at a time,
@@ -292,6 +346,8 @@ public sealed class ToyEngine
         var clip = new ClipId(language, ClipKind.Word, concept.Id);
         _speech.TryGet(clip, word); // start loading now so it is ready when the pause comes
 
+        // The word brings its own picture; a noise from the key's thing would not match it.
+        _pendingCall = null;
         _unsaidWord = null;
         _pendingWord = (_world.Time + WordDelay, () =>
         {
@@ -307,6 +363,7 @@ public sealed class ToyEngine
             // A voice made on the fly can take longer than the pause the first time; say it once it is ready.
             if (_speech.TryGet(clip, word) is { } samples) _mixer.Speak(samples, (spot * 2) - 1);
             else _unsaidWord = (clip, word, spot, _world.Time + WordVoiceWait);
+            MaybeCall(recipe, spot, WordCallChance);
         });
     }
 
@@ -394,6 +451,7 @@ public sealed class ToyEngine
     {
         CancelCounting();
         CancelWord();
+        _pendingCall = null;
     }
 
     private void CancelCounting() => _scheduled.Clear();
