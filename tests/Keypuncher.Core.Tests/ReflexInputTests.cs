@@ -128,8 +128,11 @@ public class ReflexInputTests
         Assert.Equal(0, e.Energy);
         Assert.False(e.Awake);
 
-        w.Touch(0.51, 0.5, 0.05);
+        Assert.Equal(0, w.Touch(0.9, 0.9, 0.05));   // a miss wakes nothing
+        Assert.False(e.Awake);
+        Assert.Equal(1, w.Touch(0.51, 0.5, 0.05));
         Assert.Equal(1, e.Energy);
+
         Assert.True(e.Awake);
     }
 

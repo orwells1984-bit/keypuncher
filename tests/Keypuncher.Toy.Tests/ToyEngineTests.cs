@@ -717,7 +717,28 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_tap_on_something_already_there_pops_and_a_tap_on_nothing_does_not()
+    {
+        var (engine, _) = CallingEngine(ToySettings.Default);
+        var pops = new List<double>();
+        engine.Popped += pops.Add;
+
+        // A creature from a tap at y = 0.25 lands at about y = 0.25 (see SpawnThing), right under the next tap.
+        engine.OnTouch(0.5, 0.25, 1);
+        Assert.Empty(pops);   // nothing was there before
+
+        StepEngine(engine, 1);
+        engine.OnTouch(0.5, 0.25, 1);
+        Assert.Equal([0.5], pops);
+
+        StepEngine(engine, 1);
+        engine.OnTouch(0.5, 0.25, 3);   // three fingers make a burst, not a pop
+        Assert.Single(pops);
+    }
+
+    [Fact]
     public void A_mash_drops_a_waiting_noise()
+
     {
         var (engine, calls) = CallingEngine(ToySettings.Default, roll: 0);
         var (x, y) = TouchFor(AnimalCalls.HasCall);

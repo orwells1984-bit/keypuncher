@@ -6,6 +6,7 @@
 //
 // Each character in --keys is one press, 0.35 s apart (a space is a pause); ´ is the accent key.
 // --mash N adds N palm mashes at the end. --calm Baby|Toddler|BigToddler picks the calm level (default Toddler). Frames are written after every press and at the end.
+// --taps N then taps the N newest things where they stand, so each tap lands on one and pops.
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
 // --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
@@ -23,6 +24,7 @@ using SkiaSharp;
 var outDir = Get("--out", "preview");
 var keys = Get("--keys", "sól 3 köttur");
 var mashes = int.Parse(Get("--mash", "2"));
+var taps = int.Parse(Get("--taps", "0"));
 var width = int.Parse(Get("--width", "1280"));
 var height = int.Parse(Get("--height", "720"));
 var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
@@ -38,6 +40,8 @@ var speech = new SpeechLibrary(new ClipStore(Path.Combine(outDir, "clips")), nul
 var engine = new ToyEngine(world, mixer, speech, ToySettings.Default with { Calm = calm }, new Random(1));
 using var renderer = new SceneRenderer(Fonts.LoadAndika());
 var audio = new List<float>();
+var pops = 0;
+engine.Popped += _ => pops++;
 var clock = DateTimeOffset.UnixEpoch;
 var frame = 0;
 
@@ -95,8 +99,17 @@ for (var m = 0; m < mashes; m++)
     Snapshot("mash");
 }
 
+foreach (var thing in world.Live.Where(e => e.Role == EntityRole.Thing).TakeLast(taps).ToList())
+{
+    engine.OnTouch(thing.X, thing.Y, 1);
+    Advance(0.8);
+    Snapshot("tap");
+}
+
+
 Advance(2);
 Snapshot("end");
+
 
 using (var wav = File.Create(Path.Combine(outDir, "audio.wav")))
 {
@@ -106,7 +119,8 @@ using (var wav = File.Create(Path.Combine(outDir, "audio.wav")))
     WavFile.Write(wav, mono, Mixer.SampleRate);
     Console.WriteLine($"audio: {mono.Length / (double)Mixer.SampleRate:0.0} s, peak {mono.Max(Math.Abs):0.00}");
 }
-Console.WriteLine($"live {world.Live.Count}, things {world.LiveThingCount}");
+Console.WriteLine($"live {world.Live.Count}, things {world.LiveThingCount}{(taps > 0 ? $", pops {pops}" : "")}");
+
 return 0;
 
 static int Sheet(string outDir)
