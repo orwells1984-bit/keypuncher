@@ -113,7 +113,7 @@ Only real things are allowed, and that is held in three layers:
 
 The backdrop is a `Scene`: a real place (named for grown-ups, such as "Reynisfjara, Iceland"), one of eleven
 landscapes (meadow, farm, forest, jungle, mountains, beach, lake, desert, savanna, snowy hills, lava field),
-a time of day (dawn to evening; the goodnight is the only night) and the weather (clear, cloudy, rain, snow,
+a time of day (dawn to evening; the goodnight is the only night, and each play session starts at the hour the clock shows) and the weather (clear, cloudy, rain, snow,
 fog, a rainbow). The loop chooses the kind of step (a journey from the starting meadow and after three steps at one place, otherwise mostly a weather change or the time moving on; a small model left to choose only moves the clock) and the model chooses the weather or where to go. Each step is held to the real world:
 
 1. **Prompt and schema.** The time of day may only stay or move on; a rainbow is offered only after rain.

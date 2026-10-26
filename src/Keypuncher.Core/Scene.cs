@@ -67,6 +67,17 @@ public sealed record Scene(
     /// <summary>The time of day that follows <paramref name="t"/>; evening goes on to the next day's dawn.</summary>
     public static TimeOfDay Next(TimeOfDay t) => t == TimeOfDay.Evening ? TimeOfDay.Dawn : t + 1;
 
+    /// <summary>The light for an hour on the clock (0 to 23), so a session starts with the sky the window shows: dawn
+    /// before 7, morning to 11, midday to 14, afternoon to 17, then evening. There is no night here, however late.</summary>
+    public static TimeOfDay ForHour(int hour) => hour switch
+    {
+        < 7 => TimeOfDay.Dawn,
+        < 11 => TimeOfDay.Morning,
+        < 14 => TimeOfDay.Midday,
+        < 17 => TimeOfDay.Afternoon,
+        _ => TimeOfDay.Evening,
+    };
+
     /// <summary>Where such a place is, in a few words, for prompts: "on a beach".</summary>
     public static string Describe(Landscape l) => l switch
     {
