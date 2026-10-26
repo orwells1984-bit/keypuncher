@@ -244,6 +244,21 @@ public sealed class ToyEngine
         MaybeCall(recipe, x, CallChance);
     }
 
+    /// <summary>The longest step <see cref="Update"/> is given, so nothing jumps.</summary>
+    public const double MaxStep = 0.1;
+
+    /// <summary>The most a single frame may move the clock on: after a long stall (the PC asleep) play picks up
+    /// where it was rather than racing through what was missed.</summary>
+    public const double MaxCatchUp = 1;
+
+    /// <summary>Moves the toy on by the real time since the last frame, in steps of at most <see cref="MaxStep"/>,
+    /// so its clock keeps to real time however slowly the screen draws: the model's pace and the goodnight are in
+    /// real minutes.</summary>
+    public void Advance(double seconds)
+    {
+        for (var left = Math.Min(seconds, MaxCatchUp); left > 1e-9; left -= MaxStep) Update(Math.Min(left, MaxStep));
+    }
+
     /// <summary>Advances the world and runs scheduled counting and words.</summary>
     public void Update(double dt)
     {

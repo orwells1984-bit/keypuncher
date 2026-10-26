@@ -127,7 +127,8 @@ public class SceneTests
     {
         var author = new ScriptedModel(Step("Bondi Beach, Australia", "Beach", "Morning", "Snow"));
         var checker = new ScriptedModel(Place("a beach in Sydney", "real", ["Beach"], "false"));
-        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
+        // Seeded, so the known place the last try is sent to is never Bondi Beach itself, which the model's answer would match.
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker), new Random(1)).ProposeAsync(FromVik);
         Assert.False(outcome.Accepted);
         Assert.All(outcome.Attempts.Take(SceneDirector.MaxAttempts), a => Assert.Equal("checker: it does not snow there", a.Refused));
         Assert.StartsWith("should have been ", outcome.Attempts[^1].Refused);
@@ -230,11 +231,13 @@ public class SceneTests
         Assert.True(world.Dirty);
         Assert.True(Assert.Single(loop.Log, e => e.Scene is not null).Scene!.Accepted);
 
-        // Family requests now often ask for something found here.
-        var places = Enumerable.Range(0, 40).Select(_ => loop.NextRequest(world.Families, world.Scene)!)
-            .Where(r => r.Category is RealCategory.Animal or RealCategory.Plant).Select(r => r.Place).ToList();
-        Assert.Contains(places, p => p!.Contains("Reynisfjara, Iceland"));
-        Assert.Contains(places, p => !p!.Contains("Reynisfjara"));
+        // Family requests now ask for something found here, and a living animal or plant is checked against it.
+        var requests = Enumerable.Range(0, 40).Select(_ => loop.NextRequest(world.Families, world.Scene)!).ToList();
+        Assert.All(requests.Where(r => r.Category is RealCategory.Animal or RealCategory.Plant), r =>
+        {
+            Assert.EndsWith("at Reynisfjara, Iceland", r.Place);
+            Assert.Equal("at Reynisfjara, Iceland", r.Here);
+        });
 
         var first = world.Scene;
         Tick(world, 120);

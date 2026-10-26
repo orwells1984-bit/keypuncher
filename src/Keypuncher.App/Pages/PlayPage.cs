@@ -9,6 +9,7 @@ namespace Keypuncher.App.Pages;
 public sealed class PlayPage : ContentPage
 {
     private static readonly TimeSpan SaveEvery = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan DrawLogEvery = TimeSpan.FromMinutes(1);
 
     private readonly ToyHost _host;
     private readonly SKCanvasView _canvas;
@@ -16,7 +17,7 @@ public sealed class PlayPage : ContentPage
     private readonly IDispatcherTimer _timer;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly HashSet<long> _fingers = [];
-    private TimeSpan _last, _lastSave;
+    private TimeSpan _last, _lastSave, _lastDrawLog;
     private int _width = 1, _height = 1;
     private int _frames;
     private TimeSpan _fpsStart;
@@ -60,7 +61,8 @@ public sealed class PlayPage : ContentPage
         Log($"play started: calm {s.Calm}, language {_host.Engine.SessionLanguage}, model changes {(s.Director ? "on" : "off")}"
             + $"{(s.DirectorTest ? ", test mode" : "")}, goodnight {(s.SessionLength is { } l ? $"after {l.TotalMinutes:0.#} min" : "never")}"
             + $"{(_recorder is null ? ", not recorded" : $", recording to {Path.Combine(_host.DataFolder, ToyHost.VideosName)}")}");
-        _last = _clock.Elapsed;
+        _last = _lastDrawLog = _clock.Elapsed;
+        _renderer.Timings.Reset();
         _timer.Start();
     }
 
@@ -75,7 +77,7 @@ public sealed class PlayPage : ContentPage
     private void OnFrame()
     {
         var now = _clock.Elapsed;
-        var dt = Math.Min((now - _last).TotalSeconds, 0.1);
+        var elapsed = (now - _last).TotalSeconds;
         _last = now;
 
         foreach (var key in _host.DrainKeys())
@@ -85,7 +87,7 @@ public sealed class PlayPage : ContentPage
             else if (_held.Add(key.ScanCode)) _keys++;
             _host.Engine.OnKey(key);
         }
-        _host.Engine.Update(dt);
+        _host.Engine.Advance(elapsed);
         if (_host.Engine.IsAsleep && !_wasAsleep) Log($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
         _wasAsleep = _host.Engine.IsAsleep;
         var settings = _host.Engine.Settings;
@@ -104,6 +106,13 @@ public sealed class PlayPage : ContentPage
             FramesPerSecond = _frames / (now - _fpsStart).TotalSeconds;
             _frames = 0;
             _fpsStart = now;
+        }
+        // How smoothly it draws, in the log once a minute, so a slow run can be told from the log alone.
+        if (now - _lastDrawLog > DrawLogEvery)
+        {
+            _lastDrawLog = now;
+            Log($"drawing {FramesPerSecond:0} frames a second; {_renderer.Timings}; {_host.World.Live.Count} on screen");
+            _renderer.Timings.Reset();
         }
     }
 

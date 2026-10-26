@@ -184,20 +184,31 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             : Ask(pick, current.Kind, current.Name, existing, scene);
     }
 
-    /// <summary>A request with a category and place drawn at random, so the picks range widely.</summary>
+    /// <summary>A request with a category drawn at random, so the picks range widely, for something that belongs
+    /// where the scene is; with no scene, a place drawn at random too.</summary>
     private DirectorRequest Ask(int slot, RecipeKind kind, string? current, IReadOnlyList<string> existing, Scene? scene)
     {
         var category = kind == RecipeKind.Plant ? RealCategory.Plant : Pick(creatureCategories ?? CreatureMix);
-        var place = scene is not null && category is RealCategory.Animal or RealCategory.Plant && _random.NextDouble() < 0.5
-            ? HerePlace(scene, category)
-            : Pick(Places[category]);
-        return new DirectorRequest(slot, kind, current, existing, Category: category, Place: place);
+        var place = scene is not null ? HerePlace(scene, category) : Pick(Places[category]);
+        // Only a real, named place is checked: the starting meadow is nowhere in particular.
+        return new DirectorRequest(slot, kind, current, existing, Category: category, Place: place,
+            Here: scene?.Place is { } named ? $"at {named}" : null);
     }
 
-    /// <summary>Where the scene is, as a request's place: "that really lives at Reynisfjara, Iceland".</summary>
-    private static string HerePlace(Scene scene, RealCategory category) => scene.Place is { } named
-        ? $"that really {(category == RealCategory.Plant ? "grows" : "lives")} at {named}"
-        : Scene.Describe(scene.Landscape);
+    /// <summary>Where the scene is, as a request's place: "that really lives at Reynisfjara, Iceland". An extinct
+    /// animal can't be there now, so it is one that lived somewhere that looks like it.</summary>
+    public static string HerePlace(Scene scene, RealCategory category)
+    {
+        var at = scene.Place is { } named ? $"at {named}" : Scene.Describe(scene.Landscape);
+        return category switch
+        {
+            RealCategory.Animal => $"that really lives {at}",
+            RealCategory.Plant => $"that really grows {at}",
+            RealCategory.ExtinctAnimal => $"that once lived {Scene.Describe(scene.Landscape)}",
+            RealCategory.Vehicle => $"that people really use {at}",
+            _ => $"that a child might really have {at}",
+        };
+    }
 
     /// <summary>The places a request for <paramref name="category"/> may name.</summary>
     public static IReadOnlyList<string> PlacesFor(RealCategory category) => Places[category];

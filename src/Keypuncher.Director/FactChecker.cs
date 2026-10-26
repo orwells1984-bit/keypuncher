@@ -74,6 +74,62 @@ public sealed class FactChecker(ILanguageModel model)
         "false" if not, "none" if nothing was said.
         """;
 
+    private const string Continents = "\"Africa\", \"Asia\", \"Europe\", \"NorthAmerica\", \"SouthAmerica\", \"Oceania\", \"Antarctica\"";
+    private const string Climates = "\"Tropical\", \"Dry\", \"Temperate\", \"Cold\", \"Polar\"";
+
+    public const string FitSchemaJson = $$"""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["placeContinent", "placeClimate", "thingContinents", "thingClimates"],
+          "properties": {
+            "placeContinent": { "type": "string", "enum": [{{Continents}}] },
+            "placeClimate": { "type": "string", "enum": [{{Climates}}] },
+            "thingContinents": { "type": "array", "minItems": 1, "maxItems": 7, "items": { "type": "string", "enum": [{{Continents}}] } },
+            "thingClimates": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "enum": [{{Climates}}] } }
+          }
+        }
+        """;
+
+    private static readonly JsonElement FitSchema = JsonDocument.Parse(FitSchemaJson).RootElement.Clone();
+
+    /// <summary>Asks for facts the small model knows well (which continent and climate the place has, and where
+    /// and in what climates the thing is found) rather than for a verdict, which it would not give: asked "does a
+    /// linden tree grow at Lake Bled?" it was unsure of nearly every real case, and refusing only on "no" let a
+    /// gazelle through at a Bulgarian beach.</summary>
+    public static string FitPrompt(string subject, RealCategory category, string here)
+    {
+        var (lives, kept) = category == RealCategory.Plant ? ("grows", "grown in gardens and fields") : ("lives", "kept by people");
+        return $"""
+            Name: "{subject}"
+            Place: "{here}"
+
+            placeContinent: the continent the place is on.
+            placeClimate: the place's climate: Tropical (hot and wet), Dry (desert), Temperate, Cold (long snowy
+            winters, mountains, subarctic) or Polar.
+            thingContinents: every continent where a {subject} {lives} today, in the wild or {kept}.
+            thingClimates: every climate a {subject} {lives} in.
+            """;
+    }
+
+    /// <summary>Whether a living animal or plant could be found <paramref name="here"/> ("at Lake Bled, Slovenia"):
+    /// the place's continent and climate must both be among the thing's. No answer is a no.</summary>
+    public async Task<bool> FitsAsync(string subject, RealCategory category, string here, CancellationToken cancellationToken = default)
+    {
+        var result = await model.GenerateJsonAsync(System, FitPrompt(subject, category, here), FitSchema, cancellationToken);
+        return Fits(result.Json?.RootElement);
+    }
+
+    /// <summary>Whether a found-there answer puts the place's continent and climate among the thing's.</summary>
+    public static bool Fits(JsonElement? answer)
+    {
+        if (answer is not { ValueKind: JsonValueKind.Object } a) return false;
+        static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static bool Among(JsonElement e, string name, string? value) => value is not null && e.TryGetProperty(name, out var v)
+            && v.ValueKind == JsonValueKind.Array && v.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == value);
+        return Among(a, "thingContinents", Text(a, "placeContinent")) && Among(a, "thingClimates", Text(a, "placeClimate"));
+    }
+
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, Prompt(subject, growsInto), Schema, cancellationToken);

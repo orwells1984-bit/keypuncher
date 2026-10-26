@@ -11,11 +11,14 @@ namespace Keypuncher.Director;
 /// <param name="Category">The one kind of real thing asked for; the schema allows only this category, so a plant
 /// family always gets a plant and a creature family is varied between animals, extinct animals, vehicles and
 /// objects by the loop rather than by the model's habits.</param>
-/// <param name="Place">Where such a thing is found ("in a pond", "in the Ice Age"); drawn at random per request,
-/// because a small model asked for "an animal" offers the same three every time.</param>
+/// <param name="Place">Where such a thing is found, as the prompt puts it ("that really lives at Lake Bled,
+/// Slovenia"): where the scene is, or drawn at random when there is no scene. Naming a place also keeps a small
+/// model from offering the same three animals every time.</param>
 /// <param name="GrowInto">When the current thing really grows into something (a tadpole), the next pick must be that.</param>
 /// <param name="MustBe">The director's last resort for a category the model keeps missing: the pick must be this
 /// well-known real thing, which is still checked like any other.</param>
+/// <param name="Here">Where the scene is, when it is a named place ("at Lake Bled, Slovenia"); a living animal or plant must be
+/// confirmed as really found there by <see cref="FactChecker.FitsAsync"/>.</param>
 public sealed record DirectorRequest(
     int Slot,
     RecipeKind Kind,
@@ -24,7 +27,8 @@ public sealed record DirectorRequest(
     string? GrowInto = null,
     RealCategory Category = RealCategory.Animal,
     string? Place = null,
-    string? MustBe = null);
+    string? MustBe = null,
+    string? Here = null);
 
 /// <summary>
 /// The checks a pick must pass before anything is asked about whether it is real. They cannot prove a thing

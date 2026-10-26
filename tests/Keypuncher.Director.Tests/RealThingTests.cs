@@ -183,6 +183,41 @@ public class RealThingTests
     }
 
     [Fact]
+    public async Task A_real_thing_that_is_not_found_where_the_scene_is_is_refused()
+    {
+        // In a run at Lake Bled the model offered a mango; it is real, but grows nowhere near Slovenia.
+        var plants = new DirectorRequest(1, RecipeKind.Plant, null, [], Category: RealCategory.Plant,
+            Place: "that really grows at Lake Bled, Slovenia", Here: "at Lake Bled, Slovenia");
+        var author = new ScriptedModel(Pick("mango", "Plant", "Blob"), Pick("water lily", "Plant", "Petal"));
+        var checker = new ScriptedModel(Check("a tropical fruit", "real", kind: "Plant"), Fit("no"),
+            Check("a pond flower", "real", kind: "Plant"), Fit("yes"));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(plants);
+
+        Assert.Equal("water lily", outcome.Recipe!.Name);
+        Assert.Equal("checker: not found at Lake Bled, Slovenia", outcome.Attempts[0].Refused);
+        Assert.Contains("mango (not found at Lake Bled, Slovenia)", author.Prompts[1]);
+        Assert.Contains("really grows at Lake Bled, Slovenia", author.Prompts[0]);
+        Assert.Contains("\"mango\"", checker.Prompts[1]);
+        Assert.Contains("at Lake Bled, Slovenia", checker.Prompts[1]);
+    }
+
+    [Fact]
+    public async Task A_thing_fits_a_place_only_on_its_continent_and_in_its_climate_and_vehicles_are_not_asked()
+    {
+        static bool Fits(string place, string climate, string[] continents, string[] climates) => FactChecker.Fits(
+            JsonDocument.Parse(JsonSerializer.Serialize(new { placeContinent = place, placeClimate = climate, thingContinents = continents, thingClimates = climates })).RootElement);
+        Assert.True(Fits("Europe", "Temperate", ["Europe", "Asia"], ["Temperate", "Cold"]));     // a mute swan at Lake Bled
+        Assert.False(Fits("Europe", "Temperate", ["Africa", "Asia"], ["Dry", "Temperate"]));     // a gazelle at a Bulgarian beach
+        Assert.False(Fits("Europe", "Cold", ["Europe", "Asia"], ["Tropical"]));                  // a banana in Iceland
+        Assert.False(FactChecker.Fits(null));
+
+        var here = CreatureFamily with { Here = "at Lake Bled, Slovenia" };
+        var boat = await new RealThingDirector(new ScriptedModel(Pick("rowing boat", "Vehicle", "Stripe")),
+            new FactChecker(new ScriptedModel(Check("a small boat", "real", kind: "Vehicle")))).ProposeAsync(here with { Category = RealCategory.Vehicle });
+        Assert.Equal("rowing boat", boat.Recipe!.Name);
+    }
+
+    [Fact]
     public async Task A_living_animal_offered_as_extinct_is_refused_by_the_checkers_own_call()
     {
         var author = new ScriptedModel(Pick("puffin", "ExtinctAnimal", "Bird"), Pick("dodo", "ExtinctAnimal", "Bird"));
@@ -381,6 +416,10 @@ public class RealThingTests
 
     private static string Check(string what, string verdict, string kind = "Animal", string growsInto = "none") =>
         JsonSerializer.Serialize(new { whatItIs = what, verdict, kind, growsInto });
+
+    private static string Fit(string verdict) => verdict == "yes"
+        ? JsonSerializer.Serialize(new { placeContinent = "Europe", placeClimate = "Temperate", thingContinents = new[] { "Europe", "Asia" }, thingClimates = new[] { "Temperate", "Cold" } })
+        : JsonSerializer.Serialize(new { placeContinent = "Europe", placeClimate = "Temperate", thingContinents = new[] { "Asia", "Africa" }, thingClimates = new[] { "Tropical" } });
 
     /// <summary>Answers each prompt with the next scripted JSON and remembers the prompts.</summary>
     internal sealed class ScriptedModel(params string[] answers) : ILanguageModel

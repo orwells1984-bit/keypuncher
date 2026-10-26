@@ -26,7 +26,11 @@ public sealed class SessionRecorderTests : IDisposable
             {
                 renderer.Draw(surface.Canvas, 640, 360, world);
                 recorder.Offer(surface, 640, 360, t);
+                // Drawing here is far quicker than real time; a pause per kept frame lets the encoder keep up, as it
+                // does at the toy's real pace, rather than its queue filling and frames being dropped.
+                if (Math.Abs((t * SessionRecorder.Fps) - Math.Round(t * SessionRecorder.Fps)) < 1e-6) Thread.Sleep(50);
             }
+            Thread.Sleep(50);
             recorder.Offer(surface, 640, 360, 4.0);
         }
         file = Directory.GetFiles(_dir).Single();

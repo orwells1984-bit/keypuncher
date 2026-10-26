@@ -36,6 +36,18 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void The_clock_keeps_to_real_time_however_slowly_frames_come()
+    {
+        // At 5 frames a second each frame is 0.2 s; the clock once took only 0.1 s of it, and ran at half speed.
+        for (var i = 0; i < 50; i++) _engine.Advance(0.2);
+        Assert.Equal(10, _world.Time, 6);
+
+        // A long stall (the PC asleep) moves it on by a second at most.
+        _engine.Advance(3600);
+        Assert.Equal(11, _world.Time, 6);
+    }
+
+    [Fact]
     public void A_word_follows_a_letter_after_a_short_pause()
     {
         Press(0x1F, "s");          // sól, ský, stjarna
