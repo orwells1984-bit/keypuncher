@@ -194,7 +194,29 @@ public class AudioTests
         else Assert.InRange(kept, 0.4, 0.6);
     }
 
+    [Fact]
+    public void A_swept_note_starts_high_and_falls_to_its_pitch()
+    {
+        static (int Early, int Late) Crossings(double sweepFrom)
+        {
+            var m = new Mixer { Volume = 0.5f };
+            Render(m, 3.1);
+            m.Note(150, new Voice(Waveform.Sine, 0.002, 0.5, "pentatonic", "D3"), 1, sweepFrom: sweepFrom, sweepSeconds: 0.12);
+            var left = Render(m, 0.2).Where((_, i) => i % Mixer.Channels == 0).ToArray();
+            int Count(int from, int to) => Enumerable.Range(from + 1, to - from - 1).Count(i => (left[i - 1] < 0) != (left[i] < 0));
+            var ms = Mixer.SampleRate / 1000;
+            return (Count(2 * ms, 22 * ms), Count(160 * ms, 180 * ms));
+        }
+
+        var swept = Crossings(6);
+        var held = Crossings(1);
+        Assert.True(swept.Early > 3 * swept.Late, $"swept: {swept.Early} crossings early, {swept.Late} late");
+        Assert.InRange(swept.Late, held.Late - 1, held.Late + 1);   // it ends at the note's own pitch
+        Assert.InRange(held.Early, held.Late - 1, held.Late + 1);   // and without a sweep the pitch holds
+    }
+
     private static float[] Render(Mixer m, double seconds)
+
 
     {
         var buffer = new float[(int)(seconds * Mixer.SampleRate) * Mixer.Channels];

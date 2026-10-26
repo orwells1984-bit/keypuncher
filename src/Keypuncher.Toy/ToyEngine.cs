@@ -45,6 +45,11 @@ public sealed class ToyEngine
     private const double CallDelay = 0.35;
     /// <summary>A noise never talks over speech: it waits this long for speech to end, then is dropped.</summary>
     private const double CallWait = 2.5;
+    /// <summary>The pop a tap makes on something already there: a short sine that falls fast, like a bubble.</summary>
+    private static readonly Voice PopVoice = new(Waveform.Sine, 0.002, 0.18, "pentatonic", "D3");
+    /// <summary>Where the pop lands, in Hz, from the left of the screen to the right.</summary>
+    private const double PopLow = 140, PopHigh = 200;
+    private const double PopSweepSeconds = 0.12;
 
     private readonly World _world;
     private readonly Mixer _mixer;
@@ -111,6 +116,9 @@ public sealed class ToyEngine
 
     /// <summary>Raised when an animal makes its noise.</summary>
     public event Action<Shape>? AnimalCalled;
+
+    /// <summary>Raised with the tap's x when a tap lands on something already there and it pops.</summary>
+    public event Action<double>? Popped;
 
     public ToySettings Settings
     {
@@ -222,13 +230,14 @@ public sealed class ToyEngine
             return;
         }
         CancelCounting();
-        _world.Touch(x, y, 0.08);
+        var woken = _world.Touch(x, y, 0.08);
         if (fingers >= 3)
         {
             _pendingCall = null;
             Mash(new InputEvent(DateTimeOffset.Now, 0, null, x, y, fingers));
             return;
         }
+        if (woken > 0) Pop(x);
         var recipe = _world.Families.For((uint)((int)(x * 6) + (6 * (int)(y * 4))));
         SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
@@ -429,7 +438,18 @@ public sealed class ToyEngine
         SpawnOrWake(FamilyOf(ev.ScanCode), ev.X, ev.Y, 1.2, ev.Timestamp);
     }
 
+    /// <summary>A tap on something already on screen pops as well as waking it: a sine falling six-fold in 120 ms
+    /// (four-fold and softer for babies, whose calls are gentle too), pitched a little higher to the right.</summary>
+    private void Pop(double x)
+    {
+        var gentle = _settings.Limits.GentleCalls;
+        var frequency = PopLow + ((PopHigh - PopLow) * Math.Clamp(x, 0, 1));
+        _mixer.Note(frequency, PopVoice, gentle ? 0.35 : 0.5, (x * 2) - 1, sweepFrom: gentle ? 4 : 6, sweepSeconds: PopSweepSeconds);
+        Popped?.Invoke(x);
+    }
+
     private void SleepyNote(double x) =>
+
         PlayNote(BuiltInRecipes.Palette[2].Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 8)), 0.3, x);
 
     /// <summary>A new thing while the calm level's rate allows; otherwise the newest of that family wakes up,

@@ -57,9 +57,12 @@ public sealed class Mixer
     /// <summary>Plays one note of a recipe's voice.</summary>
     /// <param name="pan">-1 left to 1 right.</param>
     /// <param name="velocity">0 to 1.</param>
-    public void Note(double frequency, Voice voice, double velocity = 0.8, double pan = 0)
+    /// <param name="sweepFrom">Starts the note this many times higher and glides down to <paramref name="frequency"/>,
+    /// as a pop or a drop does; 1 holds the pitch. Only the toy's own effects use this, not recipe voices.</param>
+    /// <param name="sweepSeconds">How long the glide takes.</param>
+    public void Note(double frequency, Voice voice, double velocity = 0.8, double pan = 0, double sweepFrom = 1, double sweepSeconds = 0)
     {
-        var v = new SynthVoice(frequency, voice.Wave, voice.Attack, voice.Decay, velocity, pan);
+        var v = new SynthVoice(frequency, voice.Wave, voice.Attack, voice.Decay, velocity, pan, sweepFrom, sweepSeconds);
         _commands.Enqueue(() => StartVoice(v));
     }
 
@@ -225,9 +228,15 @@ public sealed class Mixer
         private uint _noise;
         private readonly bool _warm;
         private double _firstFall;
+        /// <summary>Pitch multiplier for a sweep: starts high and falls exponentially to 1, then stays there.</summary>
+        private double _sweep;
+        private readonly double _sweepStep;
 
-        public SynthVoice(double frequency, Waveform wave, double attack, double decay, double velocity, double pan)
+        public SynthVoice(double frequency, Waveform wave, double attack, double decay, double velocity, double pan,
+            double sweepFrom = 1, double sweepSeconds = 0)
         {
+            _sweep = sweepSeconds > 0 ? Math.Clamp(sweepFrom, 1, 16) : 1;
+            _sweepStep = _sweep > 1 ? Math.Pow(_sweep, -1.0 / (sweepSeconds * SampleRate)) : 1;
             Active = true;
             (PanL, PanR) = PanGains(pan);
             _wave = wave;
@@ -273,7 +282,9 @@ public sealed class Mixer
                 var harmonics = (Second * Math.Sin(4 * Math.PI * _phase)) + (Third * Math.Sin(6 * Math.PI * _phase));
                 osc = (float)(osc + harmonics) * (_wave == Waveform.Triangle ? TriangleWarmScale : SineWarmScale);
             }
-            _phase += _increment;
+            _phase += _increment * _sweep;
+            if (_sweep > 1) _sweep = Math.Max(1, _sweep * _sweepStep);
+
             if (_phase >= 1) _phase -= 1;
 
             if (_t < _attack) _env = _t / (float)_attack;

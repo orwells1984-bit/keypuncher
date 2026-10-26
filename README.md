@@ -60,7 +60,7 @@ while it is in front; use the grown-up exit below to get back.
   the grown-ups' page says capitals. If the child pauses, a word starting with that letter
   follows, with its picture. Digits make that many things and count them aloud.
 - The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
-- Clicks and taps work too; three fingers make a burst.
+- Clicks and taps work too; three fingers make a burst. A tap on something already there wakes it with a little pop.
 - When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
   3 minutes) and then puts things to sleep. Only play counts: time more than 20 s after the last press or
   tap does not, so a toy left running stays awake. After a goodnight, a rest as long as the play time

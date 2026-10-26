@@ -99,16 +99,22 @@ public sealed class World
     }
 
     /// <summary>Wakes things near a point, e.g. under a tap.</summary>
-    public void Touch(double x, double y, double radius)
+    /// <returns>How many things the touch woke.</returns>
+    public int Touch(double x, double y, double radius)
     {
+        var woken = 0;
         foreach (var e in _live)
         {
             if (!e.IsPersistent || e.IsRetiring) continue;
             var dx = e.X - x;
             var dy = e.Y - y;
-            if ((dx * dx) + (dy * dy) <= radius * radius) Wake(e);
+            if ((dx * dx) + (dy * dy) > radius * radius) continue;
+            Wake(e);
+            woken++;
         }
+        return woken;
     }
+
 
     /// <summary>Wakes one thing, so it moves again and counts as the most recent.</summary>
     public void Wake(Entity e)
