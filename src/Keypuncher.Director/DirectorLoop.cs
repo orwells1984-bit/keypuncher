@@ -19,7 +19,7 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
         {
             foreach (var a in scene.Attempts)
                 yield return a.Refused is null
-                    ? $"{at}  scene: {a.Tried}. {a.Fact}"
+                    ? $"{at}  scene: {a.Tried}. {scene.Scene?.Fact ?? a.Fact}"
                     : $"{at}  scene turned down: {a.Tried} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}";
             if (!scene.Accepted) yield return $"{at}  scene unchanged; trying again soon";
             yield break;

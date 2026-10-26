@@ -127,12 +127,18 @@ public static class SceneSchema
                 ["timeOfDay"] = Enum([(request.Change == SceneChange.Time ? Scene.Next(now.TimeOfDay) : now.TimeOfDay).ToString()]),
                 ["weather"] = Enum(Enum<Weather>()
                     .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
-                    .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())),
+                    .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())
+                    .Where(w => w != nameof(Weather.Snow) || !NoSnow(request))),
             },
         };
         if (journey) schema["properties"]!["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 };
         return JsonDocument.Parse(schema.ToJsonString()).RootElement.Clone();
     }
+
+    /// <summary>Snow is left out where it is known not to fall: staying in a hot landscape or a place where it never
+    /// snows, or going to a known hot place. Left in, the model chose it three times running for Wadi Rum.</summary>
+    private static bool NoSnow(SceneRequest request) => request.MustGoTo is { } to ? Scene.Hot(to.Landscape)
+        : request.Change != SceneChange.Journey && request.Current.Place is not null && (Scene.Hot(request.Current.Landscape) || !request.Current.Snows);
 
     private static IEnumerable<string> Enum<T>() where T : struct, Enum => System.Enum.GetNames<T>();
 

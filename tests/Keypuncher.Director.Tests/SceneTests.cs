@@ -29,6 +29,12 @@ public class SceneTests
         Assert.False(weather.TryGetProperty("fact", out _));
         Assert.True(journey.TryGetProperty("fact", out _));
 
+        // Snow is not offered where it cannot fall: the model chose it three times running for Wadi Rum.
+        var wadiRum = new Scene(Landscape.Desert, TimeOfDay.Midday, Weather.Clear, "Wadi Rum, Jordan", "A desert valley.", Snows: false);
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Current = wadiRum, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Current = Vik with { Snows = false }, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
+        Assert.Contains("Snow", Values(weather, "weather"));
+
         var evening = SceneSchema.For(FromVik with { Change = SceneChange.Time, Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
         Assert.Equal(["Dawn"], Values(evening, "timeOfDay"));
         Assert.Contains("Rainbow", Values(evening, "weather"));
