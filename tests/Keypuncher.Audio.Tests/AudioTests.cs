@@ -160,7 +160,42 @@ public class AudioTests
         Assert.False(m.SpeechPlaying);
     }
 
+    [Theory]
+    [InlineData(Waveform.Sine)]
+    [InlineData(Waveform.Triangle)]
+    public void A_warm_note_peaks_no_higher_than_a_plain_oscillator_would(Waveform wave)
+    {
+        var m = new Mixer { Volume = 0.5f };
+        Render(m, 3.1); // past the start ramp
+        m.Note(440, new Voice(wave, 0.005, 1.0, "pentatonic", "A4"), 1);
+        var peak = Peak(Render(m, 0.5));
+        // A plain oscillator at full velocity peaks at the note gain (0.3) times the volume; the harmonics must
+        // not push past that, nor leave the note much quieter.
+        Assert.InRange(peak, 0.12f, 0.152f);
+    }
+
+    [Theory]
+    [InlineData(Waveform.Sine, true)]
+    [InlineData(Waveform.Triangle, true)]
+    [InlineData(Waveform.Square, false)]
+    [InlineData(Waveform.Saw, false)]
+    public void Sine_and_triangle_notes_fall_quickly_to_half_then_take_the_long_tail(Waveform wave, bool twoStage)
+    {
+        var m = new Mixer { Volume = 0.5f };
+        Render(m, 3.1);
+        m.Note(440, new Voice(wave, 0.005, 1.0, "pentatonic", "A4"), 1);
+        var note = Render(m, 0.25);
+        var early = Rms(note.AsSpan(Mixer.Channels * Mixer.SampleRate / 100, Mixer.Channels * Mixer.SampleRate / 50));
+        var later = Rms(note.AsSpan(Mixer.Channels * Mixer.SampleRate / 5, Mixer.Channels * Mixer.SampleRate / 50));
+        // One exponential over a 1 s decay keeps about 0.5 of its level from 20 ms to 200 ms; the two-stage
+        // decay keeps only about half of that.
+        var kept = later / early;
+        if (twoStage) Assert.InRange(kept, 0.15, 0.32);
+        else Assert.InRange(kept, 0.4, 0.6);
+    }
+
     private static float[] Render(Mixer m, double seconds)
+
     {
         var buffer = new float[(int)(seconds * Mixer.SampleRate) * Mixer.Channels];
         m.Read(buffer);
