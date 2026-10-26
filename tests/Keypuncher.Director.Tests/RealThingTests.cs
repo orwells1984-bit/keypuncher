@@ -202,14 +202,16 @@ public class RealThingTests
     }
 
     [Fact]
-    public async Task Unsure_where_a_thing_lives_lets_it_through_and_vehicles_are_not_asked()
+    public async Task A_thing_fits_a_place_only_on_its_continent_and_in_its_climate_and_vehicles_are_not_asked()
     {
-        // The small model is unsure of nearly every real one, so only a "no" turns a thing away.
-        var here = CreatureFamily with { Here = "at Lake Bled, Slovenia" };
-        var swan = await new RealThingDirector(new ScriptedModel(Pick("mute swan", "Animal", "Duck")),
-            new FactChecker(new ScriptedModel(Check("a white water bird", "real"), Fit("unsure")))).ProposeAsync(here);
-        Assert.Equal("mute swan", swan.Recipe!.Name);
+        static bool Fits(string place, string climate, string[] continents, string[] climates) => FactChecker.Fits(
+            JsonDocument.Parse(JsonSerializer.Serialize(new { placeContinent = place, placeClimate = climate, thingContinents = continents, thingClimates = climates })).RootElement);
+        Assert.True(Fits("Europe", "Temperate", ["Europe", "Asia"], ["Temperate", "Cold"]));     // a mute swan at Lake Bled
+        Assert.False(Fits("Europe", "Temperate", ["Africa", "Asia"], ["Dry", "Temperate"]));     // a gazelle at a Bulgarian beach
+        Assert.False(Fits("Europe", "Cold", ["Europe", "Asia"], ["Tropical"]));                  // a banana in Iceland
+        Assert.False(FactChecker.Fits(null));
 
+        var here = CreatureFamily with { Here = "at Lake Bled, Slovenia" };
         var boat = await new RealThingDirector(new ScriptedModel(Pick("rowing boat", "Vehicle", "Stripe")),
             new FactChecker(new ScriptedModel(Check("a small boat", "real", kind: "Vehicle")))).ProposeAsync(here with { Category = RealCategory.Vehicle });
         Assert.Equal("rowing boat", boat.Recipe!.Name);
@@ -415,7 +417,9 @@ public class RealThingTests
     private static string Check(string what, string verdict, string kind = "Animal", string growsInto = "none") =>
         JsonSerializer.Serialize(new { whatItIs = what, verdict, kind, growsInto });
 
-    private static string Fit(string verdict) => JsonSerializer.Serialize(new { there = "a cool lake in the Alps", verdict });
+    private static string Fit(string verdict) => verdict == "yes"
+        ? JsonSerializer.Serialize(new { placeContinent = "Europe", placeClimate = "Temperate", thingContinents = new[] { "Europe", "Asia" }, thingClimates = new[] { "Temperate", "Cold" } })
+        : JsonSerializer.Serialize(new { placeContinent = "Europe", placeClimate = "Temperate", thingContinents = new[] { "Asia", "Africa" }, thingClimates = new[] { "Tropical" } });
 
     /// <summary>Answers each prompt with the next scripted JSON and remembers the prompts.</summary>
     internal sealed class ScriptedModel(params string[] answers) : ILanguageModel

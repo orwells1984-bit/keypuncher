@@ -210,7 +210,7 @@ async Task Facts()
 }
 
 // Living things that are and are not found at real places, the "not found" ones including picks from a test run,
-// asked as FactChecker.FitsAsync asks and, to compare, without the reasoning first. FitsAsync lets all but "no" through.
+// asked as FactChecker.FitsAsync asks (continents and climates, compared in code) and, to compare, for a verdict.
 async Task Fits()
 {
     (string Name, RealCategory Category, string Here, bool Found)[] cases =
@@ -223,27 +223,33 @@ async Task Fits()
         ("chamois", RealCategory.Animal, "at Swiss Alps, Switzerland", true), ("brown trout", RealCategory.Animal, "at Lake Bled, Slovenia", true),
         ("mute swan", RealCategory.Animal, "at Lake Bled, Slovenia", true), ("giraffe", RealCategory.Animal, "at Masai Mara, Kenya", true),
         ("arctic fox", RealCategory.Animal, "at Hallormsstadaskogur, Iceland", true), ("cow", RealCategory.Animal, "at Lauterbrunnen, Switzerland", true),
+        ("impala", RealCategory.Animal, "at Masai Mara, Kenya", true), ("mink", RealCategory.Animal, "at Lake Bled, Slovenia", true),
         ("mango", RealCategory.Plant, "at Lake Bled, Slovenia", false), ("banana", RealCategory.Plant, "at Reynisfjara, Iceland", false),
         ("coconut palm", RealCategory.Plant, "at Hallormsstadaskogur, Iceland", false), ("cactus", RealCategory.Plant, "at Reynisfjara, Iceland", false),
         ("oak tree", RealCategory.Plant, "at Wadi Rum, Jordan", false), ("sunflower", RealCategory.Plant, "at Eldhraun, Iceland", false),
         ("polar bear", RealCategory.Animal, "at Masai Mara, Kenya", false), ("penguin", RealCategory.Animal, "at Swiss Alps, Switzerland", false),
         ("kangaroo", RealCategory.Animal, "at Lake Bled, Slovenia", false), ("giraffe", RealCategory.Animal, "at Reynisfjara, Iceland", false),
         ("camel", RealCategory.Animal, "at Hallormsstadaskogur, Iceland", false), ("gazelle", RealCategory.Animal, "at Bondi Beach, Australia", false),
+        ("gazelle", RealCategory.Animal, "at Sunny Beach, Bulgaria", false), ("fennec fox", RealCategory.Animal, "at Seven Rila Lakes, Bulgaria", false),
     ];
+    static string Brief(JsonElement? e) => e is { ValueKind: JsonValueKind.Object } a
+        ? string.Join("; ", a.EnumerateObject().Select(p => p.Value.ValueKind == JsonValueKind.Array ? string.Join("/", p.Value.EnumerateArray()) : p.Value.ToString()))
+        : "no answer";
     string Lives(RealCategory c) => c == RealCategory.Plant ? "grows" : "lives";
     string Kept(RealCategory c) => c == RealCategory.Plant ? "grown in gardens and fields" : "kept by people";
     var schema = JsonDocument.Parse(FactChecker.FitSchemaJson).RootElement.Clone();
-    var plain = JsonDocument.Parse("""
-        {"type":"object","additionalProperties":false,"required":["verdict"],
-         "properties":{"verdict":{"type":"string","enum":["yes","no","unsure"]}}}
+    var reasoned = JsonDocument.Parse("""
+        {"type":"object","additionalProperties":false,"required":["there","verdict"],
+         "properties":{"there":{"type":"string","maxLength":120},"verdict":{"type":"string","enum":["yes","no","unsure"]}}}
         """).RootElement.Clone();
     (string Name, JsonElement Schema, Func<string, RealCategory, string, string> Prompt)[] ways =
     [
         ("now", schema, FactChecker.FitPrompt),
-        ("plain", plain, (n, c, h) => $"""
+        ("reasoned", reasoned, (n, c, h) => $"""
             Name: "{n}"
             Place: "{h}"
 
+            there: in a few words, the climate and country around this place, and where a {n} is found in the world.
             verdict: "yes" if a {n} {Lives(c)} there or in the countryside around it today, in the wild or {Kept(c)}.
             "no" if it could not {Lives(c).TrimEnd('s')} there: the climate is far too hot or too cold for it, or it lives only
             on another continent. "unsure" if you do not know.
@@ -263,7 +269,9 @@ async Task Fits()
             var clock = Stopwatch.StartNew();
             var result = await cold.GenerateJsonAsync(FactChecker.System, ways[w].Prompt(name, category, here), ways[w].Schema);
             seconds[w] += clock.Elapsed.TotalSeconds;
-            verdicts[w, i] = result.Json?.RootElement.TryGetProperty("verdict", out var v) == true ? v.GetString() ?? "?" : "?";
+            verdicts[w, i] = ways[w].Name == "now"
+                ? (FactChecker.Fits(result.Json?.RootElement) ? "yes" : "no") + $" ({Brief(result.Json?.RootElement)})"
+                : result.Json?.RootElement.TryGetProperty("verdict", out var v) == true ? v.GetString() ?? "?" : "?";
         }
         Console.WriteLine($"| {name} | {here} | {(found ? "yes" : "no")} | {string.Join(" | ", Enumerable.Range(0, ways.Length).Select(w => verdicts[w, i]))} |");
     }
@@ -271,8 +279,8 @@ async Task Fits()
     for (var w = 0; w < ways.Length; w++)
     {
         int Count(Func<string, bool> passes, bool found) => Enumerable.Range(0, cases.Length).Count(i => cases[i].Found == found && passes(verdicts[w, i]));
-        Console.WriteLine($"{ways[w].Name}: only yes passes: {Count(v => v == "yes", true)} of {cases.Count(c => c.Found)} found kept, {Count(v => v == "yes", false)} of {cases.Count(c => !c.Found)} not found let through; "
-            + $"all but no passes: {Count(v => v != "no", true)} kept, {Count(v => v != "no", false)} let through; {seconds[w] / cases.Length:0.0} s a check.");
+        Console.WriteLine($"{ways[w].Name}: only yes passes: {Count(v => v.StartsWith("yes"), true)} of {cases.Count(c => c.Found)} found kept, {Count(v => v.StartsWith("yes"), false)} of {cases.Count(c => !c.Found)} not found let through; "
+            + $"all but no passes: {Count(v => !v.StartsWith("no"), true)} kept, {Count(v => !v.StartsWith("no"), false)} let through; {seconds[w] / cases.Length:0.0} s a check.");
     }
 }
 

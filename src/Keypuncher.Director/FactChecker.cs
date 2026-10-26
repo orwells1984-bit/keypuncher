@@ -74,44 +74,60 @@ public sealed class FactChecker(ILanguageModel model)
         "false" if not, "none" if nothing was said.
         """;
 
-    public const string FitSchemaJson = """
+    private const string Continents = "\"Africa\", \"Asia\", \"Europe\", \"NorthAmerica\", \"SouthAmerica\", \"Oceania\", \"Antarctica\"";
+    private const string Climates = "\"Tropical\", \"Dry\", \"Temperate\", \"Cold\", \"Polar\"";
+
+    public const string FitSchemaJson = $$"""
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["there", "verdict"],
+          "required": ["placeContinent", "placeClimate", "thingContinents", "thingClimates"],
           "properties": {
-            "there": { "type": "string", "maxLength": 120 },
-            "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] }
+            "placeContinent": { "type": "string", "enum": [{{Continents}}] },
+            "placeClimate": { "type": "string", "enum": [{{Climates}}] },
+            "thingContinents": { "type": "array", "minItems": 1, "maxItems": 7, "items": { "type": "string", "enum": [{{Continents}}] } },
+            "thingClimates": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "enum": [{{Climates}}] } }
           }
         }
         """;
 
     private static readonly JsonElement FitSchema = JsonDocument.Parse(FitSchemaJson).RootElement.Clone();
 
-    /// <summary>The checker first says what the place is like and where the thing is found, so it has recalled both
-    /// before it judges; on the desktop bench that made it say "no" to 9 of 12 misfits where asking straight out
-    /// got "unsure" for nearly everything.</summary>
+    /// <summary>Asks for facts the small model knows well (which continent and climate the place has, and where
+    /// and in what climates the thing is found) rather than for a verdict, which it would not give: asked "does a
+    /// linden tree grow at Lake Bled?" it was unsure of nearly every real case, and refusing only on "no" let a
+    /// gazelle through at a Bulgarian beach.</summary>
     public static string FitPrompt(string subject, RealCategory category, string here)
     {
-        var (lives, kept) = category == RealCategory.Plant ? ("grow", "grown in gardens and fields") : ("live", "kept by people");
+        var (lives, kept) = category == RealCategory.Plant ? ("grows", "grown in gardens and fields") : ("lives", "kept by people");
         return $"""
             Name: "{subject}"
             Place: "{here}"
 
-            there: in a few words, the climate and country around this place, and where a {subject} is found in the world.
-            verdict: "yes" if a {subject} {lives}s there or in the countryside around it today, in the wild or {kept}.
-            "no" if it could not {lives} there: the climate is far too hot or too cold for it, or it lives only
-            on another continent. "unsure" if you do not know.
+            placeContinent: the continent the place is on.
+            placeClimate: the place's climate: Tropical (hot and wet), Dry (desert), Temperate, Cold (long snowy
+            winters, mountains, subarctic) or Polar.
+            thingContinents: every continent where a {subject} {lives} today, in the wild or {kept}.
+            thingClimates: every climate a {subject} {lives} in.
             """;
     }
 
     /// <summary>Whether a living animal or plant could be found <paramref name="here"/> ("at Lake Bled, Slovenia"):
-    /// only a "no" turns it away. The small model is unsure of nearly every real one (a linden tree at Lake
-    /// Bled), but says "no" to the clear misfits, like the mango once offered for an Icelandic farm.</summary>
+    /// the place's continent and climate must both be among the thing's. No answer is a no.</summary>
     public async Task<bool> FitsAsync(string subject, RealCategory category, string here, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, FitPrompt(subject, category, here), FitSchema, cancellationToken);
-        return !(result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.GetString() == "no");
+        return Fits(result.Json?.RootElement);
+    }
+
+    /// <summary>Whether a found-there answer puts the place's continent and climate among the thing's.</summary>
+    public static bool Fits(JsonElement? answer)
+    {
+        if (answer is not { ValueKind: JsonValueKind.Object } a) return false;
+        static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        static bool Among(JsonElement e, string name, string? value) => value is not null && e.TryGetProperty(name, out var v)
+            && v.ValueKind == JsonValueKind.Array && v.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.String && x.GetString() == value);
+        return Among(a, "thingContinents", Text(a, "placeContinent")) && Among(a, "thingClimates", Text(a, "placeClimate"));
     }
 
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, CancellationToken cancellationToken = default)
