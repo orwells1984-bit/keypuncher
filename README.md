@@ -71,6 +71,10 @@ while it is in front; use the grown-up exit below to get back.
   of an adult's; see `CalmLimits` and `ArtStyle` in `Keypuncher.Core`.
 - **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds (a small ring at the top left fills as you hold), shows a short word at the top left;
   type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, calm level, recordings, fresh world, quit).
+  On a touch screen, hold one finger in each of two opposite corners for 3 seconds, with nothing else touching (the same ring
+  fills); six shapes appear in a row and the top left names four of them. Tap those four in that order within 20 seconds.
+  A palm or a child lying on the screen is too many touches, a slap is too short, a tap on any other shape ends the
+  challenge, and the shapes move every time, so copying where a grown-up tapped does not work. Taps keep playing meanwhile.
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
   Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and

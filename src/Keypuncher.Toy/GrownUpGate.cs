@@ -15,7 +15,7 @@ public sealed class GrownUpGate(Random random)
     /// <summary>The hold cue stays hidden this long, so a child tapping Esc never makes it blink.</summary>
     public const double CueAfterSeconds = 0.5;
     /// <summary>Once shown, the cue fades in over this long.</summary>
-    private const double CueFadeSeconds = 0.3;
+    public const double CueFadeSeconds = 0.3;
     /// <summary>Held Esc repeats every few tens of milliseconds; silence longer than this means its release was lost.</summary>
     private const double EscLostAfterSeconds = 0.5;
     private const int QScanCode = 0x10;

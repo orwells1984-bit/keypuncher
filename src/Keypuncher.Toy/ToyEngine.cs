@@ -83,6 +83,7 @@ public sealed class ToyEngine
         _random = random ?? new Random();
         _callRandom = callRandom ?? new Random();
         Gate = new GrownUpGate(_random);
+        TouchGate = new TouchGate(_random);
         _settings = settings;
         _mix = new LanguageMix(settings.LanguageWeights);
         _mixer.Volume = settings.Volume;
@@ -95,6 +96,8 @@ public sealed class ToyEngine
 
     public World World => _world;
     public GrownUpGate Gate { get; }
+    /// <summary>The grown-up exit for a touch screen; fed by <see cref="OnFingerDown"/> and its siblings.</summary>
+    public TouchGate TouchGate { get; }
     /// <summary>True once the session timer has run out; presses only make soft notes until a new session.</summary>
     public bool IsAsleep => _asleepSince is not null;
     /// <summary>True once play time is up but the child has not paused yet; things settle faster meanwhile.</summary>
@@ -192,6 +195,22 @@ public sealed class ToyEngine
         }
     }
 
+    /// <summary>A finger landed at 0..1 coordinates on a screen this wide over high, with this many fingers now down:
+    /// the touch exit sees it first, then it plays like any tap.</summary>
+    public void OnFingerDown(long id, double x, double y, double aspect, int fingers)
+    {
+        if (TouchGate.FingerDown(id, x, y, aspect, _world.Time))
+        {
+            GrownUpRequested?.Invoke();
+            return;
+        }
+        OnTouch(x, y, fingers);
+    }
+
+    public void OnFingerMove(long id, double x, double y, double aspect) => TouchGate.FingerMove(id, x, y, aspect, _world.Time);
+
+    public void OnFingerUp(long id) => TouchGate.FingerUp(id, _world.Time);
+
     /// <summary>A tap or press on the screen at 0..1 coordinates.</summary>
     public void OnTouch(double x, double y, int fingers)
     {
@@ -230,6 +249,7 @@ public sealed class ToyEngine
         _world.Quiet = IsAsleep || IsWindingDown || _world.Time - _lastInput >= QuietAfter;
         _world.Night = _asleepSince is { } since ? Math.Min(1, (_world.Time - since) / GoodnightSeconds) : 0;
         _world.Tick(dt);
+        TouchGate.Tick(_world.Time);
         for (var i = 0; i < _scheduled.Count;)
         {
             if (_scheduled[i].At > _world.Time) { i++; continue; }
