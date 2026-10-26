@@ -22,7 +22,8 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// 1. The prompt (<see cref="DirectorPrompts.RealSystem"/>) asks only for real things by their ordinary names,
 ///    with a fact, and the schema's enums keep the drawing to shapes the toy knows.
 /// 2. <see cref="RealThingRules"/> turns away story creatures, odd names, impossible shapes and repeats.
-/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing.
+/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing, and a
+///    living animal or plant must be confirmed as found where the scene is.
 /// A refused pick is named in the next try's prompt. A request for an extinct animal also offers a few well-known
 /// ones on every try and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
 /// Any other request that misses leaves the family as it is, which is always safe.
@@ -74,6 +75,15 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                     "real" => $"not {RealThingPick.Describe(pick.Category)}",
                     _ => "not sure it is real",
                 }})");
+                continue;
+            }
+
+            // Real, but it must also belong where the scene is.
+            if (request.Here is { } here && request.GrowInto is null && pick.Category is RealCategory.Animal or RealCategory.Plant
+                && !await checker.FitsAsync(pick.Subject, pick.Category, here, cancellationToken))
+            {
+                attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, $"checker: not found {here}", check));
+                turnedDown.Add($"{pick.Subject} (not found {here})");
                 continue;
             }
 

@@ -67,7 +67,9 @@ async Task Picks(int count, bool extinctOnly = false)
     int used = 0, tries = 0;
     for (var i = 0; i < count; i++)
     {
-        var request = loop.NextRequest(world.Families)!;
+        // At a different real place each time, as the toy would be after its journeys.
+        var known = KnownPlace.All[random.Next(KnownPlace.All.Count)];
+        var request = loop.NextRequest(world.Families, new Scene(known.Landscape, TimeOfDay.Afternoon, Weather.Clear, known.Name))!;
         if (extinctOnly)
         {
             var slot = creatureSlots[i % creatureSlots.Count];

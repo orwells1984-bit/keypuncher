@@ -1,4 +1,5 @@
 using Keypuncher.Core;
+using System.Diagnostics;
 using SkiaSharp;
 
 namespace Keypuncher.Rendering;
@@ -6,7 +7,8 @@ namespace Keypuncher.Rendering;
 /// <summary>
 /// Draws the world: a soft sky and hills for the world's <see cref="Scene"/> (faded in slowly when it changes),
 /// the faded history behind everything, then live things,
-/// effects, letters and words. Keeps two cached layers (background and history) so a frame stays cheap.
+/// effects, letters and words. The backdrop and the history are drawn once into pixels when they change, and
+/// between changes are one picture together, so a frame costs one copy of the screen plus what moves.
 /// Only the few things the world marks awake move; the rest ease to a stop, and everything else dims a
 /// little while a letter or word is showing. Sizes, outlines and colours come from the world's
 /// <see cref="ArtStyle"/>, so a calmer level draws bigger and bolder. Use from one thread.
@@ -26,8 +28,10 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private const double WordHeight = 0.085;
 
     private readonly Dictionary<long, (double Clock, double Motion)> _motion = [];
-    private SKSurface? _baked;
-    private SKPicture? _background, _previous;
+    private SKSurface? _baked, _still;
+    private SKImage? _background, _previous, _history;
+    private bool _stillDirty = true;
+    private byte _stillOpacity;
     private SKColorFilter? _historyFilter;
     private ArtStyle? _backgroundStyle, _bakedStyle;
     private Scene? _backgroundScene;
@@ -46,14 +50,16 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         var dt = double.IsNaN(_lastTime) ? 0 : Math.Clamp(world.Time - _lastTime, 0, 0.25);
         _lastTime = world.Time;
 
-        DrawBackdrop(canvas, world, width, height);
+        var start = Stopwatch.GetTimestamp();
+        var fade = UpdateBackdrop(world, width, height);
+        var backdrop = Stopwatch.GetTimestamp();
         UpdateBaked(world);
-        using (var history = new SKPaint { ColorFilter = _historyFilter, Color = SKColors.White.WithAlpha((byte)(255 * Math.Clamp(world.Limits.HistoryOpacity, 0, 1))) })
-            canvas.DrawSurface(_baked, 0, 0, history);
+        DrawStill(canvas, world, fade);
 
         var unit = Math.Min(width, height);
         var (spotlight, spotlightSince) = Spotlight(world);
         AdvanceMotion(world, dt, spotlight);
+        var baked = Stopwatch.GetTimestamp();
 
         // Plants first so creatures pass in front of them, then effects, then text on top.
         foreach (var e in world.Live)
@@ -62,6 +68,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             if (e.Recipe?.Kind != RecipeKind.Plant && e.Role == EntityRole.Thing) DrawLive(canvas, e, world, width, height, unit, spotlight, spotlightSince);
         foreach (var e in world.Live)
             if (e.Role == EntityRole.Effect) DrawEffect(canvas, e, world.Time, width, height, unit, world.Style);
+        var things = Stopwatch.GetTimestamp();
 
         if (world.Night > 0)
         {
@@ -74,7 +81,11 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
 
         if (overlay is not null) DrawOverlay(canvas, overlay, width, height);
         if (holdCue.Opacity > 0) DrawHoldCue(canvas, holdCue.Progress, holdCue.Opacity, height, unit, world.Style);
+        Timings.Add(start, backdrop, baked, things, Stopwatch.GetTimestamp());
     }
+
+    /// <summary>How long each part of drawing has taken lately, for the grown-ups' page and the benchmark.</summary>
+    public RenderTimings Timings { get; } = new();
 
     /// <summary>A small ring in the corner where the exit word will appear: a pale track, and an arc in the level's ink
     /// that grows clockwise from the top as the hold goes on. It changes smoothly and only after a deliberate hold,
@@ -99,8 +110,10 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     public void Dispose()
     {
         _baked?.Dispose();
+        _still?.Dispose();
         _background?.Dispose();
         _previous?.Dispose();
+        _history?.Dispose();
         _historyFilter?.Dispose();
     }
 
@@ -161,6 +174,9 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         _previous = null;
         _baked?.Dispose();
         _baked = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        _still?.Dispose();
+        _still = SKSurface.Create(new SKImageInfo(width, height));
+        _stillDirty = true;
         _historyFilter ??= Ghost(HistorySaturation, HistoryContrast);
         _bakedGeneration = -1;
     }
@@ -177,12 +193,45 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         var canvas = _baked!.Canvas;
         canvas.Clear(SKColors.Transparent);
         var unit = Math.Min(_width, _height);
-        for (var i = Math.Max(0, world.Baked.Count - shown); i < world.Baked.Count; i++)
+        // Ghosted as it is drawn, so the colour filter runs once per change rather than over the screen every frame.
+        using (var ghost = new SKPaint { ColorFilter = _historyFilter })
         {
-            var e = world.Baked[i];
-            var rank = world.Baked.Count - 1 - i;   // 0 for the most recently retired
-            DrawThing(canvas, e, 1000, e.Phase * 10, 0, HistoryFade(rank, shown), 0, _width, _height, unit, world.Style);
+            canvas.SaveLayer(ghost);
+            for (var i = Math.Max(0, world.Baked.Count - shown); i < world.Baked.Count; i++)
+            {
+                var e = world.Baked[i];
+                var rank = world.Baked.Count - 1 - i;   // 0 for the most recently retired
+                DrawThing(canvas, e, 1000, e.Phase * 10, 0, HistoryFade(rank, shown), 0, _width, _height, unit, world.Style);
+            }
+            canvas.Restore();
         }
+        _history?.Dispose();
+        _history = _baked.Snapshot();
+        _stillDirty = true;
+    }
+
+    /// <summary>The backdrop with the history over it. Between changes that is one picture, drawn into
+    /// <see cref="_still"/> when either changes; while a new scene fades in, the parts are drawn each frame.</summary>
+    private void DrawStill(SKCanvas canvas, World world, double fade)
+    {
+        var opacity = (byte)(255 * Math.Clamp(world.Limits.HistoryOpacity, 0, 1));
+        using var history = new SKPaint { Color = SKColors.White.WithAlpha(opacity) };
+        if (_previous is not null)
+        {
+            canvas.DrawImage(_previous, 0, 0, SKSamplingOptions.Default);
+            // Eased at both ends, so neither the start nor the end of the fade can be seen as a moment.
+            using var paint = new SKPaint { Color = SKColors.White.WithAlpha((byte)(255 * fade * fade * (3 - (2 * fade)))) };
+            canvas.DrawImage(_background!, 0, 0, SKSamplingOptions.Default, paint);
+            canvas.DrawImage(_history!, 0, 0, SKSamplingOptions.Default, history);
+            return;
+        }
+        if (_stillDirty || opacity != _stillOpacity)
+        {
+            _still!.Canvas.DrawImage(_background!, 0, 0, SKSamplingOptions.Default);
+            _still.Canvas.DrawImage(_history!, 0, 0, SKSamplingOptions.Default, history);
+            (_stillDirty, _stillOpacity) = (false, opacity);
+        }
+        canvas.DrawSurface(_still, 0, 0);
     }
 
     /// <param name="age">Seconds since birth, for the pop-in and the slow growth.</param>
@@ -389,7 +438,8 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     /// <summary>The scene's backdrop. A change of scene fades the new one in over the calm level's
     /// <see cref="CalmLimits.SceneFadeSeconds"/>, so the whole screen never changes at once; a change of style
     /// (the calm level) is a grown-up's choice and is redrawn straight away.</summary>
-    private void DrawBackdrop(SKCanvas canvas, World world, int width, int height)
+    /// <returns>How far the fade has come, 1 when there is none.</returns>
+    private double UpdateBackdrop(World world, int width, int height)
     {
         if (_background is null || !Equals(_backgroundStyle, world.Style) || _backgroundScene != world.Scene)
         {
@@ -397,22 +447,24 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             _previous?.Dispose();
             _previous = fading ? _background : null;
             if (!fading) _background?.Dispose();
-            _background = PaintBackground(width, height, world.Scene, world.Style);
+            // Drawn into pixels once: the landscape's many shapes cost far more than a copy, every frame.
+            using (var picture = PaintBackground(width, height, world.Scene, world.Style))
+            using (var surface = SKSurface.Create(new SKImageInfo(width, height)))
+            {
+                surface.Canvas.DrawPicture(picture);
+                _background = surface.Snapshot();
+            }
             (_backgroundStyle, _backgroundScene) = (world.Style, world.Scene);
+            _stillDirty = true;
         }
 
         var k = Math.Clamp((world.Time - world.SceneChangedAt) / Math.Max(0.1, world.Limits.SceneFadeSeconds), 0, 1);
-        if (_previous is null || k >= 1)
+        if (_previous is not null && k >= 1)
         {
-            _previous?.Dispose();
+            _previous.Dispose();
             _previous = null;
-            canvas.DrawPicture(_background);
-            return;
         }
-        canvas.DrawPicture(_previous);
-        // Eased at both ends, so neither the start nor the end of the fade can be seen as a moment.
-        using var fade = new SKPaint { Color = SKColors.White.WithAlpha((byte)(255 * k * k * (3 - (2 * k)))) };
-        canvas.DrawPicture(_background, fade);
+        return k;
     }
 
     /// <summary>The backdrop: a smooth sky and two hills in the scene's colours (<see cref="SceneGround"/>), shaped

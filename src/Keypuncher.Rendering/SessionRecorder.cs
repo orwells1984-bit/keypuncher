@@ -22,12 +22,13 @@ public sealed class SessionRecorder : IDisposable
     private readonly Func<DateTime> _clock;
     private readonly Channel<(SKImage Frame, int Copies)> _frames =
         Channel.CreateBounded<(SKImage, int)>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
-    private readonly Task _worker;
+    private readonly Thread _worker;
     private readonly SKFont _font = new(Fonts.LoadAndika(), 18);
     private readonly SKPaint _ink = new() { IsAntialias = true, Color = new SKColor(40, 40, 70) };
     private readonly SKPaint _label = new() { Color = SKColors.White.WithAlpha(200) };
     private double? _start;
     private long _offered;
+    private int _owed;
     private MjpegAviWriter? _writer;
 
     /// <param name="prefix">Starts each file's name: "test" for test mode, "play" for a child's play.</param>
@@ -38,7 +39,9 @@ public sealed class SessionRecorder : IDisposable
         _clock = clock ?? (() => DateTime.Now);
         Directory.CreateDirectory(folder);
         Prune();
-        _worker = Task.Run(WriteAsync);
+        // Its own thread, so a busy thread pool can never hold the video back.
+        _worker = new Thread(Write) { IsBackground = true, Name = "Session recorder", Priority = ThreadPriority.BelowNormal };
+        _worker.Start();
     }
 
     /// <summary>The file being written, once the first frame has arrived.</summary>
@@ -51,8 +54,10 @@ public sealed class SessionRecorder : IDisposable
         _start ??= seconds;
         var due = (long)((seconds - _start.Value) * Fps) + 1;
         if (due <= _offered) return;
-        var copies = (int)Math.Min(due - _offered, Fps * 2);
+        // Frames dropped because the encoder was behind are made up by repeating this one, so the video keeps time.
+        var copies = (int)Math.Min(due - _offered + _owed, Fps * 2);
         _offered = due;
+        _owed = 0;
 
         var h = Math.Max(2, (int)Math.Round(Width * height / (double)Math.Max(1, width) / 2) * 2);
         using var screen = surface.Snapshot();
@@ -63,44 +68,58 @@ public sealed class SessionRecorder : IDisposable
         small.Canvas.DrawRect(Width - w - 12, h - 24, w + 12, 24, _label);
         small.Canvas.DrawText(stamp, Width - 6, h - 7, SKTextAlign.Right, _font, _ink);
         var frame = small.Snapshot();
-        if (!_frames.Writer.TryWrite((frame, copies))) frame.Dispose();
+        if (_frames.Writer.TryWrite((frame, copies))) return;
+        frame.Dispose();
+        _owed = copies;
     }
 
     public void Dispose()
     {
         _frames.Writer.TryComplete();
-        try { _worker.Wait(TimeSpan.FromSeconds(5)); }
-        catch (AggregateException) { }
-        _writer?.Dispose();
+        // The worker closes the file once the last frame is written.
+        _worker.Join(TimeSpan.FromSeconds(10));
         _font.Dispose();
         _ink.Dispose();
         _label.Dispose();
     }
 
-    private async Task WriteAsync()
+    private void Write()
     {
-        await foreach (var (frame, copies) in _frames.Reader.ReadAllAsync())
-            using (frame)
+        try
+        {
+            while (_frames.Reader.WaitToReadAsync().AsTask().GetAwaiter().GetResult())
+                while (_frames.Reader.TryRead(out var item))
+                    using (item.Frame)
+                        if (!WriteFrame(item.Frame, item.Copies)) return;
+        }
+        finally
+        {
+            try { _writer?.Dispose(); }
+            catch (IOException) { }
+            _writer = null;
+        }
+    }
+
+    /// <returns>False when the recording has had to stop.</returns>
+    private bool WriteFrame(SKImage frame, int copies)
+    {
+        try
+        {
+            using var data = frame.Encode(SKEncodedImageFormat.Jpeg, 72);
+            if (_writer is null || _writer.Length > MaxFileBytes)
             {
-                try
-                {
-                    using var data = frame.Encode(SKEncodedImageFormat.Jpeg, 72);
-                    if (_writer is null || _writer.Length > MaxFileBytes)
-                    {
-                        _writer?.Dispose();
-                        CurrentFile = Path.Combine(_folder, $"{_prefix}-{_clock():yyyy-MM-dd-HHmmss}.avi");
-                        _writer = new MjpegAviWriter(CurrentFile, frame.Width, frame.Height, Fps);
-                    }
-                    for (var i = 0; i < copies; i++) _writer.AddFrame(data.AsSpan());
-                }
-                catch (IOException)
-                {
-                    // A full disk or a locked file stops the recording, never play.
-                    _writer?.Dispose();
-                    _writer = null;
-                    return;
-                }
+                _writer?.Dispose();
+                CurrentFile = Path.Combine(_folder, $"{_prefix}-{_clock():yyyy-MM-dd-HHmmss}.avi");
+                _writer = new MjpegAviWriter(CurrentFile, frame.Width, frame.Height, Fps);
             }
+            for (var i = 0; i < copies; i++) _writer.AddFrame(data.AsSpan());
+            return true;
+        }
+        catch (IOException)
+        {
+            // A full disk or a locked file stops the recording, never play.
+            return false;
+        }
     }
 
     /// <summary>Deletes the oldest recordings until the folder is under its limit with room for one more file.</summary>

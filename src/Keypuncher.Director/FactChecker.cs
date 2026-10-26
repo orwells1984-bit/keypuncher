@@ -74,6 +74,34 @@ public sealed class FactChecker(ILanguageModel model)
         "false" if not, "none" if nothing was said.
         """;
 
+    private static readonly JsonElement FitSchema = JsonDocument.Parse("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict"],
+          "properties": { "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] } }
+        }
+        """).RootElement.Clone();
+
+    public static string FitPrompt(string subject, RealCategory category, string here) =>
+        $"""
+        Name: "{subject}"
+        Place: "{here}"
+
+        verdict: "yes" only if {(category == RealCategory.Plant
+            ? $"a {subject} really grows {here} today, outdoors, in the wild or in gardens and fields"
+            : $"a {subject} really lives {here} today, in the wild or kept by people there")}.
+        "no" if it does not. "unsure" if you do not know.
+        """;
+
+    /// <summary>Whether a cold call agrees that a living animal or plant is really found <paramref name="here"/>
+    /// ("at Lake Bled, Slovenia"); "unsure" is no. A mango was once offered for an Icelandic farm.</summary>
+    public async Task<bool> FitsAsync(string subject, RealCategory category, string here, CancellationToken cancellationToken = default)
+    {
+        var result = await model.GenerateJsonAsync(System, FitPrompt(subject, category, here), FitSchema, cancellationToken);
+        return result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.GetString() == "yes";
+    }
+
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, Prompt(subject, growsInto), Schema, cancellationToken);

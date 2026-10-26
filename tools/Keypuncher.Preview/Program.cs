@@ -11,6 +11,8 @@
 // --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
 // --tour instead records a video (as test mode does) of the backdrop moving through every landscape, time of day
 // and weather, with the toy's real fades, to tour.avi.
+// --bench instead plays a minute of fast mashing at 1920x1080 and prints how long each part of drawing takes,
+// before and during a scene's fade, with and without recording.
 // --calls instead writes every animal noise as a WAV, bold and baby (gentle) versions, for a quick listen.
 
 using Keypuncher.Audio;
@@ -31,6 +33,7 @@ if (args.Contains("--sheet")) return Sheet(outDir);
 if (args.Contains("--calls")) return Calls(outDir);
 if (args.Contains("--scenes")) return Scenes(outDir);
 if (args.Contains("--tour")) return Tour(outDir, calm);
+if (args.Contains("--bench")) return Bench(outDir, calm, int.Parse(Get("--width", "1920")), int.Parse(Get("--height", "1080")));
 
 var world = new World();
 var mixer = new Mixer();
@@ -218,6 +221,64 @@ static int Tour(string outDir, CalmLevel calm)
     File.Move(file, path, overwrite: true);
     Directory.Delete(folder);
     Console.WriteLine(path);
+    return 0;
+}
+
+static int Bench(string outDir, CalmLevel calm, int w, int h)
+{
+    var world = new World();
+    var engine = new ToyEngine(world, new Mixer(), new SpeechLibrary(new ClipStore(Path.Combine(outDir, "clips")), null),
+        ToySettings.Default with { Calm = calm, SessionMinutes = 0 }, new Random(1));
+    world.Load(0, [], [], scene: new Scene(Landscape.Lake, TimeOfDay.Afternoon, Weather.Clear, "Lake Bled, Slovenia"));
+    using var renderer = new SceneRenderer(Fonts.LoadAndika());
+    using var surface = SKSurface.Create(new SKImageInfo(w, h));
+    var random = new Random(7);
+    var clock = DateTimeOffset.UnixEpoch;
+    var letters = "asdfghjklæqwertyuiopðzxcvbnmþ1234567890";
+    var nextPress = 0.0;
+    var t = 0.0;
+    SessionRecorder? recorder = null;
+
+    void Run(string label, double seconds)
+    {
+        renderer.Timings.Reset();
+        var offer = 0L;
+        var things = 0;
+        for (var end = t + seconds; t < end; t += 1 / 60.0)
+        {
+            if (t >= nextPress)
+            {
+                // A palm on the keys: one to four presses at once, a few times a second.
+                for (var i = random.Next(1, 5); i > 0; i--)
+                {
+                    var ch = letters[random.Next(letters.Length)];
+                    var scan = IcelandicKeys.ScanCode(ch) ?? 0x39;
+                    engine.OnKey(new KeyPress(clock, scan, ch.ToString(), false, true));
+                    engine.OnKey(new KeyPress(clock, scan, ch.ToString(), false, false));
+                }
+                nextPress = t + 0.15 + (random.NextDouble() * 0.6);
+            }
+            engine.Update(1 / 60.0);
+            clock += TimeSpan.FromSeconds(1 / 60.0);
+            renderer.Draw(surface.Canvas, w, h, world, null);
+            var before = System.Diagnostics.Stopwatch.GetTimestamp();
+            recorder?.Offer(surface, w, h, t);
+            offer += System.Diagnostics.Stopwatch.GetTimestamp() - before;
+            things = Math.Max(things, world.LiveThingCount);
+        }
+        var frames = renderer.Timings.Frames;
+        Console.WriteLine($"{label,-28} {renderer.Timings}; recording {offer * 1000.0 / System.Diagnostics.Stopwatch.Frequency / frames:0.0}; up to {things} things, {world.Live.Count} live");
+    }
+
+    Console.WriteLine($"{calm}, {w}x{h}");
+    Run("mashing", 20);
+    world.SetScene(new Scene(Landscape.Lake, TimeOfDay.Evening, Weather.Clear, "Lake Bled, Slovenia"));
+    Run("mashing, scene fading", world.Limits.SceneFadeSeconds);
+    Run("mashing after the fade", 10);
+    recorder = new SessionRecorder(Path.Combine(outDir, "bench-videos"), "bench");
+    Run("mashing, recording", 10);
+    recorder.Dispose();
+    Directory.Delete(Path.Combine(outDir, "bench-videos"), recursive: true);
     return 0;
 }
 
