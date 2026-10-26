@@ -193,9 +193,22 @@ public sealed class Mixer
     }
 
     /// <summary>One sounding note: an oscillator through a gentle low-pass, with a linear attack and an
-    /// exponential decay. Square, saw and noise are filtered harder so nothing is harsh.</summary>
+    /// exponential decay. Square, saw and noise are filtered harder so nothing is harsh.
+    /// Sine and triangle notes are warmer: two quiet harmonics on top of the fundamental, and a decay in two
+    /// stages, a quick fall to half level and then the recipe's long tail, the way a struck or plucked note
+    /// fades. The mix is scaled so its peak is no higher than the plain oscillator's.</summary>
     private struct SynthVoice
     {
+        /// <summary>Second and third harmonic, as shares of the fundamental.</summary>
+        private const double Second = 0.33, Third = 0.13;
+        /// <summary>One over the peak of fundamental plus harmonics, for a sine and a triangle fundamental.</summary>
+        private const float SineWarmScale = 0.86f, TriangleWarmScale = 0.9f;
+        /// <summary>Share of the level that stays after the quick first fall.</summary>
+        private const float Body = 0.5f;
+        /// <summary>Time constant of that first fall: down to about 8 % of its share by 150 ms.</summary>
+        private const double FirstFallSeconds = 0.06;
+        private static readonly double FirstFallPerSample = Math.Exp(-1.0 / (FirstFallSeconds * SampleRate));
+
         public bool Active;
         public float PanL, PanR;
         public float Level;
@@ -210,6 +223,8 @@ public sealed class Mixer
         private float _env;
         private float _filtered;
         private uint _noise;
+        private readonly bool _warm;
+        private double _firstFall;
 
         public SynthVoice(double frequency, Waveform wave, double attack, double decay, double velocity, double pan)
         {
@@ -234,6 +249,8 @@ public sealed class Mixer
             _env = 0;
             _filtered = 0;
             _noise = 0x9E3779B9u ^ (uint)(frequency * 1000);
+            _warm = wave is Waveform.Sine or Waveform.Triangle;
+            _firstFall = 1;
             Level = 1;
         }
 
@@ -251,17 +268,28 @@ public sealed class Mixer
                     break;
                 default: osc = (float)Math.Sin(2 * Math.PI * _phase); break;
             }
+            if (_warm)
+            {
+                var harmonics = (Second * Math.Sin(4 * Math.PI * _phase)) + (Third * Math.Sin(6 * Math.PI * _phase));
+                osc = (float)(osc + harmonics) * (_wave == Waveform.Triangle ? TriangleWarmScale : SineWarmScale);
+            }
             _phase += _increment;
             if (_phase >= 1) _phase -= 1;
 
             if (_t < _attack) _env = _t / (float)_attack;
-            else _env *= (float)_decayPerSample;
+            else
+            {
+                _env *= (float)_decayPerSample;
+                if (_warm) _firstFall *= FirstFallPerSample;
+            }
             _t++;
 
+            var level = _warm ? _env * (Body + ((1 - Body) * (float)_firstFall)) : _env;
             _filtered += _lowpass * (osc - _filtered);
-            Level = _env;
-            if (_t > _attack && _env < 0.0005f) Active = false;
-            return _filtered * _env * _velocity;
+            Level = level;
+            if (_t > _attack && level < 0.0005f) Active = false;
+            return _filtered * level * _velocity;
+
         }
     }
 }
