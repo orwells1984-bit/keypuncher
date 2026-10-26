@@ -4,8 +4,8 @@ using SkiaSharp;
 namespace Keypuncher.Rendering;
 
 /// <summary>
-/// Records what the screen shows as a small video, for looking back at a test session alongside the director's
-/// log: <see cref="Fps"/> frames a second at <see cref="Width"/> pixels wide, each stamped with the clock time
+/// Records what the screen shows as a small video, for looking back at a test session or a child's play alongside
+/// the log: <see cref="Fps"/> frames a second at <see cref="Width"/> pixels wide, each stamped with the clock time
 /// that the log's lines carry. The frame is shrunk on the calling (UI) thread, which is cheap; encoding and
 /// writing happen on a worker, and frames are dropped rather than ever holding up play. Each session is one
 /// .avi file, started afresh past <see cref="MaxFileBytes"/>; the oldest are deleted to keep the folder under
@@ -18,7 +18,7 @@ public sealed class SessionRecorder : IDisposable
     public const long MaxFileBytes = 1_000_000_000;
     public const long MaxFolderBytes = 4_000_000_000;
 
-    private readonly string _folder;
+    private readonly string _folder, _prefix;
     private readonly Func<DateTime> _clock;
     private readonly Channel<(SKImage Frame, int Copies)> _frames =
         Channel.CreateBounded<(SKImage, int)>(new BoundedChannelOptions(8) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true });
@@ -30,9 +30,11 @@ public sealed class SessionRecorder : IDisposable
     private long _offered;
     private MjpegAviWriter? _writer;
 
-    public SessionRecorder(string folder, Func<DateTime>? clock = null)
+    /// <param name="prefix">Starts each file's name: "test" for test mode, "play" for a child's play.</param>
+    public SessionRecorder(string folder, string prefix = "test", Func<DateTime>? clock = null)
     {
         _folder = folder;
+        _prefix = prefix;
         _clock = clock ?? (() => DateTime.Now);
         Directory.CreateDirectory(folder);
         Prune();
@@ -86,7 +88,7 @@ public sealed class SessionRecorder : IDisposable
                     if (_writer is null || _writer.Length > MaxFileBytes)
                     {
                         _writer?.Dispose();
-                        CurrentFile = Path.Combine(_folder, $"test-{_clock():yyyy-MM-dd-HHmmss}.avi");
+                        CurrentFile = Path.Combine(_folder, $"{_prefix}-{_clock():yyyy-MM-dd-HHmmss}.avi");
                         _writer = new MjpegAviWriter(CurrentFile, frame.Width, frame.Height, Fps);
                     }
                     for (var i = 0; i < copies; i++) _writer.AddFrame(data.AsSpan());
@@ -104,7 +106,7 @@ public sealed class SessionRecorder : IDisposable
     /// <summary>Deletes the oldest recordings until the folder is under its limit with room for one more file.</summary>
     private void Prune()
     {
-        var files = new DirectoryInfo(_folder).GetFiles("test-*.avi").OrderBy(f => f.LastWriteTimeUtc).ToList();
+        var files = new DirectoryInfo(_folder).GetFiles("*.avi").OrderBy(f => f.LastWriteTimeUtc).ToList();
         var total = files.Sum(f => f.Length);
         foreach (var f in files)
         {

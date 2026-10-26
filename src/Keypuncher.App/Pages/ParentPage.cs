@@ -11,7 +11,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _noises, _director, _directorTest;
+    private readonly Switch _upper, _words, _noises, _director, _directorTest, _recordPlay;
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
 
@@ -72,7 +72,10 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Let the model change things", _director));
         _directorTest = new Switch { IsToggled = s.DirectorTest };
         layout.Add(Row("Test mode", _directorTest));
-        layout.Add(new Label { Text = $"For trying the model out, not for the child: keys and the scene change as fast as the model can answer (a few seconds each), each new thing appears as soon as it is chosen, the choice is written at the top of the screen, scenes fade in over 3 seconds and there is no goodnight. The screen is also recorded as a small video (4 frames a second, stamped with the time the log uses) to {Path.Combine(host.DataFolder, ToyHost.TestVideosName)}; the oldest videos are deleted past 4 GB. Switch it off before the child plays.", FontSize = 13 });
+        layout.Add(new Label { Text = $"For trying the model out, not for the child: keys and the scene change as fast as the model can answer (a few seconds each), each new thing appears as soon as it is chosen, the choice is written at the top of the screen, scenes fade in over 3 seconds and there is no goodnight. Switch it off before the child plays.", FontSize = 13 });
+        _recordPlay = new Switch { IsToggled = s.RecordPlay };
+        layout.Add(Row("Record play", _recordPlay));
+        layout.Add(new Label { Text = $"Each play session is saved as a small video (4 frames a second, stamped with the time the log uses) in {Path.Combine(host.DataFolder, ToyHost.VideosName)}, so a problem can be looked at afterwards; test mode is always recorded. Nothing leaves this computer, and the oldest videos are deleted past 4 GB. When play starts and ends, the goodnight and how many keys were pressed go in {Path.Combine(host.DataFolder, ToyHost.DirectorLogName)}.", FontSize = 13 });
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
         layout.Add(Heading("Voices"));
@@ -109,7 +112,7 @@ public sealed class ParentPage : ContentPage
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled));
+            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled));
         base.OnDisappearing();
     }
 

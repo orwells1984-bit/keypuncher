@@ -21,6 +21,10 @@ public sealed class PlayPage : ContentPage
     private int _frames;
     private TimeSpan _fpsStart;
     private SessionRecorder? _recorder;
+    private readonly Stopwatch _session = new();
+    private readonly HashSet<int> _held = [];
+    private int _keys, _taps;
+    private bool _wasAsleep;
 
     public PlayPage(ToyHost host)
     {
@@ -48,11 +52,14 @@ public sealed class PlayPage : ContentPage
         base.OnAppearing();
         _host.Mode = HostMode.Play;
         _host.Engine.StartSession();
-        if (_host.Engine.Settings.DirectorTest)
-        {
-            _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.TestVideosName));
-            _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  test mode: recording the screen to {Path.Combine(_host.DataFolder, ToyHost.TestVideosName)}");
-        }
+        var s = _host.Engine.Settings;
+        (_keys, _taps, _wasAsleep) = (0, 0, false);
+        _session.Restart();
+        if (s.RecordPlay || s.DirectorTest)
+            _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.VideosName), s.DirectorTest ? "test" : "play");
+        Log($"play started: calm {s.Calm}, language {_host.Engine.SessionLanguage}, model changes {(s.Director ? "on" : "off")}"
+            + $"{(s.DirectorTest ? ", test mode" : "")}, goodnight {(s.SessionLength is { } l ? $"after {l.TotalMinutes:0.#} min" : "never")}"
+            + $"{(_recorder is null ? ", not recorded" : $", recording to {Path.Combine(_host.DataFolder, ToyHost.VideosName)}")}");
         _last = _clock.Elapsed;
         _timer.Start();
     }
@@ -71,8 +78,16 @@ public sealed class PlayPage : ContentPage
         var dt = Math.Min((now - _last).TotalSeconds, 0.1);
         _last = now;
 
-        foreach (var key in _host.DrainKeys()) _host.Engine.OnKey(key);
+        foreach (var key in _host.DrainKeys())
+        {
+            // A held key repeats its down; only the first counts.
+            if (!key.IsDown) _held.Remove(key.ScanCode);
+            else if (_held.Add(key.ScanCode)) _keys++;
+            _host.Engine.OnKey(key);
+        }
         _host.Engine.Update(dt);
+        if (_host.Engine.IsAsleep && !_wasAsleep) Log($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
+        _wasAsleep = _host.Engine.IsAsleep;
         var settings = _host.Engine.Settings;
         _host.Director.Update(_host.World, settings.Limits, settings.Director && !_host.Engine.IsAsleep);
         _canvas.InvalidateSurface();
@@ -111,17 +126,24 @@ public sealed class PlayPage : ContentPage
         _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay,
             touchCue.Opacity > escCue.Opacity ? touchCue : escCue, touchGate.Targets);
 
-        _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
+        // Once the goodnight has faded to dark there is nothing more to see.
+        if (_host.World.Night < 1) _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
     }
 
+    /// <summary>Ends the session's record: its length and presses in the log, and the video closed.</summary>
     private void StopRecording()
     {
-        if (_recorder is null) return;
-        var file = _recorder.CurrentFile;
-        _recorder.Dispose();
+        if (!_session.IsRunning) return;
+        _session.Stop();
+        var file = _recorder?.CurrentFile;
+        _recorder?.Dispose();
         _recorder = null;
-        if (file is not null) _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  test mode: video saved as {file}");
+        Log($"play ended after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps{(file is null ? "" : $"; video saved as {file}")}");
     }
+
+    private void Log(string line) => _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
+
+    private static string Minutes(TimeSpan t) => t.TotalMinutes < 1 ? $"{t.TotalSeconds:0} s" : $"{t.TotalMinutes:0.#} min";
 
     /// <summary>In the director's test mode: the scene and the latest pick, at the top for the grown-up.</summary>
     private string TestOverlay()
@@ -137,6 +159,7 @@ public sealed class PlayPage : ContentPage
         {
             case SKTouchAction.Pressed:
                 _fingers.Add(e.Id);
+                _taps++;
                 _host.Engine.OnFingerDown(e.Id, x, y, aspect, _fingers.Count);
                 break;
             case SKTouchAction.Moved:

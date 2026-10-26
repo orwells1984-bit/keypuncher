@@ -73,8 +73,8 @@ public sealed class ToyHost : IDisposable
 
     public const string DefaultModel = "qwen3:4b";
     public const string DirectorLogName = "director.log";
-    /// <summary>The folder, next to the log, that test mode records the screen into.</summary>
-    public const string TestVideosName = "test-videos";
+    /// <summary>The folder, next to the log, that play and test mode are recorded into.</summary>
+    public const string VideosName = "videos";
     /// <summary>The log file is moved aside to director.old.log when it grows past this.</summary>
     private const long DirectorLogLimit = 2_000_000;
     private readonly string _directorLog;

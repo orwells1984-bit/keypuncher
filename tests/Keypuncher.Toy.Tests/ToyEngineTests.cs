@@ -570,6 +570,7 @@ public sealed class ToyEngineTests : IDisposable
         Assert.Equal(CalmLevel.Toddler, loaded.Calm);
         Assert.Null(loaded.SessionMinutes);
         Assert.False(loaded.UpperCase);
+        Assert.True(loaded.RecordPlay);   // settings saved before the switch existed record play
 
         var store = new SettingsStore(path);
         store.Save(loaded with { Calm = CalmLevel.Baby, SessionMinutes = 0 });

@@ -65,7 +65,9 @@ public static class DirectorPrompts
     /// why they were refused, so the model does not offer them again.</summary>
     public static string RealThing(DirectorRequest request, IReadOnlyList<string> turnedDown, IReadOnlyList<string>? suggestions = null)
     {
-        var what = RealThingPick.Describe(request.Category) + (request.Place is { } place ? $". It should be something {place}" : "");
+        var what = RealThingPick.Describe(request.Category) + (request.Place is { } place
+            ? $". It should be something {place}. Give its own everyday name (gazelle, fennec fox), not a name made from the place (\"Wadi Rum gazelle\")"
+            : "");
         var ask = request.GrowInto is { } next
             ? $"The {request.Current} has grown up. Draw the real {next} it becomes: subject must be \"{next}\"."
             : request.MustBe is { } must
