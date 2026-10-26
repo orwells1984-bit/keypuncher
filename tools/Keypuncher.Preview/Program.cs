@@ -197,7 +197,7 @@ static int Tour(string outDir, CalmLevel calm)
     var folder = Path.Combine(outDir, "tour");
     if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
     var clock = new DateTime(2026, 1, 1, 12, 0, 0);
-    using (var recorder = new SessionRecorder(folder, () => clock))
+    using (var recorder = new SessionRecorder(folder, "tour", () => clock))
     {
         var t = 0.0;
         const double step = 1.0 / SessionRecorder.Fps;

@@ -19,7 +19,7 @@ public sealed class SessionRecorderTests : IDisposable
         using var renderer = new SceneRenderer(Fonts.LoadAndika());
         using var surface = SKSurface.Create(new SKImageInfo(640, 360));
         string file;
-        using (var recorder = new SessionRecorder(_dir, () => new DateTime(2026, 10, 25, 18, 30, 0)))
+        using (var recorder = new SessionRecorder(_dir, "test", () => new DateTime(2026, 10, 25, 18, 30, 0)))
         {
             // Three seconds at 50 frames a second, then a stall of one second.
             for (var t = 0.0; t < 3; t += 0.02)

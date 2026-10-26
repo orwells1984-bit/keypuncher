@@ -16,6 +16,8 @@ namespace Keypuncher.Storage;
 /// <param name="DirectorTest">For grown-ups trying the director out: keys and the scene change as fast as the model
 /// can answer, each new thing is shown as soon as it is chosen, what was chosen is written at the top of the
 /// screen, a new scene fades in over a few seconds, and there is no goodnight. Not for a child's play.</param>
+/// <param name="RecordPlay">Record every play session as a small video on this computer, for looking back at what
+/// happened alongside the log. Test mode is always recorded.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -25,7 +27,8 @@ public sealed record ToySettings(
     int? SessionMinutes = null,
     bool AnimalNoises = true,
     bool Director = true,
-    bool DirectorTest = false)
+    bool DirectorTest = false,
+    bool RecordPlay = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 
