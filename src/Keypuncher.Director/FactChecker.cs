@@ -74,14 +74,16 @@ public sealed class FactChecker(ILanguageModel model)
         "false" if not, "none" if nothing was said.
         """;
 
-    private static readonly JsonElement FitSchema = JsonDocument.Parse("""
+    public const string FitSchemaJson = """
         {
           "type": "object",
           "additionalProperties": false,
           "required": ["verdict"],
           "properties": { "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] } }
         }
-        """).RootElement.Clone();
+        """;
+
+    private static readonly JsonElement FitSchema = JsonDocument.Parse(FitSchemaJson).RootElement.Clone();
 
     public static string FitPrompt(string subject, RealCategory category, string here) =>
         $"""

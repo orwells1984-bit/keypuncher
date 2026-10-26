@@ -24,14 +24,17 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private const float HistoryContrast = 0.45f;
     /// <summary>Bigger moves are capped at this share of the shorter screen side.</summary>
     private const double MaxMotionAmplitude = 0.03;
+    /// <summary>How often a live thing's own animation (blinking, wobbling) is redrawn; its moves are every frame.</summary>
+    private const double SpriteHz = 15;
     /// <summary>A word label's height as a share of the screen height; it is for the grown-up, so it stays small.</summary>
     private const double WordHeight = 0.085;
 
     private readonly Dictionary<long, (double Clock, double Motion)> _motion = [];
+    private readonly Dictionary<long, Sprite> _sprites = [];
     private SKSurface? _baked, _still;
     private SKImage? _background, _previous, _history;
     private bool _stillDirty = true;
-    private byte _stillOpacity;
+    private byte _stillOpacity, _stillFade;
     private SKColorFilter? _historyFilter;
     private ArtStyle? _backgroundStyle, _bakedStyle;
     private Scene? _backgroundScene;
@@ -115,6 +118,8 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         _previous?.Dispose();
         _history?.Dispose();
         _historyFilter?.Dispose();
+        foreach (var sprite in _sprites.Values) sprite.Dispose();
+        _sprites.Clear();
     }
 
     /// <summary>How strongly a showing letter or word holds the stage (0..1), and the birth time from which
@@ -149,6 +154,12 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         }
         if (_motion.Count > seen.Count * 2 + 16)
             foreach (var id in _motion.Keys.Where(id => !seen.Contains(id)).ToList()) _motion.Remove(id);
+        if (_sprites.Count > seen.Count + 8)
+            foreach (var id in _sprites.Keys.Where(id => !seen.Contains(id)).ToList())
+            {
+                _sprites[id].Dispose();
+                _sprites.Remove(id);
+            }
     }
 
     private void DrawLive(SKCanvas canvas, Entity e, World world, int width, int height, int unit, double spotlight, double spotlightSince)
@@ -162,7 +173,8 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             var k = Math.Clamp((world.Time - at) / World.RetireSeconds, 0, 1);
             a += (world.Limits.HistoryOpacity - a) * k;
         }
-        DrawThing(canvas, e, e.Age(world.Time), clock, motion, (byte)(255 * Math.Clamp(a, 0, 1)), world.Limits.MaxMotionHz, width, height, unit, world.Style);
+        if (Place(e, e.Age(world.Time), clock, motion, world.Limits.MaxMotionHz, width, height, unit, world.Style) is { } p)
+            DrawSprite(canvas, e, p, clock, (byte)(255 * Math.Clamp(a, 0, 1)), unit, world.Style);
     }
 
     private void Resize(int width, int height)
@@ -173,9 +185,10 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         _previous?.Dispose();
         _previous = null;
         _baked?.Dispose();
-        _baked = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        _baked = SKSurface.Create(new SKImageInfo(width, height));
         _still?.Dispose();
-        _still = SKSurface.Create(new SKImageInfo(width, height));
+        // Opaque, so drawing it is a straight copy rather than a blend.
+        _still = SKSurface.Create(new SKImageInfo(width, height, SKImageInfo.PlatformColorType, SKAlphaType.Opaque));
         _stillDirty = true;
         _historyFilter ??= Ghost(HistorySaturation, HistoryContrast);
         _bakedGeneration = -1;
@@ -210,40 +223,49 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         _stillDirty = true;
     }
 
-    /// <summary>The backdrop with the history over it. Between changes that is one picture, drawn into
-    /// <see cref="_still"/> when either changes; while a new scene fades in, the parts are drawn each frame.</summary>
+    /// <summary>The backdrop with the history over it, as one picture in <see cref="_still"/>. It is put together again
+    /// only when one of them changes, or while a new scene fades in, when the fade has moved on by a visible step:
+    /// at most 255 times over the whole fade rather than every frame.</summary>
     private void DrawStill(SKCanvas canvas, World world, double fade)
     {
         var opacity = (byte)(255 * Math.Clamp(world.Limits.HistoryOpacity, 0, 1));
-        using var history = new SKPaint { Color = SKColors.White.WithAlpha(opacity) };
-        if (_previous is not null)
+        // Eased at both ends, so neither the start nor the end of the fade can be seen as a moment.
+        var fadeIn = _previous is null ? (byte)255 : (byte)(255 * fade * fade * (3 - (2 * fade)));
+        if (_stillDirty || opacity != _stillOpacity || fadeIn != _stillFade)
         {
-            canvas.DrawImage(_previous, 0, 0, SKSamplingOptions.Default);
-            // Eased at both ends, so neither the start nor the end of the fade can be seen as a moment.
-            using var paint = new SKPaint { Color = SKColors.White.WithAlpha((byte)(255 * fade * fade * (3 - (2 * fade)))) };
-            canvas.DrawImage(_background!, 0, 0, SKSamplingOptions.Default, paint);
-            canvas.DrawImage(_history!, 0, 0, SKSamplingOptions.Default, history);
-            return;
-        }
-        if (_stillDirty || opacity != _stillOpacity)
-        {
-            _still!.Canvas.DrawImage(_background!, 0, 0, SKSamplingOptions.Default);
-            _still.Canvas.DrawImage(_history!, 0, 0, SKSamplingOptions.Default, history);
-            (_stillDirty, _stillOpacity) = (false, opacity);
+            var still = _still!.Canvas;
+            using var history = new SKPaint { Color = SKColors.White.WithAlpha(opacity) };
+            if (_previous is not null)
+            {
+                using var paint = new SKPaint { Color = SKColors.White.WithAlpha(fadeIn) };
+                still.DrawImage(_previous, 0, 0, SKSamplingOptions.Default);
+                still.DrawImage(_background!, 0, 0, SKSamplingOptions.Default, paint);
+            }
+            else still.DrawImage(_background!, 0, 0, SKSamplingOptions.Default);
+            still.DrawImage(_history!, 0, 0, SKSamplingOptions.Default, history);
+            (_stillDirty, _stillOpacity, _stillFade) = (false, opacity, fadeIn);
         }
         canvas.DrawSurface(_still, 0, 0);
+    }
+
+    /// <summary>Where and how big a thing is this frame: the point it is drawn about (a plant's foot, a creature's
+    /// centre), its rock, its radius, a plant's stem, and how far its parts can reach from that point.</summary>
+    private readonly record struct Placement(float X, float Y, float Rotation, float R, float Stem, float ReachOut, bool Plant)
+    {
+        /// <summary>Everything the thing can cover, about the point it is drawn about.</summary>
+        public SKRect Local => new(-ReachOut, -Stem - ReachOut, ReachOut, ReachOut);
     }
 
     /// <param name="age">Seconds since birth, for the pop-in and the slow growth.</param>
     /// <param name="clock">The thing's own clock, which only runs while it moves.</param>
     /// <param name="motion">0 for still, up to 1 for fully lively.</param>
-    private static void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit, ArtStyle style)
+    private static Placement? Place(Entity e, double age, double clock, double motion, double maxHz, int width, int height, int unit, ArtStyle style)
     {
         var recipe = e.Recipe!;
         var pop = EaseOutBack(Math.Min(age / 0.35, 1));
         var growth = 1 + (Math.Min(age / 600, 1) * 0.25);
         var r = (float)(BodyRadius(e, style, unit) * pop * growth);
-        if (r < 0.5f) return;
+        if (r < 0.5f) return null;
 
         // Kept whole on the screen: a baby's thing is big enough to hang off the edge where its key put it.
         var plant = recipe.Kind == RecipeKind.Plant;
@@ -278,32 +300,97 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             }
         }
 
+        // The entity's Y is where a plant's stem meets the ground; the plant sways from there.
         var stem = plant ? r * 1.6f : 0;
         var reachOut = (r * 2.2f) + RecipePainter.MinDetail(style, unit);
-        Faded(canvas, new SKRect(x + dx - reachOut, y + dy - stem - reachOut, x + dx + reachOut, y + dy + reachOut), alpha, () =>
+        return new Placement(x + dx, plant ? y : y + dy, rotation, r, stem, reachOut, plant);
+    }
+
+    /// <summary>Draws a thing about its own point, unrotated: a plant's stem from its foot and the body on top, or a
+    /// creature's body centred there.</summary>
+    private static void PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, ArtStyle style, int unit)
+    {
+        canvas.Save();
+        if (p.Plant)
+        {
+            using var stemPaint = new SKPaint
+            {
+                IsAntialias = true, Color = RecipePainter.Rgb(style.Stem), Style = SKPaintStyle.Stroke,
+                StrokeWidth = Math.Max(RecipePainter.MinDetail(style, unit), p.R * 0.16f), StrokeCap = SKStrokeCap.Round,
+            };
+            canvas.DrawLine(0, 0, 0, -p.Stem, stemPaint);
+            canvas.Translate(0, -p.Stem);
+        }
+        RecipePainter.Paint(canvas, recipe, p.R, t, style, unit);
+        canvas.Restore();
+    }
+
+    /// <summary>Draws a thing straight onto the canvas, as one layer when it is translucent.</summary>
+    private static void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit, ArtStyle style)
+    {
+        if (Place(e, age, clock, motion, maxHz, width, height, unit, style) is not { } p) return;
+        var local = p.Local;
+        Faded(canvas, new SKRect(p.X + local.Left, p.Y + local.Top, p.X + local.Right, p.Y + local.Bottom), alpha, () =>
         {
             canvas.Save();
-            if (plant)
-            {
-                // The entity's Y is where the stem meets the ground; the plant sways from there.
-                canvas.Translate(x + dx, y);
-                canvas.RotateDegrees(rotation);
-                using var stemPaint = new SKPaint
-                {
-                    IsAntialias = true, Color = RecipePainter.Rgb(style.Stem), Style = SKPaintStyle.Stroke,
-                    StrokeWidth = Math.Max(RecipePainter.MinDetail(style, unit), r * 0.16f), StrokeCap = SKStrokeCap.Round,
-                };
-                canvas.DrawLine(0, 0, 0, -stem, stemPaint);
-                canvas.Translate(0, -stem);
-            }
-            else
-            {
-                canvas.Translate(x + dx, y + dy);
-                canvas.RotateDegrees(rotation);
-            }
-            RecipePainter.Paint(canvas, recipe, r, t, style, unit);
+            canvas.Translate(p.X, p.Y);
+            canvas.RotateDegrees(p.Rotation);
+            PaintLocal(canvas, e.Recipe!, p, clock, style, unit);
             canvas.Restore();
         });
+    }
+
+    /// <summary>A live thing's last drawing, in pixels, and what it was drawn for.</summary>
+    private sealed class Sprite : IDisposable
+    {
+        public SKImage? Image;
+        public SKPoint Offset;
+        public Recipe? Recipe;
+        public ArtStyle? Style;
+        public float R, Rotation;
+        public long Tick = -1;
+
+        public void Dispose() => Image?.Dispose();
+    }
+
+    /// <summary>Draws a live thing from its sprite, which is repainted only when the thing's own animation (its
+    /// blink, its wobble, its rock) has moved on by a step of <see cref="SpriteHz"/>, or its size has changed; moving
+    /// it is only where the sprite is put. Drawing an image with an opacity fades it as one piece,
+    /// so a translucent thing needs no layer of its own.</summary>
+    private void DrawSprite(SKCanvas canvas, Entity e, Placement p, double clock, byte alpha, int unit, ArtStyle style)
+    {
+        if (!_sprites.TryGetValue(e.Id, out var sprite)) _sprites[e.Id] = sprite = new Sprite();
+        var tick = (long)Math.Floor(clock * SpriteHz);
+        if (sprite.Image is null || sprite.Tick != tick || Math.Abs(sprite.R - p.R) > 0.25f || Math.Abs(sprite.Rotation - p.Rotation) > 3
+            || !ReferenceEquals(sprite.Recipe, e.Recipe) || !Equals(sprite.Style, style))
+        {
+            // Recorded first, so the pixels cover only what was drawn rather than everything the thing could reach.
+            // The rock is drawn into the sprite too, so it can be put down square, pixel for pixel, which is far
+            // quicker than turning and smoothing an image every frame.
+            var local = p.Local;
+            var reach = MathF.Sqrt(MathF.Max(local.Left * local.Left, local.Right * local.Right) + MathF.Max(local.Top * local.Top, local.Bottom * local.Bottom));
+            var bounds = new SKRect(-reach, -reach, reach, reach);
+            using var recorder = new SKPictureRecorder();
+            var recording = recorder.BeginRecording(bounds, true);
+            recording.RotateDegrees(p.Rotation);
+            PaintLocal(recording, e.Recipe!, p, tick / SpriteHz, style, unit);
+            using var picture = recorder.EndRecording();
+            var cull = SKRect.Intersect(picture.CullRect, bounds);
+            var area = new SKRectI((int)Math.Floor(cull.Left) - 1, (int)Math.Floor(cull.Top) - 1, (int)Math.Ceiling(cull.Right) + 1, (int)Math.Ceiling(cull.Bottom) + 1);
+            sprite.Image?.Dispose();
+            sprite.Image = null;
+            if (area.Width <= 0 || area.Height <= 0) return;
+            using (var surface = SKSurface.Create(new SKImageInfo(area.Width, area.Height)))
+            {
+                surface.Canvas.Translate(-area.Left, -area.Top);
+                surface.Canvas.DrawPicture(picture);
+                sprite.Image = surface.Snapshot();
+            }
+            (sprite.Offset, sprite.Recipe, sprite.Style, sprite.R, sprite.Rotation, sprite.Tick) = (new SKPoint(area.Left, area.Top), e.Recipe, style, p.R, p.Rotation, tick);
+        }
+
+        using var paint = new SKPaint { Color = SKColors.White.WithAlpha(alpha) };
+        canvas.DrawImage(sprite.Image, MathF.Round(p.X + sprite.Offset.X), MathF.Round(p.Y + sprite.Offset.Y), SKSamplingOptions.Default, paint);
     }
 
     /// <summary>Draws something that may be translucent as one layer, so that its outline never shows through

@@ -272,6 +272,7 @@ static int Bench(string outDir, CalmLevel calm, int w, int h)
 
     Console.WriteLine($"{calm}, {w}x{h}");
     Run("mashing", 20);
+    if (Environment.GetEnvironmentVariable("KP_SHORT") == "1") return 0;
     world.SetScene(new Scene(Landscape.Lake, TimeOfDay.Evening, Weather.Clear, "Lake Bled, Slovenia"));
     Run("mashing, scene fading", world.Limits.SceneFadeSeconds);
     Run("mashing after the fade", 10);
