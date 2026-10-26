@@ -54,6 +54,14 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 continue;
             }
 
+            // The same name again gets the same answer, so it is not checked again. In a test run the model offered
+            // "wadi rum gazelle" three times running.
+            if (attempts.Any(a => a.Refused is not null && string.Equals(a.Subject, pick!.Subject, StringComparison.OrdinalIgnoreCase)))
+            {
+                attempts.Add(new DirectorAttempt(pick!.Subject, pick.Fact, "turned down already", null));
+                continue;
+            }
+
             var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, cancellationToken);
             if (!check.Passes(pick.Category))
             {

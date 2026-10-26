@@ -199,11 +199,14 @@ public class RealThingTests
     public async Task A_last_try_at_an_extinct_animal_gets_well_known_ones_not_yet_in_the_world()
     {
         var author = new ScriptedModel(Pick("puffin", "ExtinctAnimal", "Bird"), Pick("puffin", "ExtinctAnimal", "Bird"), Pick("moa", "ExtinctAnimal", "Bird"));
-        var checker = new ScriptedModel(Check("a seabird", "real"), Check("a seabird", "real"), Check("an extinct bird", "real", kind: "ExtinctAnimal"));
+        // The second puffin is not checked again: the same name gets the same answer.
+        var checker = new ScriptedModel(Check("a seabird", "real"), Check("an extinct bird", "real", kind: "ExtinctAnimal"));
         var request = Extinct with { Existing = [.. RealThingPick.WellKnownExtinct.Where(n => n != "moa" && n != "dodo")] };
         var outcome = await new RealThingDirector(author, new FactChecker(checker), new Random(1)).ProposeAsync(request);
 
         Assert.Equal("moa", outcome.Recipe!.Name);
+        Assert.Equal("turned down already", outcome.Attempts[1].Refused);
+        Assert.Equal(2, checker.Prompts.Count);
         Assert.Contains("choose one of these", author.Prompts[0]);
         var last = author.Prompts[2];
         Assert.Contains("choose one of these: ", last);
