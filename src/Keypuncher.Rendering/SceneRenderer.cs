@@ -35,10 +35,11 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private double _lastTime = double.NaN;
 
     /// <param name="overlay">Small text for grown-ups at the top-left, e.g. the exit challenge.</param>
-    /// <param name="holdCue">A ring at the top-left that fills while the grown-up holds Esc; see
-    /// <c>GrownUpGate.EscCue</c>. Nothing is drawn at zero opacity.</param>
+    /// <param name="holdCue">A ring at the top-left that fills while the grown-up holds Esc or two corners; see
+    /// <c>GrownUpGate.EscCue</c> and <c>TouchGate.HoldCue</c>. Nothing is drawn at zero opacity.</param>
+    /// <param name="gateTargets">The touch exit's row of shapes, or nothing; see <c>TouchGate.Targets</c>.</param>
     public void Draw(SKCanvas canvas, int width, int height, World world, string? overlay = null,
-        (double Progress, double Opacity) holdCue = default)
+        (double Progress, double Opacity) holdCue = default, IReadOnlyList<GateTarget>? gateTargets = null)
     {
         if (width <= 0 || height <= 0) return;
         if (width != _width || height != _height) Resize(width, height);
@@ -73,6 +74,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             if (e.Role is EntityRole.Letter or EntityRole.Word) DrawText(canvas, e, world.Time, width, height, unit, world.Style);
 
         if (overlay is not null) DrawOverlay(canvas, overlay, width, height);
+        if (gateTargets is { Count: > 0 }) DrawGateTargets(canvas, gateTargets, width, height, unit, world.Style);
         if (holdCue.Opacity > 0) DrawHoldCue(canvas, holdCue.Progress, holdCue.Opacity, height, unit, world.Style);
     }
 
@@ -94,6 +96,73 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         canvas.DrawArc(bounds, -90, (float)(360 * Math.Clamp(progress, 0, 1)), useCenter: false, arc);
 
     }
+
+    /// <summary>The touch exit's shapes: flat palette fills with the level's ink outline, each a different colour so
+    /// they read apart. One already tapped in the right order turns white; it changes once, so nothing flashes.</summary>
+    private static void DrawGateTargets(SKCanvas canvas, IReadOnlyList<GateTarget> targets, int width, int height, float unit, ArtStyle style)
+    {
+        var stroke = Math.Max(unit * (float)style.MinStroke, unit * 0.008f);
+        var ink = new SKColor(style.Ink | 0xFF000000u);
+        using var outline = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = stroke, StrokeJoin = SKStrokeJoin.Round, Color = ink };
+        using var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+        for (var i = 0; i < targets.Count; i++)
+        {
+            var target = targets[i];
+            using var path = GatePath(target.Shape, new SKPoint((float)(target.X * width), (float)(target.Y * height)), (float)(target.Radius * unit));
+            fill.Color = target.Tapped ? SKColors.White : new SKColor(style.Colors[i % style.Colors.Count].Fill | 0xFF000000u);
+            canvas.DrawPath(path, fill);
+            canvas.DrawPath(path, outline);
+        }
+    }
+
+    private static SKPath GatePath(GateShape shape, SKPoint c, float r)
+    {
+        using var builder = new SKPathBuilder();
+        switch (shape)
+        {
+            case GateShape.Circle:
+                builder.AddCircle(c.X, c.Y, r, SKPathDirection.Clockwise);
+                break;
+            case GateShape.Square:
+                builder.AddRect(new SKRect(c.X - (r * 0.85f), c.Y - (r * 0.85f), c.X + (r * 0.85f), c.Y + (r * 0.85f)), SKPathDirection.Clockwise);
+                break;
+            case GateShape.Triangle:
+                Poly(builder, [Polar(c, r, -90, 0.12f), Polar(c, r, 30, 0.12f), Polar(c, r, 150, 0.12f)]);
+                break;
+            case GateShape.Star:
+                Poly(builder, [.. Enumerable.Range(0, 10).Select(k => Polar(c, k % 2 == 0 ? r : r * 0.45f, -90 + (36 * k), 0.05f))]);
+                break;
+            case GateShape.Heart:
+                builder.MoveTo(c.X, c.Y + (r * 0.85f));
+                builder.CubicTo(c.X - (r * 1.15f), c.Y + (r * 0.05f), c.X - (r * 0.6f), c.Y - (r * 1.0f), c.X, c.Y - (r * 0.4f));
+                builder.CubicTo(c.X + (r * 0.6f), c.Y - (r * 1.0f), c.X + (r * 1.15f), c.Y + (r * 0.05f), c.X, c.Y + (r * 0.85f));
+                builder.Close();
+                break;
+            case GateShape.Moon:
+                // A disc with a smaller one taken out of its upper right.
+                using (var disc = new SKPathBuilder())
+                using (var bite = new SKPathBuilder())
+                {
+                    disc.AddCircle(c.X, c.Y, r, SKPathDirection.Clockwise);
+                    bite.AddCircle(c.X + (r * 0.5f), c.Y - (r * 0.25f), r * 0.85f, SKPathDirection.Clockwise);
+                    using var whole = disc.Detach();
+                    using var cut = bite.Detach();
+                    return whole.Op(cut, SKPathOp.Difference) ?? new SKPath();
+                }
+        }
+        return builder.Detach();
+    }
+
+    private static void Poly(SKPathBuilder builder, SKPoint[] points)
+    {
+        builder.MoveTo(points[0]);
+        foreach (var p in points.Skip(1)) builder.LineTo(p);
+        builder.Close();
+    }
+
+    /// <summary>A point r from c at this angle (degrees, clockwise from the right), nudged down by a share of r.</summary>
+    private static SKPoint Polar(SKPoint c, float r, float degrees, float drop) =>
+        new(c.X + (r * MathF.Cos(degrees * MathF.PI / 180)), c.Y + (r * MathF.Sin(degrees * MathF.PI / 180)) + (r * drop));
 
 
     public void Dispose()

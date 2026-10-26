@@ -96,12 +96,20 @@ public sealed class PlayPage : ContentPage
     {
         (_width, _height) = (e.Info.Width, e.Info.Height);
         var gate = _host.Engine.Gate;
+        var touchGate = _host.Engine.TouchGate;
+        var now = _host.World.Time;
         var overlay = gate.Challenge is { } word
-            ? $"Grown-up? Type: {word}   ({gate.SecondsLeft(_host.World.Time):0})"
+            ? $"Grown-up? Type: {word}   ({gate.SecondsLeft(now):0})"
+            : touchGate.Challenge is { } shapes
+            ? $"Grown-up? Tap in this order: {string.Join(", ", shapes.Select(s => s.ToString().ToLowerInvariant()))}   ({touchGate.SecondsLeft(now):0})"
             : _host.AudioError is { } err ? $"No sound: {err}"
             : _host.Engine.Settings.DirectorTest ? TestOverlay()
             : null;
-        _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay, gate.EscCue(DateTimeOffset.Now));
+        // Both holds fill the same ring; whichever is going shows.
+        var escCue = gate.EscCue(DateTimeOffset.Now);
+        var touchCue = touchGate.HoldCue(now);
+        _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay,
+            touchCue.Opacity > escCue.Opacity ? touchCue : escCue, touchGate.Targets);
 
         _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
     }
@@ -124,14 +132,19 @@ public sealed class PlayPage : ContentPage
 
     private void OnTouch(object? sender, SKTouchEventArgs e)
     {
+        var (x, y, aspect) = (e.Location.X / _width, e.Location.Y / _height, (double)_width / _height);
         switch (e.ActionType)
         {
             case SKTouchAction.Pressed:
                 _fingers.Add(e.Id);
-                _host.Engine.OnTouch(e.Location.X / _width, e.Location.Y / _height, _fingers.Count);
+                _host.Engine.OnFingerDown(e.Id, x, y, aspect, _fingers.Count);
+                break;
+            case SKTouchAction.Moved:
+                _host.Engine.OnFingerMove(e.Id, x, y, aspect);
                 break;
             case SKTouchAction.Released or SKTouchAction.Cancelled or SKTouchAction.Exited:
                 _fingers.Remove(e.Id);
+                _host.Engine.OnFingerUp(e.Id);
                 break;
         }
         e.Handled = true;
