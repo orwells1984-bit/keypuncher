@@ -78,30 +78,40 @@ public sealed class FactChecker(ILanguageModel model)
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["verdict"],
-          "properties": { "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] } }
+          "required": ["there", "verdict"],
+          "properties": {
+            "there": { "type": "string", "maxLength": 120 },
+            "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] }
+          }
         }
         """;
 
     private static readonly JsonElement FitSchema = JsonDocument.Parse(FitSchemaJson).RootElement.Clone();
 
-    public static string FitPrompt(string subject, RealCategory category, string here) =>
-        $"""
-        Name: "{subject}"
-        Place: "{here}"
+    /// <summary>The checker first says what the place is like and where the thing is found, so it has recalled both
+    /// before it judges; on the desktop bench that made it say "no" to 9 of 12 misfits where asking straight out
+    /// got "unsure" for nearly everything.</summary>
+    public static string FitPrompt(string subject, RealCategory category, string here)
+    {
+        var (lives, kept) = category == RealCategory.Plant ? ("grow", "grown in gardens and fields") : ("live", "kept by people");
+        return $"""
+            Name: "{subject}"
+            Place: "{here}"
 
-        verdict: "yes" only if {(category == RealCategory.Plant
-            ? $"a {subject} really grows {here} today, outdoors, in the wild or in gardens and fields"
-            : $"a {subject} really lives {here} today, in the wild or kept by people there")}.
-        "no" if it does not. "unsure" if you do not know.
-        """;
+            there: in a few words, the climate and country around this place, and where a {subject} is found in the world.
+            verdict: "yes" if a {subject} {lives}s there or in the countryside around it today, in the wild or {kept}.
+            "no" if it could not {lives} there: the climate is far too hot or too cold for it, or it lives only
+            on another continent. "unsure" if you do not know.
+            """;
+    }
 
-    /// <summary>Whether a cold call agrees that a living animal or plant is really found <paramref name="here"/>
-    /// ("at Lake Bled, Slovenia"); "unsure" is no. A mango was once offered for an Icelandic farm.</summary>
+    /// <summary>Whether a living animal or plant could be found <paramref name="here"/> ("at Lake Bled, Slovenia"):
+    /// only a "no" turns it away. The small model is unsure of nearly every real one (a linden tree at Lake
+    /// Bled), but says "no" to the clear misfits, like the mango once offered for an Icelandic farm.</summary>
     public async Task<bool> FitsAsync(string subject, RealCategory category, string here, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, FitPrompt(subject, category, here), FitSchema, cancellationToken);
-        return result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.GetString() == "yes";
+        return !(result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.GetString() == "no");
     }
 
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, CancellationToken cancellationToken = default)
