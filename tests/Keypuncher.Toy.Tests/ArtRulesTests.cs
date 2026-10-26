@@ -389,7 +389,28 @@ public sealed class ArtRulesTests : IDisposable
             engine.OnKey(new KeyPress(clock, firstScan + i, null, false, false));
     }
 
+    [Theory]
+    [InlineData(CalmLevel.Baby)]
+    [InlineData(CalmLevel.BigToddler)]
+    public void The_Esc_hold_cue_is_a_small_ring_in_the_top_left_corner(CalmLevel level)
+    {
+        const int width = 1280, height = 720;
+        var world = new World { Style = ArtStyle.For(level) };
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        var plain = Render(renderer, world, width, height);
+        using var bitmap = new SKBitmap(width, height);
+        using (var canvas = new SKCanvas(bitmap)) renderer.Draw(canvas, width, height, world, holdCue: (0.75, 1));
+        var cued = bitmap.Pixels;
+
+        var changed = Enumerable.Range(0, cued.Length).Where(i => !Near(cued[i], plain[i])).ToList();
+        Assert.NotEmpty(changed);
+        Assert.All(changed, i => Assert.True(i % width < width * 0.1 && i / width < height * 0.15, "the cue stays in the corner"));
+        Assert.True(changed.Count < cued.Length * 0.01, "the cue is small");
+        Assert.Contains(changed, i => Near(cued[i], Rgb(world.Style.Ink)));
+    }
+
     private static SKColor[] Render(SceneRenderer renderer, World world, int width, int height)
+
     {
         using var bitmap = new SKBitmap(width, height);
         using var canvas = new SKCanvas(bitmap);

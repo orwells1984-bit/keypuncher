@@ -101,7 +101,8 @@ public sealed class PlayPage : ContentPage
             : _host.AudioError is { } err ? $"No sound: {err}"
             : _host.Engine.Settings.DirectorTest ? TestOverlay()
             : null;
-        _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay);
+        _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay, gate.EscCue(DateTimeOffset.Now));
+
         _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
     }
 

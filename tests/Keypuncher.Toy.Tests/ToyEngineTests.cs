@@ -194,7 +194,33 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void Holding_Esc_fills_a_cue_that_a_tap_never_shows()
+    {
+        var gate = _engine.Gate;
+        _engine.OnKey(new KeyPress(_clock, 0x01, null, false, true));
+        Assert.Equal((0, 0), gate.EscCue(_clock.AddMilliseconds(300)));   // a tap's worth of hold: nothing shows
+
+        for (var ms = 33; ms <= 1500; ms += 33)
+            _engine.OnKey(new KeyPress(_clock.AddMilliseconds(ms), 0x01, null, false, true));
+        var (progress, opacity) = gate.EscCue(_clock.AddMilliseconds(1500));
+        Assert.Equal(0.5, progress, 3);
+        Assert.Equal(1, opacity, 3);
+
+        // Auto-repeat stopped with no key-up seen: the cue goes rather than sit in the corner.
+        Assert.Equal((0, 0), gate.EscCue(_clock.AddMilliseconds(2200)));
+
+        for (var ms = 1533; ms <= 3050; ms += 33)
+            _engine.OnKey(new KeyPress(_clock.AddMilliseconds(ms), 0x01, null, false, true));
+        Assert.NotNull(gate.Challenge);
+        Assert.Equal((0, 0), gate.EscCue(_clock.AddMilliseconds(3050)));  // the word is up; the ring is done
+
+        _engine.OnKey(new KeyPress(_clock.AddMilliseconds(3100), 0x01, null, false, false));
+        Assert.Equal((0, 0), gate.EscCue(_clock.AddMilliseconds(3100)));
+    }
+
+    [Fact]
     public void Grown_up_challenge_expires()
+
     {
         _engine.OnKey(new KeyPress(_clock, 0x10, "q", false, true, Ctrl: true, Shift: true));
         var word = _engine.Gate.Challenge!;

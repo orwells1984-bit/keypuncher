@@ -35,7 +35,10 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private double _lastTime = double.NaN;
 
     /// <param name="overlay">Small text for grown-ups at the top-left, e.g. the exit challenge.</param>
-    public void Draw(SKCanvas canvas, int width, int height, World world, string? overlay = null)
+    /// <param name="holdCue">A ring at the top-left that fills while the grown-up holds Esc; see
+    /// <c>GrownUpGate.EscCue</c>. Nothing is drawn at zero opacity.</param>
+    public void Draw(SKCanvas canvas, int width, int height, World world, string? overlay = null,
+        (double Progress, double Opacity) holdCue = default)
     {
         if (width <= 0 || height <= 0) return;
         if (width != _width || height != _height) Resize(width, height);
@@ -70,7 +73,28 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             if (e.Role is EntityRole.Letter or EntityRole.Word) DrawText(canvas, e, world.Time, width, height, unit, world.Style);
 
         if (overlay is not null) DrawOverlay(canvas, overlay, width, height);
+        if (holdCue.Opacity > 0) DrawHoldCue(canvas, holdCue.Progress, holdCue.Opacity, height, unit, world.Style);
     }
+
+    /// <summary>A small ring in the corner where the exit word will appear: a pale track, and an arc in the level's ink
+    /// that grows clockwise from the top as the hold goes on. It changes smoothly and only after a deliberate hold,
+    /// so it never flashes.</summary>
+    private static void DrawHoldCue(SKCanvas canvas, double progress, double opacity, int height, float unit, ArtStyle style)
+    {
+        var radius = unit * 0.035f;
+        var stroke = Math.Max(unit * (float)style.MinStroke, unit * 0.008f);
+        var margin = height * 0.02f;
+        var centre = new SKPoint(margin + radius + stroke, margin + radius + stroke);
+        var alpha = (byte)(255 * Math.Clamp(opacity, 0, 1));
+        var ink = new SKColor(style.Ink | 0xFF000000u);
+        using var track = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = stroke, Color = SKColors.White.WithAlpha((byte)(alpha * 0.7)) };
+        using var arc = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = stroke, StrokeCap = SKStrokeCap.Round, Color = ink.WithAlpha(alpha) };
+        canvas.DrawCircle(centre, radius, track);
+        var bounds = new SKRect(centre.X - radius, centre.Y - radius, centre.X + radius, centre.Y + radius);
+        canvas.DrawArc(bounds, -90, (float)(360 * Math.Clamp(progress, 0, 1)), useCenter: false, arc);
+
+    }
+
 
     public void Dispose()
     {

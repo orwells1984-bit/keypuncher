@@ -69,7 +69,7 @@ while it is in front; use the grown-up exit below to get back.
   and move, and how they are drawn. Younger levels draw things bigger, with thicker dark outlines and
   fewer, fully saturated colours, because an infant's acuity and contrast sensitivity are a fraction
   of an adult's; see `CalmLimits` and `ArtStyle` in `Keypuncher.Core`.
-- **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds, shows a short word at the top left;
+- **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds (a small ring at the top left fills as you hold), shows a short word at the top left;
   type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, calm level, recordings, fresh world, quit).
 - **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
