@@ -701,6 +701,50 @@ public sealed class ToyEngineTests : IDisposable
         Assert.Empty(calls);
     }
 
+    [Theory]
+    [InlineData(5, TimeOfDay.Dawn)]
+    [InlineData(9, TimeOfDay.Morning)]
+    [InlineData(12, TimeOfDay.Midday)]
+    [InlineData(15, TimeOfDay.Afternoon)]
+    [InlineData(19, TimeOfDay.Evening)]
+    public void A_session_starts_with_the_sky_the_clock_shows_and_keeps_the_place(int hour, TimeOfDay expected)
+    {
+        var world = new World();
+        var vik = new Scene(Landscape.Beach, TimeOfDay.Evening, Weather.Rain, "Reynisfjara, Iceland", "A black sand beach.");
+        world.Load(0, [], [], scene: vik);
+        var now = new DateTime(2026, 10, 26, hour, 30, 0);
+        _ = new ToyEngine(world, new Mixer(), new SpeechLibrary(new ClipStore(_dir), null), ToySettings.Default, new Random(1), clock: () => now);
+
+        Assert.Equal(vik with { TimeOfDay = expected }, world.Scene);
+    }
+
+    [Fact]
+    public void The_time_of_day_fades_in_rather_than_jumping()
+    {
+        var world = new World();
+        var hour = 9;
+        var engine = new ToyEngine(world, new Mixer(), new SpeechLibrary(new ClipStore(_dir), null), ToySettings.Default, new Random(1),
+            clock: () => new DateTime(2026, 10, 26, hour, 0, 0));
+        Assert.Equal(TimeOfDay.Morning, world.Scene.TimeOfDay);
+
+        world.Tick(30);
+        hour = 18;
+        engine.StartSession();
+        Assert.Equal(TimeOfDay.Evening, world.Scene.TimeOfDay);
+        Assert.Equal(TimeOfDay.Morning, world.PreviousScene?.TimeOfDay);
+        Assert.Equal(world.Time, world.SceneChangedAt);
+    }
+
+    [Fact]
+    public void Without_a_clock_the_scene_keeps_its_time()
+    {
+        var world = new World();
+        var evening = Scene.Default with { TimeOfDay = TimeOfDay.Evening };
+        world.Load(0, [], [], scene: evening);
+        _ = new ToyEngine(world, new Mixer(), new SpeechLibrary(new ClipStore(_dir), null), ToySettings.Default, new Random(1));
+        Assert.Equal(evening, world.Scene);
+    }
+
     /// <summary>An engine whose noise dice always roll <paramref name="roll"/> (0 always calls), and the shapes it called.</summary>
     private (ToyEngine Engine, List<Shape> Calls) CallingEngine(ToySettings settings, double? roll = null)
     {

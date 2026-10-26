@@ -46,7 +46,7 @@ public sealed class ToyHost : IDisposable
         try { Audio = new AudioOutput(Mixer); }
         catch (Exception e) { AudioError = e.Message; }
 
-        Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load());
+        Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load(), clock: () => DateTime.Now);
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
         _shortcuts = new AccessibilityShortcuts();
 

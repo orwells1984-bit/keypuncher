@@ -51,6 +51,7 @@ public sealed class ToyEngine
     private readonly SpeechLibrary _speech;
     private readonly Random _random;
     private readonly Random _callRandom;
+    private readonly Func<DateTime>? _clock;
     private readonly MashGrouper _mash = new();
     private readonly DeadKeyComposer _composer = new();
     private readonly List<(double At, Action Do)> _scheduled = [];
@@ -70,8 +71,12 @@ public sealed class ToyEngine
 
     /// <param name="callRandom">Decides when animals make their noise; kept apart from <paramref name="random"/> so
     /// noises never change what appears.</param>
-    public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null, Random? callRandom = null)
+    /// <param name="clock">The wall clock; when given, each session starts at its time of day (<see cref="Scene.ForHour"/>).
+    /// Left out, the scene keeps its time, as tests and the preview tool want.</param>
+    public ToyEngine(World world, Mixer mixer, SpeechLibrary speech, ToySettings settings, Random? random = null, Random? callRandom = null,
+        Func<DateTime>? clock = null)
     {
+        _clock = clock;
         _world = world;
         _mixer = mixer;
         _speech = speech;
@@ -121,7 +126,7 @@ public sealed class ToyEngine
     }
 
     /// <summary>Starts the session timer again, picks the session's language and wakes the scene from a
-    /// goodnight; call when play starts.</summary>
+    /// goodnight, and with a clock sets the sky to the hour; call when play starts.</summary>
     public void StartSession()
     {
         _played = 0;
@@ -130,6 +135,9 @@ public sealed class ToyEngine
         _windDownSince = _asleepSince = null;
         _world.Night = 0;
         _world.Quiet = false;
+        // The sky agrees with the window when play starts; the director moves it on from there. SetScene fades it,
+        // so a new session never jumps, and SceneGround keeps the calm level's brightness whatever the hour.
+        if (_clock is { } clock) _world.SetScene(_world.Scene with { TimeOfDay = Scene.ForHour(clock().Hour) });
     }
 
     public void OnKey(KeyPress press)
