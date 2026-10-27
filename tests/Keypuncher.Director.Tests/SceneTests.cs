@@ -108,6 +108,26 @@ public class SceneTests
     }
 
     [Fact]
+    public void A_weather_step_offers_only_the_weathers_the_loop_drew()
+    {
+        static string[] Weathers(SceneRequest r) => [.. SceneSchema.For(r).GetProperty("properties").GetProperty("weather").GetProperty("enum").EnumerateArray().Select(e => e.GetString()!)];
+        Assert.Equal(["Rain", "Fog"], Weathers(FromVik with { Change = SceneChange.Weather, Offer = [Weather.Rain, Weather.Fog] }).OrderByDescending(w => w));
+        // In a Reykjavik July: no snow, no rainbow without rain, and not the cloud it already has.
+        Assert.Equal([Weather.Clear, Weather.Rain, Weather.Fog], SceneRequest.Changes(Vik, 7, rare: false));
+        Assert.Contains(Weather.Rainbow, SceneRequest.Changes(Vik with { Weather = Weather.Rain }, 7, rare: false));
+    }
+
+    [Theory]
+    [InlineData(Climate.Temperate, Landscape.Jungle, Climate.Rainforest)]   // "Borneo, Malaysia: Temperate"
+    [InlineData(Climate.Temperate, Landscape.Desert, Climate.HotDesert)]
+    [InlineData(Climate.FoggyDesert, Landscape.Desert, Climate.FoggyDesert)]
+    [InlineData(Climate.Continental, Landscape.Desert, Climate.HotDesert)]
+    [InlineData(Climate.Temperate, Landscape.Savanna, Climate.Savanna)]
+    [InlineData(Climate.Subpolar, Landscape.Beach, Climate.Subpolar)]
+    public void A_hot_landscape_overrides_a_snowy_climate_from_the_checker(Climate said, Landscape landscape, Climate used) =>
+        Assert.Equal(used, Climates.Fit(said, landscape));
+
+    [Fact]
     public void Weather_keeping_on_out_of_season_is_left_alone()
     {
         // The snow came in winter and the month has turned; letting the time move on does not need it to stop.

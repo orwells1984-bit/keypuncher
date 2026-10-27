@@ -125,7 +125,11 @@ async Task Scenes(int count, int month)
     {
         var change = DirectorLoop.ChooseChange(world.Scene, stepsHere, random.NextDouble());
         var things = world.Families.All.Skip(BuiltInRecipes.InventedFamilies).Select(r => r.Name).OrderBy(_ => random.Next()).Take(12).ToList();
-        var request = new SceneRequest(world.Scene, [.. places], things, change, Month: month, Rare: random.NextDouble() < Climates.RareChance);
+        var rare = random.NextDouble() < Climates.RareChance;
+        List<Weather>? offer = change == SceneChange.Weather
+            ? [.. SceneRequest.Changes(world.Scene, month, rare).OrderBy(_ => random.Next()).Take(DirectorLoop.WeathersOffered)]
+            : null;
+        var request = new SceneRequest(world.Scene, [.. places], things, change, Month: month, Rare: rare, Offer: offer);
         var outcome = await scenes.ProposeAsync(request);
         foreach (var a in outcome.Attempts)
         {

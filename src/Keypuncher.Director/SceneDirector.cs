@@ -28,9 +28,18 @@ public enum SceneChange
 /// <param name="Month">The month now, 1 to 12, for the season: weather must be usual for the place at this time of year.</param>
 /// <param name="Rare">Whether this step may also bring weather that is rare there now, which the loop allows only
 /// now and then (<see cref="Climates.RareChance"/>).</param>
+/// <param name="Offer">For a weather step, the weathers the model may choose between, drawn by the loop: left to
+/// choose from all of them, a small model only ever swaps clear for cloudy and back.</param>
 public sealed record SceneRequest(Scene Current, IReadOnlyList<string> RecentPlaces, IReadOnlyList<string> Things,
-    SceneChange Change = SceneChange.Journey, KnownPlace? MustGoTo = null, int Month = 1, bool Rare = false)
+    SceneChange Change = SceneChange.Journey, KnownPlace? MustGoTo = null, int Month = 1, bool Rare = false,
+    IReadOnlyList<Weather>? Offer = null)
 {
+    /// <summary>The weathers a weather step from <paramref name="current"/> may bring now: usual there, not the weather
+    /// it has, a rainbow only after rain.</summary>
+    public static IEnumerable<Weather> Changes(Scene current, int month, bool rare) =>
+        System.Enum.GetValues<Weather>().Where(w => w != current.Weather && (w != Weather.Rainbow || current.Weather == Weather.Rain)
+            && current.Allows(w, month, rare));
+
     /// <summary>Whether <paramref name="w"/> may come now in <paramref name="climate"/>.</summary>
     public bool Allows(Climate climate, bool south, Weather w) => Climates.Allows(climate, south, Month, w, Rare);
 }
@@ -136,7 +145,8 @@ public static class SceneSchema
                 ["weather"] = Enum(Enum<Weather>()
                     .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
                     .Where(w => request.Change != SceneChange.Weather || w != now.Weather.ToString())
-                    .Where(w => Fits(request, System.Enum.Parse<Weather>(w)))),
+                    .Where(w => Fits(request, System.Enum.Parse<Weather>(w)))
+                    .Where(w => request.Change != SceneChange.Weather || request.Offer is not { Count: > 0 } offer || offer.Contains(System.Enum.Parse<Weather>(w)))),
             },
         };
         if (journey) schema["properties"]!["fact"] = new JsonObject { ["type"] = "string", ["minLength"] = 8, ["maxLength"] = 120 };
@@ -293,7 +303,7 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
                 // The small checker does not know every known place (Eldhraun, Hallormsstadaskogur), so for those only
                 // "fictional" is a no.
                 var real = check.Verdict == "real" || (known is not null && check.Verdict == "unsure");
-                var (climate, south) = known is not null ? (known.Climate, known.South) : (check.Climate, check.South);
+                var (climate, south) = known is not null ? (known.Climate, known.South) : (Climates.Fit(check.Climate, pick.Landscape), check.South);
                 var why = !real ? (check.Verdict == "fictional" ? "not a real place" : "not sure it is a real place")
                     : !KnownPlace.Fits(pick.Landscape, known is not null ? [known.Landscape] : check.Landscapes, Climates.CanSnow(climate)) ? $"not {pick.Landscape} country"
                     : null;

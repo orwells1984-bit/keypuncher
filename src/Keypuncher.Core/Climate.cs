@@ -63,6 +63,16 @@ public static class Climates
         _ => int.MinValue,
     };
 
+    /// <summary>The climate a place in a hot landscape must have whatever the checker said: a small model called
+    /// Borneo temperate, which would have let it snow in the jungle. Other landscapes keep <paramref name="said"/>.</summary>
+    public static Climate Fit(Climate said, Landscape landscape) => landscape switch
+    {
+        Landscape.Jungle when said != Climate.Rainforest => Climate.Rainforest,
+        Landscape.Savanna when said != Climate.Savanna => Climate.Savanna,
+        Landscape.Desert when said is not (Climate.HotDesert or Climate.FoggyDesert) && CanSnow(said) => Climate.HotDesert,
+        _ => said,
+    };
+
     /// <summary>Whether snow ever falls in such a climate.</summary>
     public static bool CanSnow(Climate c) => SnowReach(c) != int.MinValue;
 
