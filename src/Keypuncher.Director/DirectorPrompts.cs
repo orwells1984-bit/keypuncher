@@ -106,7 +106,7 @@ public static class DirectorPrompts
     {
         var now = request.Current;
         var here = now.Place is { } place ? $"{place}, {Scene.Describe(now.Landscape)}" : "a meadow, not yet a named place";
-        var month = System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(request.Month);
+        var month = global::System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(request.Month);
         var season = now.Place is null ? "" : $" It is {Climates.Season(request.Month, now.South)} here.";
         var ask = request.Change switch
         {
