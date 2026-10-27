@@ -57,6 +57,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     public const int LogLength = 16;
     /// <summary>Places the scene has been, remembered so it moves on somewhere new.</summary>
     public const int RecentPlaces = 8;
+    /// <summary>How many of the weathers usual at the place a weather step offers the model, drawn at random.</summary>
+    public const int WeathersOffered = 2;
     /// <summary>After this many steps at one place the next step is always a journey.</summary>
     public const int StepsBeforeJourney = 3;
 
@@ -135,7 +137,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// <summary>The scene step to ask for: what kind of step, the scene now, where it has been, and the real things in
     /// the world. A small model left to choose only ever moves the clock on, so the loop chooses the kind: a journey
     /// from the starting meadow and after <see cref="StepsBeforeJourney"/> steps at one place, otherwise mostly the
-    /// weather or the time of day, now and then a journey early.</summary>
+    /// weather or the time of day, now and then a journey early. The weather must suit this month at the place, and
+    /// only one step in twenty may bring weather that is rare there now.</summary>
     public SceneRequest NextSceneRequest(World world)
     {
         var things = world.Families.All
@@ -145,8 +148,14 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             .OrderBy(_ => _random.Next())
             .Take(12)
             .ToList();
+        var month = DateTime.Now.Month;
+        var rare = _random.NextDouble() < Climates.RareChance;
+        var change = ChooseChange(world.Scene, _stepsHere, _random.NextDouble());
+        List<Weather>? offer = change == SceneChange.Weather
+            ? [.. SceneRequest.Changes(world.Scene, month, rare).OrderBy(_ => _random.Next()).Take(WeathersOffered)]
+            : null;
         return new SceneRequest(world.Scene, [.. _places.Where(p => !SceneRules.SamePlace(p, world.Scene.Place))], things,
-            ChooseChange(world.Scene, _stepsHere, _random.NextDouble()));
+            change, Month: month, Rare: rare, Offer: offer);
     }
 
     /// <summary>The kind of step to take from <paramref name="current"/> after <paramref name="stepsHere"/> steps at

@@ -2,8 +2,9 @@
 //
 //   dotnet run --project tools/Keypuncher.Sandbox -- picks [model] [count]     ask for real things, as the toy does
 //   dotnet run --project tools/Keypuncher.Sandbox -- extinct [model] [count]   only extinct animals, in creature families
-//   dotnet run --project tools/Keypuncher.Sandbox -- scenes [model] [count]    walk the scene through real places, weather and time
+//   dotnet run --project tools/Keypuncher.Sandbox -- scenes [model] [count] [month]   walk the scene through real places, weather and time
 //   dotnet run --project tools/Keypuncher.Sandbox -- places [model]            score the place checker on known places
+//   dotnet run --project tools/Keypuncher.Sandbox -- climates [model]          score the place checker's climates against the known places' own
 //   dotnet run --project tools/Keypuncher.Sandbox -- facts [model]             score the place-fact check on true and false sentences
 //   dotnet run --project tools/Keypuncher.Sandbox -- fits [model]              score ways of asking whether a thing is found at a place
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
@@ -37,7 +38,10 @@ switch (mode)
         await Check();
         break;
     case "scenes":
-        await Scenes(args.Length > 2 ? int.Parse(args[2]) : 12);
+        await Scenes(args.Length > 2 ? int.Parse(args[2]) : 12, args.Length > 3 ? int.Parse(args[3]) : DateTime.Now.Month);
+        break;
+    case "climates":
+        await ClimateCheck();
         break;
     case "places":
         await Places();
@@ -52,7 +56,7 @@ switch (mode)
         await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
         break;
     default:
-        Console.WriteLine("modes: picks, extinct, scenes, places, facts, fits, check, recipe");
+        Console.WriteLine("modes: picks, extinct, scenes, places, climates, facts, fits, check, recipe");
         break;
 }
 
@@ -105,13 +109,13 @@ async Task Picks(int count, bool extinctOnly = false)
 }
 
 // Steps the scene the way the toy would, back to back, and prints every attempt.
-async Task Scenes(int count)
+async Task Scenes(int count, int month)
 {
     var world = new World();
     var random = new Random(Environment.TickCount);
     var scenes = new SceneDirector(author, placeChecker);
     var stepsHere = 0;
-    Console.WriteLine($"# Director scene steps, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    Console.WriteLine($"# Director scene steps, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}, as if in month {month}");
     Console.WriteLine();
     Console.WriteLine("| # | from | tried | result | fact / checker | s |");
     Console.WriteLine("| --- | --- | --- | --- | --- | --- |");
@@ -121,12 +125,16 @@ async Task Scenes(int count)
     {
         var change = DirectorLoop.ChooseChange(world.Scene, stepsHere, random.NextDouble());
         var things = world.Families.All.Skip(BuiltInRecipes.InventedFamilies).Select(r => r.Name).OrderBy(_ => random.Next()).Take(12).ToList();
-        var request = new SceneRequest(world.Scene, [.. places], things, change);
+        var rare = random.NextDouble() < Climates.RareChance;
+        List<Weather>? offer = change == SceneChange.Weather
+            ? [.. SceneRequest.Changes(world.Scene, month, rare).OrderBy(_ => random.Next()).Take(DirectorLoop.WeathersOffered)]
+            : null;
+        var request = new SceneRequest(world.Scene, [.. places], things, change, Month: month, Rare: rare, Offer: offer);
         var outcome = await scenes.ProposeAsync(request);
         foreach (var a in outcome.Attempts)
         {
             tries++;
-            var detail = a.Check is { } k ? $"{a.Fact} / checker: {k.Verdict}, {string.Join(" ", k.Landscapes)}, snows {k.Snows}, \"{k.WhatItIs}\"" : a.Fact;
+            var detail = a.Check is { } k ? $"{a.Fact} / checker: {k.Verdict}, {string.Join(" ", k.Landscapes)}, {k.Climate} {k.Hemisphere}, \"{k.WhatItIs}\"" : a.Fact;
             Console.WriteLine($"| {i + 1} | {request.Change}: {world.Scene} | {a.Tried} | {a.Refused ?? "used"} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
         }
         if (outcome.Scene is { } s)
@@ -154,7 +162,7 @@ async Task Places()
     ];
     Console.WriteLine($"# Place checker, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
     Console.WriteLine();
-    Console.WriteLine("| place | checker | landscapes | snows | what it is | right? |");
+    Console.WriteLine("| place | checker | landscapes | climate | what it is | right? |");
     Console.WriteLine("| --- | --- | --- | --- | --- | --- |");
     var right = 0;
     var clock = Stopwatch.StartNew();
@@ -163,10 +171,32 @@ async Task Places()
         var check = await placeChecker.CheckAsync(name);
         var ok = (check.Verdict == "real") == real;
         if (ok) right++;
-        Console.WriteLine($"| {name} | {check.Verdict} | {string.Join(" ", check.Landscapes)} | {check.Snows} | {check.WhatItIs.Replace("|", "/")} | {(ok ? "yes" : "NO")} |");
+        Console.WriteLine($"| {name} | {check.Verdict} | {string.Join(" ", check.Landscapes)} | {check.Climate} {check.Hemisphere} | {check.WhatItIs.Replace("|", "/")} | {(ok ? "yes" : "NO")} |");
     }
     Console.WriteLine();
     Console.WriteLine($"{right} of {cases.Length} right; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");
+}
+
+// The checker's climate and hemisphere for every known place, against the ones written by hand. A climate that
+// differs but agrees on whether it snows, and the hemisphere, gives much the same weather.
+async Task ClimateCheck()
+{
+    Console.WriteLine($"# Place checker climates, {model}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+    Console.WriteLine();
+    Console.WriteLine("| place | known | checker | same? | snow agrees? | hemisphere right? |");
+    Console.WriteLine("| --- | --- | --- | --- | --- | --- |");
+    int same = 0, snow = 0, half = 0;
+    foreach (var p in KnownPlace.All)
+    {
+        var check = await placeChecker.CheckAsync(p.Name);
+        var s = check.Climate == p.Climate;
+        var n = Climates.CanSnow(check.Climate) == Climates.CanSnow(p.Climate);
+        var h = check.South == p.South;
+        same += s ? 1 : 0; snow += n ? 1 : 0; half += h ? 1 : 0;
+        Console.WriteLine($"| {p.Name} | {p.Climate} {(p.South ? "south" : "north")} | {check.Climate} {check.Hemisphere} | {(s ? "yes" : "no")} | {(n ? "yes" : "NO")} | {(h ? "yes" : "NO")} |");
+    }
+    Console.WriteLine();
+    Console.WriteLine($"{same} of {KnownPlace.All.Count} the same climate, {snow} agree on snow, {half} on the hemisphere.");
 }
 
 // True and false sentences about real places, the false ones including those the model wrote in a test run.

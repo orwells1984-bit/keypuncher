@@ -7,8 +7,8 @@ namespace Keypuncher.Director.Tests;
 
 public class SceneTests
 {
-    private static readonly Scene Vik = new(Landscape.Beach, TimeOfDay.Morning, Weather.Cloudy, "Reynisfjara, Iceland", "A black sand beach.", Snows: true);
-    private static readonly SceneRequest FromVik = new(Vik, ["Lake Myvatn, Iceland"], ["puffin", "seal"]);
+    private static readonly Scene Vik = new(Landscape.Beach, TimeOfDay.Morning, Weather.Cloudy, "Reynisfjara, Iceland", "A black sand beach.", Climate.Subpolar);
+    private static readonly SceneRequest FromVik = new(Vik, ["Lake Myvatn, Iceland"], ["puffin", "seal"], Month: 1);
 
     [Fact]
     public void The_schema_holds_each_kind_of_step_time_only_goes_forward_and_a_rainbow_only_follows_rain()
@@ -30,10 +30,20 @@ public class SceneTests
         Assert.True(journey.TryGetProperty("fact", out _));
 
         // Snow is not offered where it cannot fall: the model chose it three times running for Wadi Rum.
-        var wadiRum = new Scene(Landscape.Desert, TimeOfDay.Midday, Weather.Clear, "Wadi Rum, Jordan", "A desert valley.", Snows: false);
+        var wadiRum = new Scene(Landscape.Desert, TimeOfDay.Midday, Weather.Clear, "Wadi Rum, Jordan", "A desert valley.", Climate.HotDesert);
         Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Current = wadiRum, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
-        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Current = Vik with { Snows = false }, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
+        Assert.DoesNotContain("Rain", Values(SceneSchema.For(FromVik with { Current = wadiRum, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Current = Vik with { Climate = Climate.Subtropical }, Change = SceneChange.Weather }).GetProperty("properties"), "weather"));
         Assert.Contains("Snow", Values(weather, "weather"));
+        // Snow in Iceland in summer is unheard of, and in April rare: offered only on the odd step that allows it.
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Change = SceneChange.Weather, Month = 7 }).GetProperty("properties"), "weather"));
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { Change = SceneChange.Weather, Month = 4 }).GetProperty("properties"), "weather"));
+        Assert.Contains("Snow", Values(SceneSchema.For(FromVik with { Change = SceneChange.Weather, Month = 4, Rare = true }).GetProperty("properties"), "weather"));
+        // Going to a known place, its own climate holds: Svalbard is snowy in January, the Sahara is not.
+        var svalbard = KnownPlace.All.Single(p => p.Name == "Svalbard, Norway");
+        var sahara = KnownPlace.All.Single(p => p.Name == "Sahara, Morocco");
+        Assert.Contains("Snow", Values(SceneSchema.For(FromVik with { MustGoTo = svalbard }).GetProperty("properties"), "weather"));
+        Assert.DoesNotContain("Snow", Values(SceneSchema.For(FromVik with { MustGoTo = sahara }).GetProperty("properties"), "weather"));
 
         var evening = SceneSchema.For(FromVik with { Change = SceneChange.Time, Current = Vik with { TimeOfDay = TimeOfDay.Evening, Weather = Weather.Rain } }).GetProperty("properties");
         Assert.Equal(["Dawn"], Values(evening, "timeOfDay"));
@@ -64,13 +74,12 @@ public class SceneTests
         Assert.True(Build(Step("Thingvellir, Iceland", "LavaField", "Morning", "Rain"), FromVik, out scene, out newPlace, out error), error);
         Assert.True(newPlace);
         Assert.Equal((Landscape.LavaField, Weather.Rain, "Thingvellir, Iceland"), (scene!.Landscape, scene.Weather, scene.Place));
-        Assert.False(scene.Snows);   // until the place check says so
+        Assert.Equal(Climate.Temperate, scene.Climate);   // until the place check says what it is
     }
 
     [Theory]
     [InlineData(SceneChange.Time, "Reynisfjara, Iceland", "Beach", "Dawn", "Rain", "time only goes forward")]
     [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Beach", "Morning", "Rainbow", "a rainbow only comes after rain")]
-    [InlineData(SceneChange.Journey, "Sahara, Morocco", "Desert", "Morning", "Snow", "it never snows in the desert")]
     [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Forest", "Morning", "Rain", "a new landscape needs a new place")]
     [InlineData(SceneChange.Weather, "Reynisfjara, Iceland", "Beach", "Morning", "Cloudy", "should have changed only the weather")]
     [InlineData(SceneChange.Weather, "Bondi Beach, Australia", "Beach", "Morning", "Clear", "should have changed only the weather")]
@@ -85,14 +94,100 @@ public class SceneTests
         Assert.Equal(why, error);
     }
 
-    [Fact]
-    public void Snow_at_the_same_place_needs_the_place_to_have_snow()
+    [Theory]
+    [InlineData(Climate.Subtropical, 1, false, "snow is unheard of there in winter")]
+    [InlineData(Climate.Subpolar, 7, false, "snow is unheard of there in summer")]
+    [InlineData(Climate.Subpolar, 4, false, "snow is rare there in spring")]
+    [InlineData(Climate.Subpolar, 4, true, null)]
+    [InlineData(Climate.Subpolar, 1, false, null)]
+    public void Weather_at_the_same_place_must_be_usual_there_in_the_season(Climate climate, int month, bool rare, string? why)
     {
-        var noSnow = FromVik with { Current = Vik with { Snows = false }, Change = SceneChange.Weather };
-        Assert.False(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), noSnow, out _, out _, out var error));
-        Assert.Equal("it never snows there", error);
-        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), noSnow with { Current = Vik }, out _, out _, out _));
+        var request = FromVik with { Current = Vik with { Climate = climate }, Change = SceneChange.Weather, Month = month, Rare = rare };
+        Assert.Equal(why is null, Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Snow"), request, out _, out _, out var error));
+        Assert.Equal(why, error);
     }
+
+    [Fact]
+    public void A_weather_step_offers_only_the_weathers_the_loop_drew()
+    {
+        static string[] Weathers(SceneRequest r) => [.. SceneSchema.For(r).GetProperty("properties").GetProperty("weather").GetProperty("enum").EnumerateArray().Select(e => e.GetString()!)];
+        Assert.Equal(["Rain", "Fog"], Weathers(FromVik with { Change = SceneChange.Weather, Offer = [Weather.Rain, Weather.Fog] }).OrderByDescending(w => w));
+        // In a Reykjavik July: no snow, no rainbow without rain, and not the cloud it already has.
+        Assert.Equal([Weather.Clear, Weather.Rain, Weather.Fog], SceneRequest.Changes(Vik, 7, rare: false));
+        Assert.Contains(Weather.Rainbow, SceneRequest.Changes(Vik with { Weather = Weather.Rain }, 7, rare: false));
+    }
+
+    [Theory]
+    [InlineData(Climate.Temperate, Landscape.Jungle, Climate.Rainforest)]   // "Borneo, Malaysia: Temperate"
+    [InlineData(Climate.Temperate, Landscape.Desert, Climate.HotDesert)]
+    [InlineData(Climate.FoggyDesert, Landscape.Desert, Climate.FoggyDesert)]
+    [InlineData(Climate.Continental, Landscape.Desert, Climate.HotDesert)]
+    [InlineData(Climate.Temperate, Landscape.Savanna, Climate.Savanna)]
+    [InlineData(Climate.Subpolar, Landscape.Beach, Climate.Subpolar)]
+    public void A_hot_landscape_overrides_a_snowy_climate_from_the_checker(Climate said, Landscape landscape, Climate used) =>
+        Assert.Equal(used, Climates.Fit(said, landscape));
+
+    [Fact]
+    public void Weather_keeping_on_out_of_season_is_left_alone()
+    {
+        // The snow came in winter and the month has turned; letting the time move on does not need it to stop.
+        var snowing = FromVik with { Current = Vik with { Weather = Weather.Snow }, Change = SceneChange.Time, Month = 6 };
+        Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Midday", "Snow"), snowing, out _, out _, out var error), error);
+    }
+
+    [Theory]
+    // Reykjavik-like: snowy in winter, now and then in spring and autumn, never in summer.
+    [InlineData(Climate.Subpolar, false, 1, Weather.Snow, Likelihood.Common)]
+    [InlineData(Climate.Subpolar, false, 4, Weather.Snow, Likelihood.Rare)]
+    [InlineData(Climate.Subpolar, false, 7, Weather.Snow, Likelihood.Never)]
+    // Svalbard and the Alps can have summer snow; deserts only the rarest midwinter snow.
+    [InlineData(Climate.Polar, false, 7, Weather.Snow, Likelihood.Rare)]
+    [InlineData(Climate.Mountain, false, 7, Weather.Snow, Likelihood.Rare)]
+    [InlineData(Climate.HotDesert, false, 1, Weather.Snow, Likelihood.Rare)]
+    [InlineData(Climate.HotDesert, false, 2, Weather.Snow, Likelihood.Never)]
+    [InlineData(Climate.HotDesert, false, 7, Weather.Rain, Likelihood.Rare)]
+    [InlineData(Climate.Rainforest, true, 7, Weather.Snow, Likelihood.Never)]
+    [InlineData(Climate.Rainforest, true, 7, Weather.Rain, Likelihood.Common)]
+    // South of the equator the seasons turn round: Kruger's rains come in January, Tuscany's in winter.
+    [InlineData(Climate.Savanna, true, 1, Weather.Rain, Likelihood.Common)]
+    [InlineData(Climate.Savanna, true, 7, Weather.Rain, Likelihood.Rare)]
+    [InlineData(Climate.Mediterranean, false, 7, Weather.Rain, Likelihood.Rare)]
+    [InlineData(Climate.Mediterranean, false, 1, Weather.Snow, Likelihood.Rare)]
+    [InlineData(Climate.FoggyDesert, true, 1, Weather.Fog, Likelihood.Common)]
+    [InlineData(Climate.Temperate, false, 1, Weather.Snow, Likelihood.Common)]
+    [InlineData(Climate.Temperate, false, 6, Weather.Snow, Likelihood.Never)]
+    public void Each_climate_has_its_own_weather_through_the_year(Climate climate, bool south, int month, Weather weather, Likelihood odds) =>
+        Assert.Equal(odds, Climates.Odds(climate, south, month, weather));
+
+    [Fact]
+    public void Seasons_are_the_other_way_round_south_of_the_equator()
+    {
+        Assert.Equal("winter", Climates.Season(1, south: false));
+        Assert.Equal("summer", Climates.Season(1, south: true));
+        Assert.Equal("autumn", Climates.Season(10, south: false));
+        Assert.Equal("spring", Climates.Season(10, south: true));
+        Assert.Equal(["winter", "spring", "summer", "autumn"], new[] { 12, 3, 6, 9 }.Select(m => Climates.Season(m, false)));
+        // Clear and cloudy skies are usual everywhere, so a weather step always has something to choose.
+        Assert.All(Enum.GetValues<Climate>(), c => Assert.All(Enumerable.Range(1, 12), m =>
+            Assert.True(Climates.Allows(c, true, m, Weather.Clear, false) && Climates.Allows(c, false, m, Weather.Cloudy, false))));
+    }
+
+    [Fact]
+    public void Every_known_place_has_a_climate_that_fits_its_landscape()
+    {
+        Assert.All(KnownPlace.All.Where(p => Scene.Hot(p.Landscape)), p => Assert.False(Climates.CanSnow(p.Climate) && p.Climate != Climate.HotDesert, p.Name));
+        Assert.All(KnownPlace.All.Where(p => p.Landscape == Landscape.SnowyHills), p => Assert.True(Climates.Odds(p.Climate, p.South, 1, Weather.Snow) == Likelihood.Common, p.Name));
+        Assert.All(KnownPlace.All.Where(p => p.Name.EndsWith("Iceland")), p => Assert.True(Climates.CanSnow(p.Climate), p.Name));
+        Assert.All(KnownPlace.All.Where(p => p.Name.EndsWith("Australia") || p.Name.EndsWith("Namibia") || p.Name.EndsWith("Africa")), p => Assert.True(p.South, p.Name));
+    }
+
+    [Theory]
+    [InlineData(Weather.Snow, Weather.Cloudy, Weather.Cloudy)]   // keeps the weather it left, which is usual there
+    [InlineData(Weather.Snow, Weather.Fog, Weather.Fog)]
+    [InlineData(Weather.Snow, Weather.Rainbow, Weather.Clear)]   // a rainbow never travels
+    [InlineData(Weather.Rain, Weather.Cloudy, Weather.Rain)]     // usual there, so kept
+    public void A_journey_arrives_in_weather_usual_there(Weather chosen, Weather was, Weather arrives) =>
+        Assert.Equal(arrives, SceneDirector.FitWeather(FromVik with { Current = Vik with { Weather = was }, Month = 7 }, chosen, Climate.Temperate, south: false));
 
     [Fact]
     public async Task A_new_place_must_be_real_and_look_like_its_landscape_and_staying_needs_no_check()
@@ -103,14 +198,14 @@ public class SceneTests
             Step("Thingvellir, Iceland", "LavaField", "Morning", "Snow"));
         var checker = new ScriptedModel(
             Place("a land in a story", "fictional", []),
-            Place("a national park in Iceland", "real", ["LavaField", "Lake"], "true"),
-            Place("a national park in Iceland", "real", ["LavaField", "Lake"], "true"));
+            Place("a national park in Iceland", "real", ["LavaField", "Lake"], "Subpolar"),
+            Place("a national park in Iceland", "real", ["LavaField", "Lake"], "Subpolar"));
         var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
 
         Assert.Equal(["checker: not a real place", "checker: not Desert country", null], outcome.Attempts.Select(a => a.Refused));
         // A known place's own fact replaces the model's.
         var thingvellir = KnownPlace.All.Single(p => p.Name == "Thingvellir, Iceland");
-        Assert.Equal(new Scene(Landscape.LavaField, TimeOfDay.Morning, Weather.Snow, "Thingvellir, Iceland", thingvellir.Fact, Snows: true), outcome.Scene);
+        Assert.Equal(new Scene(Landscape.LavaField, TimeOfDay.Morning, Weather.Snow, "Thingvellir, Iceland", thingvellir.Fact, Climate.Subpolar), outcome.Scene);
         Assert.Contains("Narnia, England", author.Prompts[1]);
         Assert.Contains("puffin", author.Prompts[0]);
         Assert.Contains("Lake Myvatn, Iceland", author.Prompts[0]);
@@ -122,16 +217,24 @@ public class SceneTests
         Assert.Empty(neverAsked.Prompts);
     }
 
-    [Fact]
-    public async Task Snow_at_a_new_place_needs_the_checker_to_say_it_snows_there()
+    [Theory]
+    // A known place's own climate is used: Bondi Beach is in summer in January, and never snowy.
+    [InlineData("Bondi Beach, Australia", "Temperate", "north", 1, "Cloudy", "snow is not usual there in summer, so cloudy")]
+    // Any other place has the climate and hemisphere the checker gives.
+    [InlineData("Ring of Kerry, Ireland", "Temperate", "north", 7, "Cloudy", "snow is not usual there in summer, so cloudy")]
+    [InlineData("Ring of Kerry, Ireland", "Temperate", "north", 1, "Snow", null)]
+    [InlineData("Torres del Paine, Chile", "Mountain", "south", 7, "Snow", null)]
+    public async Task A_journey_arrives_in_weather_usual_at_the_new_place_in_the_season(string place, string climate, string hemisphere, int month, string weather, string? note)
     {
-        var author = new ScriptedModel(Step("Bondi Beach, Australia", "Beach", "Morning", "Snow"));
-        var checker = new ScriptedModel(Place("a beach in Sydney", "real", ["Beach"], "false"));
-        // Seeded, so the known place the last try is sent to is never Bondi Beach itself, which the model's answer would match.
-        var outcome = await new SceneDirector(author, new PlaceChecker(checker), new Random(1)).ProposeAsync(FromVik);
-        Assert.False(outcome.Accepted);
-        Assert.All(outcome.Attempts.Take(SceneDirector.MaxAttempts), a => Assert.Equal("checker: it does not snow there", a.Refused));
-        Assert.StartsWith("should have been ", outcome.Attempts[^1].Refused);
+        var author = new ScriptedModel(Step(place, "Beach", "Morning", "Snow"));
+        var checker = new ScriptedModel(Place("a real place", "real", ["Beach"], climate, hemisphere), JsonSerializer.Serialize(new { verdict = "true" }));
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik with { Month = month });
+        Assert.Equal(Enum.Parse<Weather>(weather), outcome.Scene!.Weather);
+        var used = Assert.Single(outcome.Attempts);
+        if (note is null) Assert.EndsWith("Snow", used.Tried);
+        else Assert.EndsWith($"({note})", used.Tried);
+        var known = KnownPlace.All.SingleOrDefault(p => p.Name == place);
+        Assert.Equal((known?.Climate ?? Enum.Parse<Climate>(climate), known?.South ?? hemisphere == "south"), (outcome.Scene.Climate, outcome.Scene.South));
     }
 
     [Fact]
@@ -139,7 +242,7 @@ public class SceneTests
     {
         var stuck = Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain");
         var author = new GoesWhereTold(stuck);
-        var checker = new ScriptedModel(Place("a valley in Iceland", "real", ["Forest"], "true"));
+        var checker = new ScriptedModel(Place("a valley in Iceland", "real", ["Forest"]));
         var outcome = await new SceneDirector(author, new PlaceChecker(checker), new Random(2)).ProposeAsync(FromVik);
 
         Assert.Equal(SceneDirector.MaxAttempts + 1, outcome.Attempts.Count);
@@ -199,7 +302,7 @@ public class SceneTests
         // The second step may be any kind; one of its three tries fits each.
         var author = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy"),
             Step("Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy"), Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), Step("Reynisfjara, Iceland", "Beach", "Midday", "Cloudy"));
-        var checker = new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"], "true"), Place("a lake in Iceland", "real", ["Lake"], "true"));
+        var checker = new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"]), Place("a lake in Iceland", "real", ["Lake"]));
         var things = new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel()));
         using var loop = new DirectorLoop(things, new Random(1), scenes: new SceneDirector(author, new PlaceChecker(checker)));
         var limits = CalmLimits.Toddler with { RestyleMinutes = 100, SceneMinutes = 2 };
@@ -257,7 +360,7 @@ public class SceneTests
                 motion = new { type = "Hop", speed = 0.3 }, voice = new { wave = "Sine", attack = 0.01, decay = 0.4, scale = "pentatonic", root = "C4" }, growsInto = (string?)null }));
         var things = new RealThingDirector(author, new FactChecker(new ScriptedModel(JsonSerializer.Serialize(new { whatItIs = "a small mammal", verdict = "real", kind = "Animal", growsInto = "none" }))));
         var sceneAuthor = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy"));
-        var scenes = new SceneDirector(sceneAuthor, new PlaceChecker(new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"], "true"))));
+        var scenes = new SceneDirector(sceneAuthor, new PlaceChecker(new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"]))));
         using var loop = new DirectorLoop(things, new Random(1), [RealCategory.Animal], scenes);
         var fast = CalmLimits.Baby with { RestyleMinutes = 0, SceneMinutes = 0 };
 
@@ -295,7 +398,7 @@ public class SceneTests
         var world = new World();
         var gate = new TaskCompletionSource();
         var author = new ScriptedModel(Step("Reynisfjara, Iceland", "Beach", "Morning", "Cloudy")) { Gate = gate.Task };
-        var checker = new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"], "true"));
+        var checker = new ScriptedModel(Place("a beach in Iceland", "real", ["Beach"]));
         using var loop = new DirectorLoop(new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel())),
             scenes: new SceneDirector(author, new PlaceChecker(checker)));
         var limits = CalmLimits.Toddler with { RestyleMinutes = 100, SceneMinutes = 0.1 };
@@ -351,7 +454,7 @@ public class SceneTests
     {
         // The model chose snowy hills for the Rila Mountains, a known mountain place, and was turned down.
         var author = new ScriptedModel(Step("Rila Mountains, Bulgaria", "SnowyHills", "Morning", "Cloudy"));
-        var checker = new ScriptedModel(Place("mountains in Bulgaria", "real", ["Mountains"], "true"));
+        var checker = new ScriptedModel(Place("mountains in Bulgaria", "real", ["Mountains"]));
         var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik);
         Assert.Equal(Landscape.SnowyHills, outcome.Scene!.Landscape);
 
@@ -369,6 +472,6 @@ public class SceneTests
     private static string Step(string place, string landscape, string time, string weather) =>
         JsonSerializer.Serialize(new { place, landscape, timeOfDay = time, weather, fact = "A real fact about the place." });
 
-    private static string Place(string what, string verdict, string[] landscapes, string snows = "unsure") =>
-        JsonSerializer.Serialize(new { whatItIs = what, verdict, landscapes, snows });
+    private static string Place(string what, string verdict, string[] landscapes, string climate = "Temperate", string hemisphere = "north") =>
+        JsonSerializer.Serialize(new { whatItIs = what, verdict, landscapes, climate, hemisphere });
 }
