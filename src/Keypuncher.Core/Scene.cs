@@ -50,16 +50,24 @@ public enum Weather
 /// </summary>
 /// <param name="Place">A real place, such as "Reynisfjara, Iceland"; null for the starting meadow.</param>
 /// <param name="Fact">One true sentence about the place, for grown-ups.</param>
-/// <param name="Snows">Whether it ever snows at <see cref="Place"/>, as the place check said.</param>
+/// <param name="Climate">The weather the place has through the year: known for a known place, or as the place check said.</param>
+/// <param name="South">Whether the place is south of the equator, where the seasons are the other way round.</param>
 public sealed record Scene(
     Landscape Landscape = Landscape.Meadow,
     TimeOfDay TimeOfDay = TimeOfDay.Morning,
     Weather Weather = Weather.Clear,
     string? Place = null,
     string? Fact = null,
-    bool Snows = true)
+    Climate Climate = Climate.Temperate,
+    bool South = false)
 {
     public static Scene Default { get; } = new();
+
+    /// <summary>Whether it ever snows here.</summary>
+    [JsonIgnore] public bool Snows => Climates.CanSnow(Climate);
+
+    /// <summary>Whether <paramref name="w"/> may come here in <paramref name="month"/>; see <see cref="Climates.Allows"/>.</summary>
+    public bool Allows(Weather w, int month, bool rare) => Climates.Allows(Climate, South, month, w, rare);
 
     /// <summary>Landscapes too hot for snow anywhere.</summary>
     public static bool Hot(Landscape l) => l is Landscape.Desert or Landscape.Jungle or Landscape.Savanna;

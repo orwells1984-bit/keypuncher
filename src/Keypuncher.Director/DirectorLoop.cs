@@ -135,7 +135,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// <summary>The scene step to ask for: what kind of step, the scene now, where it has been, and the real things in
     /// the world. A small model left to choose only ever moves the clock on, so the loop chooses the kind: a journey
     /// from the starting meadow and after <see cref="StepsBeforeJourney"/> steps at one place, otherwise mostly the
-    /// weather or the time of day, now and then a journey early.</summary>
+    /// weather or the time of day, now and then a journey early. The weather must suit this month at the place, and
+    /// only one step in twenty may bring weather that is rare there now.</summary>
     public SceneRequest NextSceneRequest(World world)
     {
         var things = world.Families.All
@@ -146,7 +147,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             .Take(12)
             .ToList();
         return new SceneRequest(world.Scene, [.. _places.Where(p => !SceneRules.SamePlace(p, world.Scene.Place))], things,
-            ChooseChange(world.Scene, _stepsHere, _random.NextDouble()));
+            ChooseChange(world.Scene, _stepsHere, _random.NextDouble()), Month: DateTime.Now.Month, Rare: _random.NextDouble() < Climates.RareChance);
     }
 
     /// <summary>The kind of step to take from <paramref name="current"/> after <paramref name="stepsHere"/> steps at

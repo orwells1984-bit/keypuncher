@@ -94,8 +94,8 @@ public static class DirectorPrompts
         island, farmland or national park. Never a place from myths, stories, films, cartoons or games, and never
         a made-up name. Places in Iceland are especially welcome, but anywhere on Earth is fine.
         landscape is the one that best describes what the place looks like. The weather must be weather that
-        really happens there: no snow in hot deserts, jungles or on the savanna; a rainbow only straight after
-        rain. Time only goes forward. The weather is always gentle: no storms.
+        really happens there at this time of year: no snow in hot deserts, jungles or on the savanna, or in summer;
+        a rainbow only straight after rain. Time only goes forward. The weather is always gentle: no storms.
         Each request says what kind of step to take: a change of weather, the time of day moving on, or a journey
         to a new place. On a journey, fact is one short true sentence about the new place.
         Answer only with JSON that matches the schema you are given. Never add text around it.
@@ -106,15 +106,17 @@ public static class DirectorPrompts
     {
         var now = request.Current;
         var here = now.Place is { } place ? $"{place}, {Scene.Describe(now.Landscape)}" : "a meadow, not yet a named place";
+        var month = System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(request.Month);
+        var season = now.Place is null ? "" : $" It is {Climates.Season(request.Month, now.South)} here.";
         var ask = request.Change switch
         {
-            SceneChange.Weather => $"Change the weather: keep place exactly \"{now.Place}\", landscape {now.Landscape} and the time of day, and choose new weather that really happens there.",
+            SceneChange.Weather => $"Change the weather: keep place exactly \"{now.Place}\", landscape {now.Landscape} and the time of day, and choose new weather that really happens there in {month}.",
             SceneChange.Time => $"Let time move on to {Scene.Next(now.TimeOfDay)}: keep place exactly \"{now.Place}\" and landscape {now.Landscape}. The weather may stay or change gently.",
-            _ when request.MustGoTo is { } must => $"Travel to {must.Name}: place must be exactly \"{must.Name}\", landscape {must.Landscape}. The time of day stays; the weather may change.",
-            _ => $"Travel somewhere new: leave {now.Place ?? "the meadow"} and choose a different real place on Earth, a named town, park, island, lake, mountain, beach or forest, written as \"Name, Country\" (never just a kind of country like \"Savannah, Botswana\"), and the landscape it looks like. The time of day stays; the weather may change.",
+            _ when request.MustGoTo is { } must => $"Travel to {must.Name}: place must be exactly \"{must.Name}\", landscape {must.Landscape}. The time of day stays; the weather may change to weather usual there in {month}.",
+            _ => $"Travel somewhere new: leave {now.Place ?? "the meadow"} and choose a different real place on Earth, a named town, park, island, lake, mountain, beach or forest, written as \"Name, Country\" (never just a kind of country like \"Savannah, Botswana\"), and the landscape it looks like. The time of day stays; the weather may change to weather usual there in {month}.",
         };
         return $"""
-            Now: {here}, {now.TimeOfDay.ToString().ToLowerInvariant()}, weather {now.Weather}.
+            Now: {here}, {now.TimeOfDay.ToString().ToLowerInvariant()}, weather {now.Weather}. The month is {month}.{season}
             {ask}
             {(request.Things.Count == 0 || request.Change != SceneChange.Journey ? "" : "If you choose a new place, one where some of these really live or grow is good: " + string.Join(", ", request.Things) + ".")}
             {(request.RecentPlaces.Count == 0 ? "" : "Not these places, which the world has been to lately: " + string.Join("; ", request.RecentPlaces) + ".")}

@@ -9,17 +9,18 @@ namespace Keypuncher.Director;
 /// <param name="WhatItIs">The checker's own few words on where the place is, asked first so it recalls it.</param>
 /// <param name="Verdict">"real", "fictional" or "unsure".</param>
 /// <param name="Landscapes">The kinds of country found there, in the checker's own words from the list.</param>
-/// <param name="Snows">"true", "false" or "unsure": whether it ever snows there.</param>
+/// <param name="Climate">The weather the place has through the year.</param>
+/// <param name="Hemisphere">"north" or "south" of the equator, for which way round the seasons are.</param>
 public sealed record PlaceCheck(
     [property: JsonPropertyName("whatItIs")] string WhatItIs,
     [property: JsonPropertyName("verdict")] string Verdict,
     [property: JsonPropertyName("landscapes")] IReadOnlyList<Landscape> Landscapes,
-    [property: JsonPropertyName("snows")] string Snows)
+    [property: JsonPropertyName("climate")] Climate Climate = Climate.Temperate,
+    [property: JsonPropertyName("hemisphere")] string Hemisphere = "north")
 {
-    /// <summary>Only a sure yes allows snow.</summary>
-    public bool SnowsThere => Snows == "true";
+    public bool South => Hemisphere == "south";
 
-    public static PlaceCheck Failed(string why) => new(why, "unsure", [], "unsure");
+    public static PlaceCheck Failed(string why) => new(why, "unsure", []);
 }
 
 /// <summary>
@@ -39,13 +40,14 @@ public sealed class PlaceChecker(ILanguageModel model)
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["whatItIs", "verdict", "landscapes", "snows"],
+          "required": ["whatItIs", "verdict", "landscapes", "climate", "hemisphere"],
           "properties": {
             "whatItIs": { "type": "string", "maxLength": 80 },
             "verdict": { "type": "string", "enum": ["real", "fictional", "unsure"] },
             "landscapes": { "type": "array", "maxItems": 4,
               "items": { "type": "string", "enum": [{{string.Join(", ", Enum.GetNames<Landscape>().Select(n => $"\"{n}\""))}}] } },
-            "snows": { "type": "string", "enum": ["true", "false", "unsure"] }
+            "climate": { "type": "string", "enum": [{{string.Join(", ", Enum.GetNames<Climate>().Select(n => $"\"{n}\""))}}] },
+            "hemisphere": { "type": "string", "enum": ["north", "south"] }
           }
         }
         """).RootElement.Clone();
@@ -64,7 +66,13 @@ public sealed class PlaceChecker(ILanguageModel model)
         landscapes: the kinds of country really found at this place, one to four of: Meadow, Farm, Forest, Jungle,
         Mountains, Beach, Lake, Desert, Savanna, SnowyHills (hills under snow for much of the year), LavaField
         (old lava under moss). Empty if it is not real.
-        snows: "true" if snow really falls there in some years, "false" if it never does, "unsure" if you do not know.
+        climate: the weather there through the year, one of: Polar (ice and snow most of the year), Subarctic (long
+        snowy winters, short summers), Mountain (high mountains, snowy winters), Continental (cold snowy winters, warm
+        summers), Subpolar (cool, windy and wet all year, snowy winters, like coastal Iceland), Temperate (mild and
+        rainy all year, little snow), Mediterranean (hot dry summers, mild rainy winters), Subtropical (warm all
+        year, never snowy), HotDesert (hot and dry), FoggyDesert (a dry desert by a cold sea, often foggy),
+        Savanna (hot, with a rainy season and a dry season), Rainforest (hot and wet all year).
+        hemisphere: "north" or "south" of the equator.
         """;
 
     private static readonly JsonElement FactSchema = JsonDocument.Parse("""
