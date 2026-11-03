@@ -140,7 +140,6 @@ public sealed class ToyHost : IDisposable
         Audio?.Dispose();
     }
 
-    /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
     /// <summary>Loads the model while the toy starts, so the first pick 30 s into play does not also wait for the
     /// load, and writes how long it took (or why it failed) to the log.</summary>
     private async Task WarmUpAsync(OllamaLanguageModel model)
@@ -158,6 +157,7 @@ public sealed class ToyHost : IDisposable
 
     private readonly object _directorLogLock = new();
 
+    /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
     public void WriteDirectorLog(string line)
     {
         // The warm-up writes from the thread pool; everything else from the UI thread.
