@@ -3,13 +3,20 @@ using Keypuncher.Core;
 namespace Keypuncher.Director;
 
 /// <summary>One line of the director's log: what it was asked, what came of it, or why it could not run.
-/// <paramref name="Slot"/> is -1 for a scene step, whose result is in <paramref name="Scene"/>.</summary>
-public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error, SceneOutcome? Scene = null)
+/// <paramref name="Slot"/> is -1 for a scene step, whose result is in <paramref name="Scene"/>. <paramref name="TimedOut"/>
+/// marks a request the model gave no answer to before the request was given up (an HTTP timeout, say).</summary>
+public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Outcome, string? Error, SceneOutcome? Scene = null,
+    bool TimedOut = false)
 {
     /// <summary>One line per attempt, for the grown-ups' page and the log file.</summary>
     public IEnumerable<string> Lines(string timeFormat = "HH:mm")
     {
         var at = At.ToString(timeFormat);
+        if (TimedOut)
+        {
+            yield return $"{at}  no answer from the model in time{(Slot >= 0 ? $" for key family {Slot}" : " for the scene step")}; trying again soon";
+            yield break;
+        }
         if (Error is { } error)
         {
             yield return $"{at}  could not reach the model: {error}";
@@ -260,7 +267,15 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var (slot, was) = _asked!.Value;
         _family = null;
         _asked = null;
-        if (done.IsCanceled) return;
+        if (done.IsCanceled)
+        {
+            // Cancelled by us only when the loop is being disposed; any other cancellation is the model taking too
+            // long (an HTTP timeout surfaces as a cancelled task), which used to vanish from the log.
+            if (_stop.IsCancellationRequested) return;
+            AddLog(new DirectorLogEntry(DateTime.Now, slot, null, null, TimedOut: true));
+            _familyDue = world.Time + Math.Min(FirstAfterSeconds, limits.RestyleMinutes * 60);
+            return;
+        }
         if (done.Exception is { } e)
         {
             AddLog(new DirectorLogEntry(DateTime.Now, slot, null, e.GetBaseException().Message));
@@ -284,7 +299,13 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var was = _sceneWas;
         _scene = null;
         _sceneWas = null;
-        if (done.IsCanceled) return;
+        if (done.IsCanceled)
+        {
+            if (_stop.IsCancellationRequested) return;
+            AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, TimedOut: true));
+            _sceneDue = world.Time + Math.Min(FirstAfterSeconds, limits.SceneMinutes * 60);
+            return;
+        }
         if (done.Exception is { } e)
         {
             AddLog(new DirectorLogEntry(DateTime.Now, -1, null, e.GetBaseException().Message));
