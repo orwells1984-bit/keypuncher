@@ -295,6 +295,49 @@ public class SceneTests
         }
     }
 
+    /// <summary>Gives up the way HttpClient does when its timeout passes: a TaskCanceledException.</summary>
+    private sealed class TimesOut : Keypuncher.Inference.ILanguageModel
+    {
+        public string ModelName => "slow";
+        public async Task<Keypuncher.Inference.GenerationResult> GenerateJsonAsync(string systemPrompt, string userPrompt, JsonElement jsonSchema, CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.");
+        }
+    }
+
+    [Fact]
+    public async Task A_request_the_model_times_out_on_is_logged_and_tried_again_soon()
+    {
+        var world = new World();
+        var slow = new TimesOut();
+        using var loop = new DirectorLoop(new RealThingDirector(slow, new FactChecker(slow)), new Random(1),
+            scenes: new SceneDirector(slow, new PlaceChecker(slow)));
+        var limits = CalmLimits.Baby;
+        var noted = new List<string>();
+        loop.Noted += noted.Add;
+
+        loop.Update(world, limits, enabled: true);
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, limits, enabled: true);
+        Assert.True(loop.Busy);
+        await Settle(loop, world, limits);
+        Assert.Contains(noted, l => l.Contains("no answer from the model in time for key family"));
+
+        Tick(world, DirectorLoop.FirstSceneAfterSeconds - DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, limits, enabled: true);
+        Assert.True(loop.Busy);
+        await Settle(loop, world, limits);
+        Assert.Contains(noted, l => l.Contains("no answer from the model in time for the scene step"));
+
+        // Tried again after the short retry, not a whole calm-level interval later.
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, limits, enabled: true);
+        Assert.True(loop.Busy);
+        await Settle(loop, world, limits);
+        Assert.Equal(2, noted.Count(l => l.Contains("asking key family")));
+    }
+
     [Fact]
     public async Task The_loop_moves_the_scene_between_family_changes_and_remembers_where_it_has_been()
     {

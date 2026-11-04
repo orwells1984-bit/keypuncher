@@ -67,6 +67,7 @@ public sealed class ToyHost : IDisposable
             if (Engine.Settings.DirectorTest) Engine.Show(recipe);
         };
         WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
+        if (Engine.Settings.Director) _ = WarmUpAsync(author);
 
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
     }
@@ -139,17 +140,38 @@ public sealed class ToyHost : IDisposable
         Audio?.Dispose();
     }
 
-    /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
-    public void WriteDirectorLog(string line)
+    /// <summary>Loads the model while the toy starts, so the first pick 30 s into play does not also wait for the
+    /// load, and writes how long it took (or why it failed) to the log.</summary>
+    private async Task WarmUpAsync(OllamaLanguageModel model)
     {
         try
         {
-            if (File.Exists(_directorLog) && new FileInfo(_directorLog).Length > DirectorLogLimit)
-                File.Move(_directorLog, Path.ChangeExtension(_directorLog, ".old.log"), overwrite: true);
-            File.AppendAllText(_directorLog, line + Environment.NewLine);
+            var took = await model.WarmUpAsync().ConfigureAwait(false);
+            WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  model loaded in {took.TotalSeconds:0.0} s");
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        catch (Exception e)
+        {
+            WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  could not load the model: {e.GetBaseException().Message}");
+        }
+    }
+
+    private readonly object _directorLogLock = new();
+
+    /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
+    public void WriteDirectorLog(string line)
+    {
+        // The warm-up writes from the thread pool; everything else from the UI thread.
+        lock (_directorLogLock)
+        {
+            try
+            {
+                if (File.Exists(_directorLog) && new FileInfo(_directorLog).Length > DirectorLogLimit)
+                    File.Move(_directorLog, Path.ChangeExtension(_directorLog, ".old.log"), overwrite: true);
+                File.AppendAllText(_directorLog, line + Environment.NewLine);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 
     public static bool IsRecordingShortcut(KeyPress k) => k.ScanCode is 0x39 or 0xE04B or 0xE04D or 0x1C;
