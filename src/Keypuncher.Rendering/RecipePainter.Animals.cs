@@ -615,6 +615,8 @@ internal static partial class RecipePainter
         public readonly Pen Second;
         /// <summary>The eyes' ink, for noses.</summary>
         public readonly Pen Ink;
+        /// <summary>Leaf green, whatever the body's colour.</summary>
+        public readonly Pen Leaf;
 
         public Kit(SKCanvas c, float r, int hue, double t, Brush b)
         {
@@ -629,6 +631,7 @@ internal static partial class RecipePainter
             Pink = PenFor(b.Style.Snap(335), b.Stroke);
             Second = PenFor(b.Style.Companion(hue), b.Stroke);
             Ink = new Pen(Rgb(b.Style.Ink), Rgb(b.Style.Ink), b.Stroke);
+            Leaf = PenFor(b.Style.Snap(130), b.Stroke);
         }
 
         public ArtStyle Style => _b.Style;

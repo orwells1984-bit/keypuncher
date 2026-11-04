@@ -9,6 +9,7 @@
 // --taps N then taps the N newest things where they stand, so each tap lands on one and pops.
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
+// --concepts does the same for the starter words that are not animals (apple, moon, house, boat and the rest).
 // --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
 // --tour instead records a video (as test mode does) of the backdrop moving through every landscape, time of day
 // and weather, with the toy's real fades, to tour.avi.
@@ -31,7 +32,8 @@ var width = int.Parse(Get("--width", "1280"));
 var height = int.Parse(Get("--height", "720"));
 var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
 Directory.CreateDirectory(outDir);
-if (args.Contains("--sheet")) return Sheet(outDir);
+if (args.Contains("--sheet")) return Sheet(outDir, "animals", BuiltInRecipes.Animals.All);
+if (args.Contains("--concepts")) return Sheet(outDir, "concepts", [.. BuiltInRecipes.Concepts.Values.Where(r => !r.Body.Shape.IsAnimal())]);
 if (args.Contains("--calls")) return Calls(outDir);
 if (args.Contains("--scenes")) return Scenes(outDir);
 if (args.Contains("--tour")) return Tour(outDir, calm);
@@ -126,10 +128,9 @@ Console.WriteLine($"live {world.Live.Count}, things {world.LiveThingCount}{(taps
 
 return 0;
 
-static int Sheet(string outDir)
+static int Sheet(string outDir, string name, IReadOnlyList<Recipe> animals)
 {
     const int tileW = 640, tileH = 360, columns = 6;
-    var animals = BuiltInRecipes.Animals.All;
     var rows = (animals.Count + columns - 1) / columns;
     using var renderer = new SceneRenderer(Fonts.LoadAndika());
     using var label = new SKFont(Fonts.LoadAndika(), 22);
@@ -150,7 +151,7 @@ static int Sheet(string outDir)
         }
         using var snapshot = sheet.Snapshot();
         using var data = snapshot.Encode(SKEncodedImageFormat.Png, 90);
-        var path = Path.Combine(outDir, $"animals-{level}.png");
+        var path = Path.Combine(outDir, $"{name}-{level}.png");
         using (var f = File.Create(path)) data.SaveTo(f);
         Console.WriteLine(path);
     }
