@@ -71,7 +71,10 @@ public static class RealThingRules
     private static readonly HashSet<string> DescribingWords = ["extinct", "prehistoric", "ancient", "fossil", "unknown", "some", "any", "kind", "type"];
 
     /// <summary>Group words that end a description rather than a name: "sea animal", "flying reptile".</summary>
-    private static readonly HashSet<string> GroupEndings = ["animal", "animals", "creature", "creatures", "reptile", "reptiles", "mammal", "mammals", "beast", "species", "dinosaur", "dinosaurs", "thing"];
+    private static readonly HashSet<string> GroupEndings = ["animal", "animals", "creature", "creatures", "reptile", "reptiles", "mammal", "mammals", "beast", "species", "dinosaur", "dinosaurs", "thing", "vehicle", "vehicles", "object", "objects"];
+    /// <summary>What the model hands back when it echoes the schema instead of answering: in a run it offered
+    /// "string" three times for a vehicle.</summary>
+    private static readonly HashSet<string> Placeholders = ["string", "name", "subject", "text", "example", "placeholder", "item", "value", "unknown", "tbd"];
 
     /// <summary>What a model writes when it means no life stage.</summary>
     private static readonly HashSet<string> Nothing = ["null", "none", "nothing", "n/a", "na", "no", "-"];
@@ -115,6 +118,7 @@ public static class RealThingRules
         if (name.Length is < 2 or > 24) return "name length";
         if (!name.All(c => c is (>= 'a' and <= 'z') or ' ' or '-' or '\'' or '.')) return "not a plain English name";
         if (name.Count(c => c == ' ') > 3) return "too many words";
+        if (Placeholders.Contains(name)) return "a placeholder, not a name";
         var parts = name.Split(' ');
         if (GroupWords.Contains(name) || parts.Any(DescribingWords.Contains) || GroupEndings.Contains(parts[^1]))
             return "too general, not one kind";

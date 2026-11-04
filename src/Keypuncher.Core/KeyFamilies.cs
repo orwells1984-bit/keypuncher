@@ -11,6 +11,7 @@ public sealed class KeyFamilies
 {
     private readonly Recipe[] _recipes = new Recipe[BuiltInRecipes.Palette.Count];
     private readonly double?[] _changedAt = new double?[BuiltInRecipes.Palette.Count];
+    private readonly int[] _uses = new int[BuiltInRecipes.Palette.Count];
 
     public KeyFamilies() => Reset();
 
@@ -30,7 +31,25 @@ public sealed class KeyFamilies
     public double? ChangedAt(int slot) => _changedAt[slot];
 
     /// <summary>The family a key or screen spot maps to; the same number always gives the same family.</summary>
-    public Recipe For(uint family) => _recipes[family % (uint)_recipes.Length];
+    public Recipe For(uint family) => _recipes[SlotOf(family)];
+
+    /// <summary>The slot a key or screen spot maps to.</summary>
+    public int SlotOf(uint family) => (int)(family % (uint)_recipes.Length);
+
+    /// <summary>Counts a key press or tap on a family, so the director can change the families the child
+    /// actually uses; not saved, so each run starts afresh.</summary>
+    public void Use(uint family) => _uses[SlotOf(family)]++;
+
+    /// <summary>How often <paramref name="slot"/> has been used this run.</summary>
+    public int Uses(int slot) => _uses[slot];
+
+    /// <summary>The slot <paramref name="recipe"/> is the restyled recipe of, or null if it is a built-in one.</summary>
+    public int? RestyledSlot(Recipe recipe)
+    {
+        for (var i = 0; i < _recipes.Length; i++)
+            if (_changedAt[i] is not null && ReferenceEquals(_recipes[i], recipe)) return i;
+        return null;
+    }
 
     /// <summary>Gives a family a new recipe of the same kind. Returns false, changing nothing, for a family that
     /// may not be restyled or a recipe of another kind.</summary>

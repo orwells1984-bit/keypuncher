@@ -43,7 +43,14 @@ public sealed class PlayPage : ContentPage
         _timer.Tick += (_, _) => OnFrame();
 
         _host.Engine.GrownUpRequested += OnGrownUp;
+        _host.Engine.RestyledShown += (slot, recipe) =>
+        {
+            // Once per thing per play, so the log says what the child actually saw of the model's choices.
+            if (_shown.Add((slot, recipe.Name))) Log($"shown: {recipe.Name} (key family {slot})");
+        };
     }
+
+    private readonly HashSet<(int, string)> _shown = [];
 
     /// <summary>Frames per second over the last few seconds, for the parent screen.</summary>
     public static double FramesPerSecond { get; private set; }
@@ -55,6 +62,7 @@ public sealed class PlayPage : ContentPage
         _host.Engine.StartSession();
         var s = _host.Engine.Settings;
         (_keys, _taps, _wasAsleep) = (0, 0, false);
+        _shown.Clear();
         _session.Restart();
         if (s.RecordPlay || s.DirectorTest)
             _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.VideosName), s.DirectorTest ? "test" : "play");

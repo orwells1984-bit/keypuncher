@@ -132,6 +132,59 @@ public class RealThingTests
     public void Group_words_are_refused(string name) =>
         Assert.Equal("too general, not one kind", Build(Pick(name, "Animal", "Blob"), CreatureFamily, out _, out _, out var e) ? null : e);
 
+    [Theory]
+    [InlineData("string")]
+    [InlineData("name")]
+    [InlineData("placeholder")]
+    public void Schema_placeholders_echoed_back_are_refused(string name) =>
+        Assert.Equal("a placeholder, not a name", Build(Pick(name, "Vehicle", "Stripe"), CreatureFamily, out _, out _, out var e) ? null : e);
+
+    [Theory]
+    [InlineData("a vehicle")]
+    [InlineData("everyday object")]
+    public void Vehicle_and_object_as_group_words_are_refused(string name) =>
+        Assert.Equal("too general, not one kind", Build(Pick(name, "Vehicle", "Stripe"), CreatureFamily, out _, out _, out var e) ? null : e);
+
+    [Fact]
+    public async Task An_animal_the_strict_checker_is_unsure_of_gets_a_second_gentler_look()
+    {
+        // In a run the strict pass called a salamander and a mudfish "unknown".
+        var checker = new ScriptedModel(Check("unknown", "unsure", kind: "None"), Check("an amphibian", "real"));
+        var check = await new FactChecker(checker).CheckAsync("salamander", null, RealCategory.Animal);
+        Assert.True(check.Passes(RealCategory.Animal));
+        Assert.Equal(2, checker.Prompts.Count);
+        Assert.Contains("real kind of animal", checker.Prompts[1]);
+
+        // A plant gets the same second look, but a vehicle or an object does not: the strict pass is final.
+        var plants = new ScriptedModel(Check("unknown", "unsure", kind: "None"), Check("a water plant", "real", kind: "Plant"));
+        Assert.True((await new FactChecker(plants).CheckAsync("watercress", null, RealCategory.Plant)).Passes(RealCategory.Plant));
+        var vehicles = new ScriptedModel(Check("unknown", "unsure", kind: "None"), Check("a boat", "real", kind: "Vehicle"));
+        Assert.False((await new FactChecker(vehicles).CheckAsync("slovenian boat", null, RealCategory.Vehicle)).Passes(RealCategory.Vehicle));
+        Assert.Single(vehicles.Prompts);
+
+        // The second look can only turn "unsure" into a verdict; a second "unsure" stays unsure, and a growsInto
+        // claim keeps the first pass's answer.
+        var twice = new ScriptedModel(Check("unknown", "unsure", kind: "None", growsInto: "false"), Check("unknown", "unsure", kind: "None"));
+        var still = await new FactChecker(twice).CheckAsync("fluffaroo", "frog", RealCategory.Animal);
+        Assert.Equal("unsure", still.Verdict);
+        Assert.False(still.GrowsIntoConfirmed);
+    }
+
+    [Fact]
+    public void The_loop_changes_the_invented_family_the_child_uses_most()
+    {
+        var world = new World();
+        using var loop = new DirectorLoop(new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel())), new Random(5));
+        var favourite = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).Last(i => world.Families.ChangedAt(i) is null);
+        for (var i = 0; i < 9; i++) world.Families.Use((uint)favourite);
+        world.Families.Use(2);
+        for (var i = 0; i < 5; i++) Assert.Equal(favourite, loop.NextRequest(world.Families)!.Slot);
+
+        // Once it is real, the next most used invented family is asked about.
+        world.Families.Restyle(favourite, world.Families[favourite] with { Name = "real thing" }, 1);
+        Assert.Equal(2, loop.NextRequest(world.Families)!.Slot);
+    }
+
     [Fact]
     public void Each_request_gets_a_schema_that_allows_only_its_category_and_shapes()
     {

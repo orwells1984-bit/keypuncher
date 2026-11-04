@@ -44,8 +44,9 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
 /// <see cref="CalmLimits.RestyleMinutes"/> it asks the <see cref="RealThingDirector"/> for a real thing for one key
 /// family, and every <see cref="CalmLimits.SceneMinutes"/> it asks the <see cref="SceneDirector"/> for the scene's
 /// next step (a real place, its weather, the time of day moving on). When both are due, the one waiting longer goes.
-/// Families still holding an invented built-in thing go first; after that, a thing that really grows into
-/// something becomes it (tadpole, then frog), and otherwise the family changed longest ago is next.
+/// Families still holding an invented built-in thing go first, the one the child has pressed most of all; after
+/// that, a thing that really grows into something becomes it (tadpole, then frog), and otherwise the family
+/// changed longest ago is next.
 /// Call <see cref="Update"/> from the UI thread each frame; the model runs on the thread pool and its answer is
 /// applied on a later <see cref="Update"/>, so the reflex loop never waits for it.
 /// </summary>
@@ -185,10 +186,11 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             .Distinct()
             .ToList();
 
-        var invented = slots.Where(i => families.ChangedAt(i) is null).ToList();
+        // The family the child has used most goes first, so a change is one the child will see; ties at random.
+        var invented = slots.Where(i => families.ChangedAt(i) is null).OrderBy(_ => _random.Next()).ToList();
         if (invented.Count > 0)
         {
-            var slot = invented[_random.Next(invented.Count)];
+            var slot = invented.MaxBy(families.Uses);
             return Ask(slot, families[slot].Kind, null, existing, scene);
         }
 

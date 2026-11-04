@@ -120,6 +120,10 @@ public sealed class ToyEngine
     /// <summary>Raised with the tap's x when a tap lands on something already there and it pops.</summary>
     public event Action<double>? Popped;
 
+    /// <summary>Raised when a key or tap puts one of a director-restyled family's things on screen: the slot and
+    /// the recipe. For the log, so a run shows whether the child ever saw what the model chose.</summary>
+    public event Action<int, Recipe>? RestyledShown;
+
     public ToySettings Settings
     {
         get => _settings;
@@ -238,7 +242,9 @@ public sealed class ToyEngine
             return;
         }
         if (woken > 0) Pop(x);
-        var recipe = _world.Families.For((uint)((int)(x * 6) + (6 * (int)(y * 4))));
+        var spot = (uint)((int)(x * 6) + (6 * (int)(y * 4)));
+        _world.Families.Use(spot);
+        var recipe = _world.Families.For(spot);
         SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
         MaybeCall(recipe, x, CallChance);
@@ -471,7 +477,11 @@ public sealed class ToyEngine
     /// so every press still gets a visible answer without adding to the crowd.</summary>
     private void SpawnOrWake(Recipe recipe, double x, double y, double scale, DateTimeOffset at)
     {
-        if (_limiter.TryTake(at)) SpawnThing(recipe, x, y, scale);
+        if (_limiter.TryTake(at))
+        {
+            SpawnThing(recipe, x, y, scale);
+            if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
+        }
         else if (_world.Newest(recipe) is { } existing) _world.Wake(existing);
     }
 
@@ -518,7 +528,11 @@ public sealed class ToyEngine
         _mixer.Note(Notes.Frequency(midi), voice, velocity, (x * 2) - 1);
 
     /// <summary>The same key always makes the same family of thing, though the director may restyle the family.</summary>
-    private Recipe FamilyOf(int scanCode) => _world.Families.For((uint)scanCode);
+    private Recipe FamilyOf(int scanCode)
+    {
+        _world.Families.Use((uint)scanCode);
+        return _world.Families.For((uint)scanCode);
+    }
 
     private void Schedule(double delay, Action action)
     {

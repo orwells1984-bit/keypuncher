@@ -275,6 +275,22 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_key_on_a_restyled_family_says_so_once_and_the_families_count_their_uses()
+    {
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin" };
+        Assert.True(_world.Families.Restyle(0, puffin, 1));   // 0x26 (L) is family 0
+        var shown = new List<(int, string)>();
+        _engine.RestyledShown += (slot, recipe) => shown.Add((slot, recipe.Name));
+
+        Press(0x26, "l");
+        Assert.Equal([(0, "puffin")], shown);
+        Assert.Equal(1, _world.Families.Uses(0));
+        Press(0x25, "k");   // another family, not restyled
+        Assert.Single(shown);
+        Assert.Equal(1, _world.Families.Uses(_world.Families.SlotOf(0x25)));
+    }
+
+    [Fact]
     public void A_key_makes_its_restyled_family_and_the_change_is_saved()
     {
         var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin", Body = BuiltInRecipes.Animals.Bird.Body with { Hue = 0 } };
