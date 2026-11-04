@@ -27,6 +27,7 @@ public sealed class ToyHost : IDisposable
     private readonly ConcurrentQueue<KeyPress> _keys = new();
     private readonly SettingsStore _settingsStore;
     private readonly AccessibilityShortcuts _shortcuts;
+    private readonly LockShortcut _lock;
     private readonly KeepAwake _keepAwake = new();
     private volatile HostMode _mode = HostMode.Play;
 
@@ -49,6 +50,7 @@ public sealed class ToyHost : IDisposable
         Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load(), clock: () => DateTime.Now);
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
         _shortcuts = new AccessibilityShortcuts();
+        _lock = new LockShortcut();
 
         var ollama = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } host
             ? (host.Contains("://") ? host : "http://" + host)
@@ -133,6 +135,7 @@ public sealed class ToyHost : IDisposable
     {
         Keyboard.Dispose();
         _shortcuts.Dispose();
+        _lock.Dispose();
         _keepAwake.Dispose();
         Director.Dispose();
         SaveWorld();
