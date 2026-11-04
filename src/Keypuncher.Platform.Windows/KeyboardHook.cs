@@ -7,8 +7,8 @@ namespace Keypuncher.Platform.Windows;
 /// <summary>
 /// A low-level keyboard hook on its own thread (so a busy UI thread never delays keys or trips
 /// Windows' hook timeout). While the toy's window is in front, keys that <see cref="ShouldSwallow"/> picks
-/// (in play: all of them) are kept from Windows: Win, Alt+Tab, Alt+F4, Ctrl+Esc, media keys and all. Ctrl+Alt+Del and
-/// firmware Fn keys cannot be blocked. Characters are read with the Icelandic layout whatever the
+/// (in play: all of them) are kept from Windows: Win, Alt+Tab, Alt+F4, Ctrl+Esc, media keys and all. Ctrl+Alt+Del,
+/// Win+L and firmware Fn keys cannot be blocked here; <see cref="LockShortcut"/> turns Win+L off another way. Characters are read with the Icelandic layout whatever the
 /// account's layout is. Proven by tools/Keypuncher.KeySpike.
 /// </summary>
 public sealed class KeyboardHook : IDisposable
