@@ -18,7 +18,13 @@ $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 Push-Location $root
 try {
     dotnet build tools/Keypuncher.Sandbox -c Release | Out-Null
-    $bench = { param($more) dotnet run --project tools/Keypuncher.Sandbox -c Release --no-build -- bench --out $Out --until $Until @more }
+    if ($LASTEXITCODE -ne 0) { throw "build failed" }
+    $bench = {
+        param($more)
+        dotnet run --project tools/Keypuncher.Sandbox -c Release --no-build -- bench --out $Out --until $Until @more
+        if ($LASTEXITCODE -eq 2) { throw "bench did not start: another job has Ollama (see above)" }
+        if ($LASTEXITCODE -ne 0) { throw "bench exited with $LASTEXITCODE" }
+    }
     switch ($Step) {
         'smoke'    { & $bench @('--models', 'qwen3:4b', '--variants', 'baseline', '--sets', 'checker', '--runs', '1') }
         'baseline' { & $bench @('--models', 'qwen3:4b,qwen3:1.7b', '--variants', 'baseline', '--runs', '3') }

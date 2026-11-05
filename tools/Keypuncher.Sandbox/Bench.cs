@@ -44,7 +44,7 @@ public static class Bench
         bool ValidJson, bool Passed, bool? Agrees, double TotalMs, double LoadMs, int PromptTokens, int OutputTokens, string Raw);
 
     public sealed record Options(Uri Host, IReadOnlyList<string> Models, IReadOnlyList<PromptVariant> Variants, IReadOnlyList<string> Sets,
-        int Runs, float Temperature, bool Think, string OutDir, string SetsDir, DateTime? Until, bool Force)
+        int Runs, float Temperature, bool Think, string OutDir, string SetsDir, DateTime? Until, bool Force, IReadOnlyList<string> OtherJobs)
     {
         /// <summary>The clock time to stop by, "HH:mm": today if still ahead, else tomorrow.</summary>
         public static DateTime? ParseUntil(string? text, DateTime now)
@@ -75,7 +75,8 @@ public static class Bench
                 Get("out", "bench-results"),
                 Get("sets-dir", sets),
                 ParseUntil(Get("until", ""), DateTime.Now),
-                args.Contains("--force"));
+                args.Contains("--force"),
+                Get("other-jobs", "laguna,qwen3-coder").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         }
 
         /// <summary>The variant's name in the CSV, with the model settings that are not the toy's own.</summary>
@@ -94,8 +95,10 @@ public static class Bench
             + (opts.Until is { } until ? $"; stops by {until:yyyy-MM-dd HH:mm}" : ""));
 
         // Another job's model in memory means its requests are queued or running; with one model loaded at a time the
-        // bench and the job would swap and both crawl, as the toy did under the tournament on 3 Nov.
-        var busy = (await new OllamaLanguageModel(host, opts.Models[0]).LoadedModelsAsync()).Where(n => !opts.Models.Contains(n) && !opts.Models.Contains(n.Replace(":latest", ""))).ToList();
+        // bench and the job would swap and both crawl, as the toy did under the tournament on 3 Nov. Only the other
+        // jobs' models count (--other-jobs, name prefixes): the bench's own last model stays loaded for 30 minutes.
+        var busy = (await new OllamaLanguageModel(host, opts.Models[0]).LoadedModelsAsync())
+            .Where(n => opts.OtherJobs.Any(o => n.StartsWith(o, StringComparison.OrdinalIgnoreCase))).ToList();
         if (busy.Count > 0 && !opts.Force)
         {
             Console.WriteLine($"not starting: Ollama has {string.Join(", ", busy)} loaded for another job (ollama ps). Wait, or pass --force.");
@@ -141,9 +144,10 @@ public static class Bench
                 {
                     if (opts.Sets.Contains("author"))
                         foreach (var c in authorSet) { if (OutOfTime()) break; Keep(await AuthorAsync(author, checker, variant, c, model, label, run)); }
-                    if (opts.Sets.Contains("checker"))
+                    // The checker runs cold (temperature 0), so its answers do not change between runs: once is enough.
+                    if (opts.Sets.Contains("checker") && run == 1)
                         foreach (var c in checkerSet) { if (OutOfTime()) break; Keep(await CheckerAsync(checker, c, model, label, run)); }
-                    if (opts.Sets.Contains("habitat"))
+                    if (opts.Sets.Contains("habitat") && run == 1)
                         foreach (var c in habitatSet) { if (OutOfTime()) break; Keep(await HabitatAsync(coldModel, c, model, label, run)); }
                     if (opts.Sets.Contains("scene"))
                         foreach (var c in sceneSet) { if (OutOfTime()) break; foreach (var row in await SceneAsync(author, placeChecker, c, model, label, run)) Keep(row); }
@@ -290,7 +294,8 @@ public static class Bench
         var sb = new StringBuilder();
         sb.AppendLine($"# Director bench, {Environment.MachineName}, {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine();
-        sb.AppendLine($"Models {string.Join(", ", opts.Models)}; variants {string.Join(", ", opts.Variants.Select(opts.Label))}; {opts.Runs} run(s) a case.");
+        sb.AppendLine($"Models {string.Join(", ", opts.Models)}; variants {string.Join(", ", opts.Variants.Select(opts.Label))}; {opts.Runs} run(s) a case "
+            + "(the checker and habitat sets once: at temperature 0 the answers do not change).");
         sb.AppendLine();
         if (loads.Count > 0)
         {
