@@ -162,7 +162,7 @@ public static class Bench
             if (stopped) break;
         }
 
-        var summary = Summary(rows, loads, opts);
+        var summary = Summary(rows, loads, opts, stopped);
         var mdPath = Path.Combine(opts.OutDir, stamp + "-bench.md");
         await File.WriteAllTextAsync(mdPath, summary);
         Console.WriteLine("\n" + summary);
@@ -289,11 +289,17 @@ public static class Bench
     }
 
     /// <summary>One table a set, a row a model and variant.</summary>
-    public static string Summary(IReadOnlyList<Row> rows, IReadOnlyList<(string Model, double ColdLoadS, long Size, long SizeVram)> loads, Options opts)
+    public static string Summary(IReadOnlyList<Row> rows, IReadOnlyList<(string Model, double ColdLoadS, long Size, long SizeVram)> loads, Options opts, bool stopped = false)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"# Director bench, {Environment.MachineName}, {DateTime.Now:yyyy-MM-dd HH:mm}");
+        sb.AppendLine($"# Director bench, {Environment.MachineName}, {DateTime.Now:yyyy-MM-dd HH:mm}{(stopped ? " (STOPPED EARLY)" : "")}");
         sb.AppendLine();
+        if (stopped)
+        {
+            // The cases run in a fixed order (the real names first in the checker set), so a cut-off run looks better than it is.
+            sb.AppendLine($"**Stopped at {DateTime.Now:HH:mm} by --until before every case ran. The figures below are for part of each set, in set order, and do not compare with a full run.**");
+            sb.AppendLine();
+        }
         sb.AppendLine($"Models {string.Join(", ", opts.Models)}; variants {string.Join(", ", opts.Variants.Select(opts.Label))}; {opts.Runs} run(s) a case "
             + "(the checker and habitat sets once: at temperature 0 the answers do not change).");
         sb.AppendLine();
