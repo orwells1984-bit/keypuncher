@@ -27,6 +27,8 @@ public enum RecipeKind { Creature, Plant, Effect }
 public enum Shape
 {
     Blob, Petal, Star, Wave, Cloud, Stripe, DotField,
+    // Pictures of things, drawn like the animals below rather than built from the abstract shapes above.
+    Apple, Moon, House, Boat,
     Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse,
     Rex, LongNeck, Triceratops, Stegosaurus,
     Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish,
@@ -36,6 +38,13 @@ public static class Shapes
 {
     /// <summary>A real animal or dinosaur: always alive, so always a creature with a face.</summary>
     public static bool IsAnimal(this Shape shape) => shape >= Shape.Cat;
+
+    /// <summary>A drawn picture of one particular thing (an apple, the moon, a house, a boat): never an animal,
+    /// and not a shape the director may use for any thing it likes.</summary>
+    public static bool IsPicture(this Shape shape) => shape is >= Shape.Apple and < Shape.Cat;
+
+    /// <summary>One of the abstract shapes the invented things and the director's things are built from.</summary>
+    public static bool IsAbstract(this Shape shape) => shape < Shape.Apple;
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<MotionType>))]

@@ -132,8 +132,11 @@ public static class RealThingSchema
     public static IEnumerable<Shape> ShapesFor(RealCategory category, bool anyAnimal = false) =>
         Enum.GetValues<Shape>().Where(s => category switch
         {
-            RealCategory.ExtinctAnimal => true,
-            RealCategory.Animal => anyAnimal || s is not (Shape.Rex or Shape.LongNeck or Shape.Triceratops or Shape.Stegosaurus),
-            _ => !s.IsAnimal(),
+            RealCategory.ExtinctAnimal => !s.IsPicture(),
+            RealCategory.Animal => !s.IsPicture() && (anyAnimal || s is not (Shape.Rex or Shape.LongNeck or Shape.Triceratops or Shape.Stegosaurus)),
+            // A fruit may be drawn as the apple, a vehicle as the boat; the moon and the house suit nothing else.
+            RealCategory.Plant => s.IsAbstract() || s == Shape.Apple,
+            RealCategory.Vehicle => s.IsAbstract() || s == Shape.Boat,
+            _ => s.IsAbstract(),
         });
 }

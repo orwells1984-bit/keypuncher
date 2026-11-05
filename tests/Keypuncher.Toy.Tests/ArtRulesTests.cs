@@ -409,6 +409,27 @@ public sealed class ArtRulesTests : IDisposable
         Assert.Contains(changed, i => Near(cued[i], Rgb(world.Style.Ink)));
     }
 
+    [Fact]
+    public void The_apple_moon_house_and_boat_are_drawn_in_their_own_colours_at_every_level()
+    {
+        const int width = 640, height = 360;
+        using var renderer = new SceneRenderer(Fonts.LoadAndika());
+        foreach (var level in Enum.GetValues<CalmLevel>())
+        foreach (var name in new[] { "apple", "moon", "house", "boat" })
+        {
+            var recipe = BuiltInRecipes.Concepts[name];
+            var style = ArtStyle.For(level);
+            var world = new World { Style = style };
+            world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = recipe, X = 0.5, Y = 0.5, Born = -1, Phase = 0.05 });
+            var frame = Render(renderer, world, width, height);
+            var body = Rgb(style.Snap(recipe.Body.Hue).Fill);
+            var painted = frame.Count(c => Near(c, body));
+            Assert.True(painted > 300, $"{name} at {level} shows its colour ({painted} pixels)");
+            // No eyes: nothing drawn as a picture is alive.
+            Assert.DoesNotContain(frame, c => c == SKColors.White);
+        }
+    }
+
     private static SKColor[] Render(SceneRenderer renderer, World world, int width, int height)
 
     {

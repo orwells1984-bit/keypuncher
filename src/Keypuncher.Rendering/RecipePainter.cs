@@ -38,6 +38,12 @@ internal static partial class RecipePainter
             return;
         }
 
+        if (body.Shape.IsPicture())
+        {
+            Picture(c, body.Shape, r, body.Hue, t, brush);
+            return;
+        }
+
         switch (body.Shape)
         {
             case Shape.Petal: Petals(c, r, lobes, body.Hue, brush); break;

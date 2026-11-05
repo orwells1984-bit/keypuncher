@@ -66,11 +66,12 @@ public class RecipeTests
     }
 
     [Fact]
-    public void Schema_offers_every_shape()
+    public void Schema_offers_every_shape_but_the_pictures()
     {
         var shapes = RecipeSchema.Element.GetProperty("properties").GetProperty("body").GetProperty("properties")
             .GetProperty("shape").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Equal(Enum.GetNames<Shape>(), shapes);
+        // The apple, moon, house and boat are drawings of one thing each, not shapes for the model to build with.
+        Assert.Equal(Enum.GetValues<Shape>().Where(s => !s.IsPicture()).Select(s => s.ToString()), shapes);
     }
 
     [Fact]

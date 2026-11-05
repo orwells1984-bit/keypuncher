@@ -369,8 +369,9 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             }
         }
 
-        // The entity's Y is where a plant's stem meets the ground; the plant sways from there.
-        var stem = plant ? r * 1.6f : 0;
+        // The entity's Y is where a plant's stem meets the ground; the plant sways from there. A picture of a
+        // thing (an apple, a house) has no stem: it just rests on the ground with its bottom at that point.
+        var stem = plant ? (recipe.Body.Shape.IsPicture() ? r : r * 1.6f) : 0;
         var reachOut = (r * 2.2f) + RecipePainter.MinDetail(style, unit);
         return new Placement(x + dx, plant ? y : y + dy, rotation, r, stem, reachOut, plant);
     }
@@ -380,7 +381,11 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private static void PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, ArtStyle style, int unit)
     {
         canvas.Save();
-        if (p.Plant)
+        if (p.Plant && recipe.Body.Shape.IsPicture())
+        {
+            canvas.Translate(0, -p.Stem);
+        }
+        else if (p.Plant)
         {
             using var stemPaint = new SKPaint
             {
