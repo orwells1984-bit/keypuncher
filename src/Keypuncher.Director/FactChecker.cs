@@ -33,8 +33,11 @@ public sealed record FactCheck(
 /// made-up and blended names well, and a plausible-sounding invention less well. The parent page lists every
 /// pick with its fact so a grown-up can spot what gets through.
 /// </summary>
-public sealed class FactChecker(ILanguageModel model)
+/// <param name="variant">How the checker is asked; the toy uses <see cref="PromptVariant.Baseline"/>, the bench tries others.</param>
+public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = null)
 {
+    private readonly PromptVariant _variant = variant ?? PromptVariant.Baseline;
+
     public const string System = """
         You check facts for a children's picture encyclopedia. You are strict: anything you do not know well
         is "unsure". Answer only with JSON that matches the schema.
@@ -150,15 +153,40 @@ public sealed class FactChecker(ILanguageModel model)
         growsInto: "none".
         """;
 
+    /// <summary>A4: the gentle question asked first and only, for any kind of thing, with the growsInto claim kept.</summary>
+    public static string GentlePrompt(string subject, string? growsInto) =>
+        $"""
+        Name: "{subject}"
+        Said to grow or turn into: {(growsInto is null ? "nothing" : $"\"{growsInto}\"")}
+
+        whatItIs: say in a few plain words what this is, or "unknown".
+        verdict: "real" if you recognise the name as a real kind of animal, plant, vehicle or everyday object, even a
+        little-known one, or an animal known from fossils or history; "fictional" if it comes from myths, fairy
+        tales, stories, films, cartoons, games or toys, is a character or a brand, or is a made-up or blended name;
+        "unsure" only if you have never heard of it.
+        kind: "Animal" for a kind of animal that is still alive somewhere today; "ExtinctAnimal" only for one that
+        has died out and lives nowhere today (dinosaurs, the woolly mammoth, the dodo); "Plant" for a plant, flower,
+        tree, fruit or vegetable; "Vehicle"; "Object" for an everyday object; "None" if it is not real.
+        growsInto: "true" if a {subject} really grows or turns into {(growsInto is null ? "that" : $"a {growsInto}")} in nature,
+        "false" if not, "none" if nothing was said.
+        """;
+
+    /// <summary>The system and user prompt for the first look at <paramref name="subject"/>, as the variant arranges them.</summary>
+    public (string System, string User) FirstLook(string subject, string? growsInto) =>
+        _variant.GentleChecker ? _variant.Arrange(SecondLookSystem, GentlePrompt(subject, growsInto)) : _variant.Arrange(System, Prompt(subject, growsInto));
+
     /// <param name="claimed">What the pick says the thing is. The checker is still not told; it only decides whether
     /// an "unsure" gets a second, gentler look, which an animal or a plant does: the strict first pass turned
     /// away a salamander and a mudfish as "unknown", and a made-up animal name rarely survives the name rules
-    /// and the first pass both.</param>
+    /// and the first pass both. With <see cref="PromptVariant.GentleChecker"/> the first look is already the gentle one, so there is no second.</param>
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, RealCategory? claimed = null, CancellationToken cancellationToken = default)
     {
-        var first = await AskAsync(System, Prompt(subject, growsInto), cancellationToken);
+        var (system, user) = FirstLook(subject, growsInto);
+        var first = await AskAsync(system, user, cancellationToken);
+        if (_variant.GentleChecker) return first;
         if (first.Verdict != "unsure" || claimed is not (RealCategory.Animal or RealCategory.Plant)) return first;
-        var second = await AskAsync(SecondLookSystem, SecondLookPrompt(subject, claimed.Value), cancellationToken);
+        var (system2, user2) = _variant.Arrange(SecondLookSystem, SecondLookPrompt(subject, claimed.Value));
+        var second = await AskAsync(system2, user2, cancellationToken);
         // The second look may only turn "unsure" into a verdict; the growsInto claim stays with the first pass.
         return second.Verdict == "unsure" ? first : second with { GrowsInto = first.GrowsInto };
     }

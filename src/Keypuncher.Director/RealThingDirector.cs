@@ -29,9 +29,11 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// Any other request that misses leaves the family as it is, which is always safe.
 /// </summary>
 /// <param name="random">Picks the well-known extinct animals to offer.</param>
-public sealed class RealThingDirector(ILanguageModel author, FactChecker checker, Random? random = null)
+/// <param name="variant">How the author is asked; the toy uses <see cref="PromptVariant.Baseline"/>, the bench tries others.</param>
+public sealed class RealThingDirector(ILanguageModel author, FactChecker checker, Random? random = null, PromptVariant? variant = null)
 {
     private readonly Random _random = random ?? new Random();
+    private readonly PromptVariant _variant = variant ?? PromptVariant.Baseline;
 
     public const int MaxAttempts = 3;
 
@@ -45,8 +47,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         for (var i = 0; i < MaxAttempts; i++)
         {
             var suggestions = Suggestions(request, attempts);
-            var result = await author.GenerateJsonAsync(
-                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(request, turnedDown, suggestions), RealThingSchema.For(request), cancellationToken);
+            var result = await AskAsync(request, turnedDown, suggestions, cancellationToken);
             if (!RealThingRules.TryBuild(result.Json, request, out var pick, out var recipe, out var error))
             {
                 var name = pick?.Subject ?? "?";
@@ -97,8 +98,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         if (Suggestions(request, attempts) is [var fallback, ..])
         {
             var forced = request with { MustBe = fallback };
-            var result = await author.GenerateJsonAsync(
-                DirectorPrompts.RealSystem, DirectorPrompts.RealThing(forced, []), RealThingSchema.For(forced), cancellationToken);
+            var result = await AskAsync(forced, [], null, cancellationToken);
             if (RealThingRules.TryBuild(result.Json, forced, out var pick, out var recipe, out var error))
             {
                 var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, pick.Category, cancellationToken);
@@ -113,6 +113,13 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             else attempts.Add(new DirectorAttempt(pick?.Subject ?? fallback, pick?.Fact, error, null));
         }
         return new DirectorOutcome(request, null, attempts, DateTime.UtcNow - started);
+    }
+
+    /// <summary>One try at the author: the prompts as the variant arranges them.</summary>
+    private Task<GenerationResult> AskAsync(DirectorRequest request, IReadOnlyList<string> turnedDown, IReadOnlyList<string>? suggestions, CancellationToken cancellationToken)
+    {
+        var (system, user, schema) = DirectorPrompts.Author(request, turnedDown, suggestions, _variant);
+        return author.GenerateJsonAsync(system, user, schema, cancellationToken);
     }
 
     /// <summary>For an extinct animal, a few well-known ones not yet in the world or already tried; the small model

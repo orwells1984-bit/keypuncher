@@ -9,6 +9,8 @@
 //   dotnet run --project tools/Keypuncher.Sandbox -- fits [model]              score ways of asking whether a thing is found at a place
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
 //   dotnet run --project tools/Keypuncher.Sandbox -- recipe [model] "a round sleepy cat"   the Phase 0 prompt
+//   dotnet run --project tools/Keypuncher.Sandbox -- bench --models qwen3:4b,gemma3:4b --variants baseline,A1,A4 [--sets author,checker,habitat,scene] [--runs 3] [--temperature 0.8] [--think] [--out bench-results]
+//                                                                    the reliability bench: labelled sets, every model and prompt variant, a CSV row a call (see Bench.cs)
 //
 // Results are printed as Markdown, so they can go straight into bench-results/.
 
@@ -19,7 +21,7 @@ using Keypuncher.Director;
 using Keypuncher.Inference.Ollama;
 
 var mode = args.Length > 0 ? args[0] : "picks";
-var model = args.Length > 1 ? args[1] : "qwen3:4b";
+var model = args.Length > 1 && !args[1].StartsWith("--") ? args[1] : "qwen3:4b";
 var host = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } h ? (h.Contains("://") ? h : "http://" + h) : "http://localhost:11434");
 var author = new OllamaLanguageModel(host, model);
 var cold = new OllamaLanguageModel(host, model, temperature: 0);
@@ -55,10 +57,13 @@ switch (mode)
     case "recipe":
         await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
         break;
+    case "bench":
+        return await Keypuncher.Sandbox.Bench.RunAsync(args.Skip(1).ToArray(), host);
     default:
-        Console.WriteLine("modes: picks, extinct, scenes, places, climates, facts, fits, check, recipe");
+        Console.WriteLine("modes: picks, extinct, scenes, places, climates, facts, fits, check, recipe, bench");
         break;
 }
+return 0;
 
 // Restyles a fresh set of families the way the toy would, back to back, and prints every attempt.
 async Task Picks(int count, bool extinctOnly = false)

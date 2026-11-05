@@ -1,0 +1,666 @@
+[
+ {
+  "name": "puffin",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "arctic fox",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "hedgehog",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "ladybird",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "brown trout",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "mute swan",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "impala",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "gazelle",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "fennec fox",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "sand cat",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "cow",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "hen",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "komodo dragon",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "axolotl",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "mudfish",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "salamander",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "chamois",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "mink",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "redwing",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "pine marten",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "grass snake",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "great crested grebe",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "harbour seal",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "minke whale",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "icelandic horse",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "capercaillie",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "wels catfish",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "dung beetle",
+  "claimed": "Animal",
+  "real": true
+ },
+ {
+  "name": "woolly mammoth",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "dodo",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "ankylosaurus",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "great auk",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "trilobite",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "megalodon",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "parasaurolophus",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "thylacine",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "steller's sea cow",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "irish elk",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "passenger pigeon",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "quagga",
+  "claimed": "ExtinctAnimal",
+  "real": true
+ },
+ {
+  "name": "dandelion",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "birch tree",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "blueberry",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "strawberry",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "pumpkin",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "linden tree",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "icelandic poppy",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "arctic thyme",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "nootka lupine",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "edelweiss",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "acacia tree",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "baobab tree",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "date palm",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "watercress",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "crowberry",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "bilberry",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "alpine rose",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "marsh marigold",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "sea thrift",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "rowan tree",
+  "claimed": "Plant",
+  "real": true
+ },
+ {
+  "name": "fire engine",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "tractor",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "rowing boat",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "safari jeep",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "bicycle",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "tram",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "fishing boat",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "snowmobile",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "ferry",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "hot-air balloon",
+  "claimed": "Vehicle",
+  "real": true
+ },
+ {
+  "name": "teapot",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "kite",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "ball",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "bucket",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "wooden spoon",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "umbrella",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "balloon",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "lantern",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "fishing rod",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "picnic basket",
+  "claimed": "Object",
+  "real": true
+ },
+ {
+  "name": "unicorn",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "gruffalo",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "pikachu",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "snorlax",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "fluffaroo",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "crocoduck",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "glimmerwing moth",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "jabberwock",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "hippogriff",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "moonfish dog",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "wadi rum gazelle",
+  "claimed": "Animal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "lake bled ferry",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "slovenian boat",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "sparkleraptor",
+  "claimed": "ExtinctAnimal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "thunderlizard",
+  "claimed": "ExtinctAnimal",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "moonpetal flower",
+  "claimed": "Plant",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "bumblebeet",
+  "claimed": "Plant",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "broadleaf",
+  "claimed": "Plant",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "glowberry",
+  "claimed": "Plant",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "sunshine tree",
+  "claimed": "Plant",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "hoverboard",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "batmobile",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "magic carpet",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "thunder car",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "wishing stone",
+  "claimed": "Object",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "sparkle cup",
+  "claimed": "Object",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "string",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "a vehicle",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "fictional or made up"
+ },
+ {
+  "name": "dodo",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "puffin",
+  "claimed": "ExtinctAnimal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "triceratops",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "fennec fox",
+  "claimed": "Plant",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "crane",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "cucumber",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "gazelle",
+  "claimed": "Vehicle",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "oak tree",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "apple",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "tractor",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "woolly mammoth",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "kite",
+  "claimed": "Animal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "salmon",
+  "claimed": "Plant",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "elephant",
+  "claimed": "ExtinctAnimal",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "rose",
+  "claimed": "Object",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ },
+ {
+  "name": "jeep",
+  "claimed": "Object",
+  "real": false,
+  "why": "real, but not the kind claimed"
+ }
+]
