@@ -1,11 +1,15 @@
 // The reliability bench: the same labelled requests, every model and prompt variant, one CSV row a call.
 //
 //   dotnet run --project tools/Keypuncher.Sandbox -- bench --models qwen3:4b,gemma3:4b --variants baseline,A1,A4
-//       --sets author,checker,habitat,scene --runs 3 --temperature 0.8 --think --out bench-results
+//       --sets author,checker,habitat,scene --runs 3 --temperature 0.8 --think --out bench-results --until 04:15
+//
+// It refuses to start while another job's model is loaded (the nightly tournament), and --until HH:mm stops it
+// cleanly, summary written, before the tournament's hour: a run that starts at noon has until about 04:30.
 //
 // The sets live in tools/Keypuncher.Sandbox/bench/*.json and are copied next to the executable. The author set is
 // scored on the author's first answer alone (no retries, no checker), so what it measures is how often the model
-// gives a usable pick when asked once; the checker and habitat sets are scored against hand-written labels; the
+// gives a usable pick when asked once, then the checker says whether the pick really is the kind asked for (the
+// schema forces the category word, so "gazelle" as a vehicle passes the rules); the checker and habitat sets are scored against hand-written labels; the
 // scene set runs the scene director whole, place check included.
 
 using System.Diagnostics;
@@ -40,8 +44,17 @@ public static class Bench
         bool ValidJson, bool Passed, bool? Agrees, double TotalMs, double LoadMs, int PromptTokens, int OutputTokens, string Raw);
 
     public sealed record Options(Uri Host, IReadOnlyList<string> Models, IReadOnlyList<PromptVariant> Variants, IReadOnlyList<string> Sets,
-        int Runs, float Temperature, bool Think, string OutDir, string SetsDir)
+        int Runs, float Temperature, bool Think, string OutDir, string SetsDir, DateTime? Until, bool Force)
     {
+        /// <summary>The clock time to stop by, "HH:mm": today if still ahead, else tomorrow.</summary>
+        public static DateTime? ParseUntil(string? text, DateTime now)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            var t = TimeOnly.ParseExact(text, "HH:mm", CultureInfo.InvariantCulture);
+            var at = now.Date + t.ToTimeSpan();
+            return at > now ? at : at.AddDays(1);
+        }
+
         public static Options Parse(string[] args, Uri host)
         {
             string Get(string name, string fallback)
@@ -60,7 +73,9 @@ public static class Bench
                 float.Parse(Get("temperature", "0.8"), CultureInfo.InvariantCulture),
                 args.Contains("--think"),
                 Get("out", "bench-results"),
-                Get("sets-dir", sets));
+                Get("sets-dir", sets),
+                ParseUntil(Get("until", ""), DateTime.Now),
+                args.Contains("--force"));
         }
 
         /// <summary>The variant's name in the CSV, with the model settings that are not the toy's own.</summary>
@@ -75,7 +90,17 @@ public static class Bench
         var habitatSet = Load<HabitatCase>(opts, "habitat.json");
         var sceneSet = Load<SceneCase>(opts, "scenes.json");
         Console.WriteLine($"bench: {opts.Models.Count} model(s), {opts.Variants.Count} variant(s), sets {string.Join(",", opts.Sets)}, {opts.Runs} run(s); "
-            + $"{authorSet.Count} author, {checkerSet.Count} checker, {habitatSet.Count} habitat, {sceneSet.Count} scene cases");
+            + $"{authorSet.Count} author, {checkerSet.Count} checker, {habitatSet.Count} habitat, {sceneSet.Count} scene cases"
+            + (opts.Until is { } until ? $"; stops by {until:yyyy-MM-dd HH:mm}" : ""));
+
+        // Another job's model in memory means its requests are queued or running; with one model loaded at a time the
+        // bench and the job would swap and both crawl, as the toy did under the tournament on 3 Nov.
+        var busy = (await new OllamaLanguageModel(host, opts.Models[0]).LoadedModelsAsync()).Where(n => !opts.Models.Contains(n) && !opts.Models.Contains(n.Replace(":latest", ""))).ToList();
+        if (busy.Count > 0 && !opts.Force)
+        {
+            Console.WriteLine($"not starting: Ollama has {string.Join(", ", busy)} loaded for another job (ollama ps). Wait, or pass --force.");
+            return 2;
+        }
 
         Directory.CreateDirectory(opts.OutDir);
         var stamp = $"{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}";
@@ -84,6 +109,7 @@ public static class Bench
         await csv.WriteLineAsync("model,variant,set,request_id,run,try,answer,outcome,valid_json,passed,agrees,total_ms,load_ms,prompt_tokens,output_tokens,raw_json");
         var rows = new List<Row>();
         var loads = new List<(string Model, double ColdLoadS, long Size, long SizeVram)>();
+        var stopped = false;
 
         foreach (var model in opts.Models)
         {
@@ -99,7 +125,6 @@ public static class Bench
             await probe.UnloadAsync();
             var cold = await probe.WarmUpAsync();
             var size = await probe.LoadedSizeAsync();
-            loads.Add((model, cold.TotalSeconds, size?.Size ?? 0, size?.SizeVram ?? 0));
             Console.WriteLine($"cold load {cold.TotalSeconds:0.0} s; {Gb(size?.Size)} loaded, {Gb(size?.SizeVram)} of it on the GPU"
                 + (size is { } s && s.SizeVram < s.Size ? "  <-- does not fit, partly on the CPU" : ""));
 
@@ -112,18 +137,25 @@ public static class Bench
                 var placeChecker = new PlaceChecker(coldModel);
                 Console.WriteLine($"-- {label} --");
 
-                for (var run = 1; run <= opts.Runs; run++)
+                for (var run = 1; run <= opts.Runs && !stopped; run++)
                 {
                     if (opts.Sets.Contains("author"))
-                        foreach (var c in authorSet) Keep(await AuthorAsync(author, variant, c, model, label, run));
+                        foreach (var c in authorSet) { if (OutOfTime()) break; Keep(await AuthorAsync(author, checker, variant, c, model, label, run)); }
                     if (opts.Sets.Contains("checker"))
-                        foreach (var c in checkerSet) Keep(await CheckerAsync(coldModel, checker, c, model, label, run));
+                        foreach (var c in checkerSet) { if (OutOfTime()) break; Keep(await CheckerAsync(checker, c, model, label, run)); }
                     if (opts.Sets.Contains("habitat"))
-                        foreach (var c in habitatSet) Keep(await HabitatAsync(coldModel, checker, c, model, label, run));
+                        foreach (var c in habitatSet) { if (OutOfTime()) break; Keep(await HabitatAsync(coldModel, c, model, label, run)); }
                     if (opts.Sets.Contains("scene"))
-                        foreach (var c in sceneSet) foreach (var row in await SceneAsync(author, placeChecker, c, model, label, run)) Keep(row);
+                        foreach (var c in sceneSet) { if (OutOfTime()) break; foreach (var row in await SceneAsync(author, placeChecker, c, model, label, run)) Keep(row); }
                 }
+                if (stopped) break;
             }
+
+            // Measured again after real calls, which load the model with the toy's context size; the figure after the
+            // warm-up alone has differed from it.
+            var steady = await probe.LoadedSizeAsync() ?? size;
+            loads.Add((model, cold.TotalSeconds, steady?.Size ?? 0, steady?.SizeVram ?? 0));
+            if (stopped) break;
         }
 
         var summary = Summary(rows, loads, opts);
@@ -131,7 +163,14 @@ public static class Bench
         await File.WriteAllTextAsync(mdPath, summary);
         Console.WriteLine("\n" + summary);
         Console.WriteLine($"rows: {csvPath}\nsummary: {mdPath}");
+        if (stopped) Console.WriteLine($"stopped at {DateTime.Now:HH:mm} as asked (--until); the rows so far are in the CSV.");
         return rows.Count == 0 ? 1 : 0;
+
+        bool OutOfTime()
+        {
+            if (opts.Until is { } until && DateTime.Now >= until) stopped = true;
+            return stopped;
+        }
 
         void Keep(Row row)
         {
@@ -157,9 +196,12 @@ public static class Bench
         "australian", "english", "lake", "bled", "wadi", "rum", "kruger", "hallormsstadaskogur", "reynisfjara", "savanna", "desert",
     ];
 
-    /// <summary>One author call, scored by the rules alone: passed means a pick the toy would send to the checker; a
-    /// name that carries the place fails too, since the checker always turns those away.</summary>
-    private static async Task<Row> AuthorAsync(OllamaLanguageModel author, PromptVariant variant, AuthorCase c, string model, string label, int run)
+    /// <summary>One author call. Passed means the rules let the pick through, as the toy would send it to the checker;
+    /// a name that carries the place fails too, since the checker always turns those away. Agrees is then the
+    /// checker's word on whether it is real and the kind asked for: the schema holds the category to the one asked,
+    /// so a "gazelle" offered as a vehicle passes the rules and only the checker catches it. The timing is the
+    /// author's call alone.</summary>
+    private static async Task<Row> AuthorAsync(OllamaLanguageModel author, FactChecker checker, PromptVariant variant, AuthorCase c, string model, string label, int run)
     {
         var request = c.Request;
         var (system, user, schema) = DirectorPrompts.Author(request, [], null, variant);
@@ -170,13 +212,20 @@ public static class Bench
         var subject = pick?.Subject ?? "?";
         var outcome = ok ? "ok" : error ?? "?";
         if (ok && subject.Split(' ', '-').Any(w => PlaceWords.Contains(w))) { ok = false; outcome = "place in the name"; }
-        return new Row(model, label, "author", c.Id, run, 1, subject, outcome, result.Json is not null, ok, null,
+        bool? agrees = null;
+        if (ok)
+        {
+            var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, pick.Category);
+            agrees = check.Passes(pick.Category);
+            if (!agrees.Value) outcome = check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}";
+        }
+        return new Row(model, label, "author", c.Id, run, 1, subject, outcome, result.Json is not null, ok, agrees,
             Ms(result, clock), result.Timing.Load.TotalMilliseconds, result.Timing.PromptTokens, result.Timing.OutputTokens, result.RawText);
     }
 
     /// <summary>The checker on one name, against its label. The model is called through the checker, so the row's
     /// timing is the checker's whole cost (two calls where the baseline takes a second look).</summary>
-    private static async Task<Row> CheckerAsync(OllamaLanguageModel cold, FactChecker checker, CheckerCase c, string model, string label, int run)
+    private static async Task<Row> CheckerAsync(FactChecker checker, CheckerCase c, string model, string label, int run)
     {
         var clock = Stopwatch.StartNew();
         var check = await checker.CheckAsync(c.Name, null, c.Claimed);
@@ -187,7 +236,7 @@ public static class Bench
             passed, passed == c.Real, clock.Elapsed.TotalMilliseconds, 0, 0, 0, JsonSerializer.Serialize(check));
     }
 
-    private static async Task<Row> HabitatAsync(OllamaLanguageModel cold, FactChecker checker, HabitatCase c, string model, string label, int run)
+    private static async Task<Row> HabitatAsync(OllamaLanguageModel cold, HabitatCase c, string model, string label, int run)
     {
         var clock = Stopwatch.StartNew();
         var result = await cold.GenerateJsonAsync(FactChecker.System, FactChecker.FitPrompt(c.Name, c.Category, c.Here), JsonDocument.Parse(FactChecker.FitSchemaJson).RootElement.Clone());
@@ -255,13 +304,13 @@ public static class Bench
         {
             sb.AppendLine($"## {set}");
             sb.AppendLine();
-            var labelled = rows.Any(r => r.Set == set && r.Agrees is not null);
+            var labelled = set != "author" && rows.Any(r => r.Set == set && r.Agrees is not null);
             sb.AppendLine(set == "author"
-                ? "| model | variant | calls | valid JSON | passed rules | distinct names | median s | p90 s |"
+                ? "| model | variant | calls | valid JSON | passed rules | checker agrees | distinct names | median s | p90 s |"
                 : set == "scene"
                 ? "| model | variant | requests | accepted | tries a request | median s a try |"
-                : "| model | variant | calls | valid JSON | passed | right | real kept | not-real let through | median s | p90 s |");
-            sb.AppendLine(set == "author" ? "| --- | --- | --- | --- | --- | --- | --- | --- |" : set == "scene" ? "| --- | --- | --- | --- | --- | --- |" : "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+                : "| model | variant | calls | valid JSON | said yes | right | real kept | not-real let through | median s | p90 s |");
+            sb.AppendLine(set == "author" ? "| --- | --- | --- | --- | --- | --- | --- | --- | --- |" : set == "scene" ? "| --- | --- | --- | --- | --- | --- |" : "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
             foreach (var g in rows.Where(r => r.Set == set).GroupBy(r => (r.Model, r.Variant)))
             {
                 var list = g.ToList();
@@ -270,7 +319,7 @@ public static class Bench
                 if (set == "author")
                 {
                     var distinct = list.Where(r => r.Passed).GroupBy(r => r.RequestId).Select(x => x.Select(r => r.Answer).Distinct().Count()).DefaultIfEmpty(0).Average();
-                    sb.AppendLine($"| {g.Key.Model} | {g.Key.Variant} | {list.Count} | {Pct(r => r.ValidJson)} | {Pct(r => r.Passed)} | {distinct:0.0} of {opts.Runs} | {Median(ms) / 1000:0.0} | {P90(ms) / 1000:0.0} |");
+                    sb.AppendLine($"| {g.Key.Model} | {g.Key.Variant} | {list.Count} | {Pct(r => r.ValidJson)} | {Pct(r => r.Passed)} | {Pct(r => r.Agrees == true)} | {distinct:0.0} of {opts.Runs} | {Median(ms) / 1000:0.0} | {P90(ms) / 1000:0.0} |");
                 }
                 else if (set == "scene")
                 {
@@ -297,7 +346,7 @@ public static class Bench
             }
             if (set == "author")
             {
-                var failures = rows.Where(r => r.Set == set && !r.Passed).GroupBy(r => r.Outcome).OrderByDescending(x => x.Count()).ToList();
+                var failures = rows.Where(r => r.Set == set && r.Agrees != true).GroupBy(r => r.Outcome).OrderByDescending(x => x.Count()).ToList();
                 if (failures.Count > 0) sb.AppendLine($"Why picks failed: {string.Join("; ", failures.Select(f => $"{f.Key} {f.Count()}x"))}.");
                 sb.AppendLine();
             }

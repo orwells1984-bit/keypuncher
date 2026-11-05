@@ -87,7 +87,8 @@ public sealed class OllamaLanguageModel : ILanguageModel
     public async Task<TimeSpan> WarmUpAsync(CancellationToken cancellationToken = default)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
-        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive };
+        // The same context size as the real calls, or Ollama loads it once now and again on the first call.
+        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive, Options = new RequestOptions { NumCtx = _numCtx } };
         await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
         return started.Elapsed;
     }
@@ -98,6 +99,15 @@ public sealed class OllamaLanguageModel : ILanguageModel
     {
         var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = "0" };
         await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
+    }
+
+    /// <summary>The names of every model Ollama has loaded now, from <c>/api/ps</c>; the bench will not start while
+    /// another job's model is in memory, since with one model at a time the two would queue behind each other.</summary>
+    public async Task<IReadOnlyList<string>> LoadedModelsAsync(CancellationToken cancellationToken = default)
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync("api/ps", cancellationToken));
+        if (!doc.RootElement.TryGetProperty("models", out var models)) return [];
+        return [.. models.EnumerateArray().Select(m => m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "").Where(n => n.Length > 0)];
     }
 
     /// <summary>How much memory the loaded model takes and how much of it is on the GPU, from <c>/api/ps</c>; null
