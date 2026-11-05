@@ -63,7 +63,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 continue;
             }
 
-            var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, cancellationToken);
+            var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, pick.Category, cancellationToken);
             if (!check.Passes(pick.Category))
             {
                 var why = check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}";
@@ -101,7 +101,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 DirectorPrompts.RealSystem, DirectorPrompts.RealThing(forced, []), RealThingSchema.For(forced), cancellationToken);
             if (RealThingRules.TryBuild(result.Json, forced, out var pick, out var recipe, out var error))
             {
-                var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, cancellationToken);
+                var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, pick.Category, cancellationToken);
                 if (check.Passes(pick.Category))
                 {
                     if (recipe!.GrowsInto is not null && !check.GrowsIntoConfirmed) recipe = recipe with { GrowsInto = null };

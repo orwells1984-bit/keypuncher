@@ -130,9 +130,42 @@ public sealed class FactChecker(ILanguageModel model)
         return Among(a, "thingContinents", Text(a, "placeContinent")) && Among(a, "thingClimates", Text(a, "placeClimate"));
     }
 
-    public async Task<FactCheck> CheckAsync(string subject, string? growsInto, CancellationToken cancellationToken = default)
+    /// <summary>The gentler prompt for a second look at an animal or plant the strict first pass was unsure of.</summary>
+    public const string SecondLookSystem = """
+        You know the world's animals and plants well, common and obscure. Answer only with JSON that matches
+        the schema.
+        """;
+
+    public static string SecondLookPrompt(string subject, RealCategory claimed) =>
+        $"""
+        Name: "{subject}"
+        Is this a real kind of {(claimed == RealCategory.Plant ? "plant, flower, tree, fruit or vegetable" : "animal")}, living somewhere in the world today or known from fossils?
+
+        whatItIs: say in a few plain words what it is, or "unknown".
+        verdict: "real" if you recognise the name as a real kind of {(claimed == RealCategory.Plant ? "plant" : "animal")}, even a little-known one;
+        "fictional" if it comes from myths, stories, films, games or toys, is a character or a brand, or is a
+        made-up or blended name; "unsure" only if you have never heard of it.
+        kind: "Animal" for a kind of animal alive somewhere today; "ExtinctAnimal" for one that has died out;
+        "Plant" for a plant, flower, tree, fruit or vegetable; "Vehicle"; "Object"; "None" if it is not real.
+        growsInto: "none".
+        """;
+
+    /// <param name="claimed">What the pick says the thing is. The checker is still not told; it only decides whether
+    /// an "unsure" gets a second, gentler look, which an animal or a plant does: the strict first pass turned
+    /// away a salamander and a mudfish as "unknown", and a made-up animal name rarely survives the name rules
+    /// and the first pass both.</param>
+    public async Task<FactCheck> CheckAsync(string subject, string? growsInto, RealCategory? claimed = null, CancellationToken cancellationToken = default)
     {
-        var result = await model.GenerateJsonAsync(System, Prompt(subject, growsInto), Schema, cancellationToken);
+        var first = await AskAsync(System, Prompt(subject, growsInto), cancellationToken);
+        if (first.Verdict != "unsure" || claimed is not (RealCategory.Animal or RealCategory.Plant)) return first;
+        var second = await AskAsync(SecondLookSystem, SecondLookPrompt(subject, claimed.Value), cancellationToken);
+        // The second look may only turn "unsure" into a verdict; the growsInto claim stays with the first pass.
+        return second.Verdict == "unsure" ? first : second with { GrowsInto = first.GrowsInto };
+    }
+
+    private async Task<FactCheck> AskAsync(string system, string prompt, CancellationToken cancellationToken)
+    {
+        var result = await model.GenerateJsonAsync(system, prompt, Schema, cancellationToken);
         if (result.Json is null) return FactCheck.Failed("checker gave no JSON");
         try
         {
