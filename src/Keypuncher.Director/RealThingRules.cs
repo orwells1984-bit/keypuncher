@@ -63,7 +63,7 @@ public static class RealThingRules
     /// <summary>Group words: real, but not one kind of thing a child could picture.</summary>
     private static readonly HashSet<string> GroupWords =
     [
-        "animal", "animals", "creature", "dinosaur", "dinosaurs", "bird", "mammal", "reptile", "insect", "bug",
+        "animal", "animals", "creature", "dinosaur", "dinosaurs", "dino", "dinos", "bird", "mammal", "reptile", "insect", "bug",
         "plant", "flower", "tree", "vegetable", "fruit", "vehicle", "object", "thing", "toy", "baby", "fossil",
     ];
 

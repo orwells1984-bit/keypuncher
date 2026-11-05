@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Keypuncher.Core;
 
 namespace Keypuncher.Director;
@@ -60,6 +61,32 @@ public static class DirectorPrompts
         Big things move slowly and sound low; small things are quick and sound high. Nothing sharp, scary or loud.
         Answer only with JSON that matches the schema you are given. Never add text around it.
         """;
+
+    /// <summary>A2: three complete answers in the shape asked for, appended to <see cref="RealSystem"/>. A small
+    /// model copies the shape of what it is shown far more reliably than it follows a description of it. The
+    /// examples are common things so that, if the model echoes one, the "already in the world" rule is all that is
+    /// lost; the bench counts how often it does.</summary>
+    public const string FewShotExamples = """
+
+        Three examples of good answers, each for a different request:
+        {"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}
+        {"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}
+        {"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Stripe","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
+        """;
+
+    /// <summary>The three prompts the author needs for one try, arranged as <paramref name="variant"/> asks.
+    /// <see cref="RealThingDirector"/> and the bench both go through here, so what the bench measures is what the toy sends.</summary>
+    public static (string System, string User, JsonElement Schema) Author(DirectorRequest request, IReadOnlyList<string> turnedDown,
+        IReadOnlyList<string>? suggestions = null, PromptVariant? variant = null)
+    {
+        variant ??= PromptVariant.Baseline;
+        var system = RealSystem + (variant.FewShot ? FewShotExamples : "");
+        var schema = RealThingSchema.For(request, variant);
+        var user = RealThing(request, turnedDown, suggestions);
+        if (variant.SchemaInPrompt) user += "\n\nAnswer with JSON of exactly this shape; each field says what it means:\n" + schema.GetRawText();
+        var (s, u) = variant.Arrange(system, user);
+        return (s, u, schema);
+    }
 
     /// <summary>The ask for one key family. <paramref name="turnedDown"/> lists earlier picks for this request and
     /// why they were refused, so the model does not offer them again.</summary>

@@ -19,16 +19,22 @@ public sealed class OllamaLanguageModel : ILanguageModel
     /// between the director's requests, so each one paid the load again.</summary>
     public const string KeepAlive = "30m";
 
+    private readonly HttpClient _http;
     private readonly OllamaApiClient _client;
     private readonly int _numCtx;
     private readonly float _temperature;
+    private readonly bool _think;
 
-    public OllamaLanguageModel(Uri baseUri, string modelName, int numCtx = 4096, float temperature = 0.8f)
+    /// <param name="think">Whether a reasoning model (qwen3) may think before it answers. Off for the toy: the bench
+    /// measured 60 to 130 s a recipe with it on. The bench turns it on to see what it buys the checker.</param>
+    public OllamaLanguageModel(Uri baseUri, string modelName, int numCtx = 4096, float temperature = 0.8f, bool think = false)
     {
-        _client = new OllamaApiClient(new HttpClient { BaseAddress = baseUri, Timeout = CallTimeout }, modelName);
+        _http = new HttpClient { BaseAddress = baseUri, Timeout = CallTimeout };
+        _client = new OllamaApiClient(_http, modelName);
         ModelName = modelName;
         _numCtx = numCtx;
         _temperature = temperature;
+        _think = think;
     }
 
     public string ModelName { get; }
@@ -45,7 +51,7 @@ public sealed class OllamaLanguageModel : ILanguageModel
             Stream = true,
             // Reasoning models (qwen3 and friends) otherwise spend thousands of tokens thinking
             // before the ~150 tokens of JSON we want; the bench measured 60 to 130 s per recipe.
-            Think = false,
+            Think = _think,
             KeepAlive = KeepAlive,
             Options = new RequestOptions { NumCtx = _numCtx, Temperature = _temperature },
         };
@@ -81,9 +87,43 @@ public sealed class OllamaLanguageModel : ILanguageModel
     public async Task<TimeSpan> WarmUpAsync(CancellationToken cancellationToken = default)
     {
         var started = System.Diagnostics.Stopwatch.StartNew();
-        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive };
+        // The same context size as the real calls, or Ollama loads it once now and again on the first call.
+        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive, Options = new RequestOptions { NumCtx = _numCtx } };
         await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
         return started.Elapsed;
+    }
+
+    /// <summary>Asks Ollama to drop the model from memory now (a call with <c>keep_alive</c> 0), so the next call pays
+    /// a cold load; the bench uses it to measure that load.</summary>
+    public async Task UnloadAsync(CancellationToken cancellationToken = default)
+    {
+        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = "0" };
+        await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
+    }
+
+    /// <summary>The names of every model Ollama has loaded now, from <c>/api/ps</c>; the bench will not start while
+    /// another job's model is in memory, since with one model at a time the two would queue behind each other.</summary>
+    public async Task<IReadOnlyList<string>> LoadedModelsAsync(CancellationToken cancellationToken = default)
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync("api/ps", cancellationToken));
+        if (!doc.RootElement.TryGetProperty("models", out var models)) return [];
+        return [.. models.EnumerateArray().Select(m => m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "").Where(n => n.Length > 0)];
+    }
+
+    /// <summary>How much memory the loaded model takes and how much of it is on the GPU, from <c>/api/ps</c>; null
+    /// if it is not loaded. On a 6 GB card a model that does not fit shows SizeVram below Size and runs partly on
+    /// the CPU, several times slower.</summary>
+    public async Task<(long Size, long SizeVram)?> LoadedSizeAsync(CancellationToken cancellationToken = default)
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync("api/ps", cancellationToken));
+        if (!doc.RootElement.TryGetProperty("models", out var models)) return null;
+        foreach (var m in models.EnumerateArray())
+        {
+            var name = m.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (name != ModelName && name != ModelName + ":latest") continue;
+            return (m.TryGetProperty("size", out var size) ? size.GetInt64() : 0, m.TryGetProperty("size_vram", out var vram) ? vram.GetInt64() : 0);
+        }
+        return null;
     }
 
     /// <summary>Lists models already pulled on the server, so the bench can skip ones that are missing.</summary>

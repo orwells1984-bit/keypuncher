@@ -116,10 +116,28 @@ public static class RealThingSchema
     /// <summary>The schema for one request: the category enum holds only the category asked for, and the shape
     /// enum only shapes that thing could be, so the model cannot answer a plant family with an animal or draw a
     /// bus as an elephant. Ollama enforces enums at decode time, so these are held, not just asked for.</summary>
-    public static JsonElement For(DirectorRequest request)
+    public static JsonElement For(DirectorRequest request) => For(request, PromptVariant.Baseline);
+
+    /// <summary>What each field means, for <see cref="PromptVariant.SchemaInPrompt"/>: Ollama does not show the
+    /// model the schema it decodes against, so these only help when the schema also goes in the prompt.</summary>
+    public static readonly IReadOnlyDictionary<string, string> Descriptions = new Dictionary<string, string>
+    {
+        ["subject"] = "the thing's ordinary English name in small letters, one to three words, like \"brown trout\", \"oak tree\" or \"fire engine\": one particular kind, never a group word, a place name or a placeholder",
+        ["category"] = "what kind of real thing it is",
+        ["fact"] = "one short true sentence about where it lives or grows, or when it lived",
+        ["shape"] = "the nearest shape to how it looks",
+        ["lobes"] = "how many bumps or parts the shape has",
+        ["hue"] = "its real colour in degrees, 0 red, 60 yellow, 120 green, 240 blue",
+        ["size"] = "how big it is, 0.1 tiny to 1.0 huge",
+        ["growsInto"] = "what it really grows or turns into in nature, like \"frog\" for a tadpole, or null",
+    };
+
+    public static JsonElement For(DirectorRequest request, PromptVariant variant)
     {
         var root = JsonNode.Parse(Json)!.AsObject();
         var props = root["properties"]!.AsObject();
+        if (variant.SchemaInPrompt)
+            foreach (var (field, meaning) in Descriptions) props[field]!["description"] = meaning;
         var category = request.GrowInto is null ? request.Category : request.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal;
         props["category"]!["enum"] = request.GrowInto is null
             ? new JsonArray(category.ToString())
