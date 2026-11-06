@@ -121,11 +121,61 @@ public sealed class CutOutPostTests
         var matte = new byte[300 * 200];
         Fill(matte, 300, 100, 100, 140, 130, 255);
 
-        var picture = CutOutPost.Finish(photo, matte, out var coverage, out var reason);
+        var picture = CutOutPost.Finish(photo, matte, out var coverage, out var reason, out var box);
 
         Assert.Null(picture);
         Assert.Equal("too small", reason);
         Assert.Equal(0.02, coverage, 1e-9);
+        Assert.Equal(new SKRectI(100, 100, 140, 130), box);
+    }
+
+    [Fact]
+    public void The_zoom_crop_is_the_box_with_room_round_it_kept_inside_the_photo()
+    {
+        using var photo = Photo(1200, 800);
+        using var crop = CutOutChain.Zoom(photo, new SKRectI(400, 300, 600, 400));
+        Assert.Equal((400, 256), (crop!.Width, crop.Height));
+
+        using var corner = CutOutChain.Zoom(photo, new SKRectI(0, 0, 100, 100));
+        Assert.Equal((256, 256), (corner!.Width, corner.Height));
+
+        Assert.Null(CutOutChain.Zoom(photo, new SKRectI(100, 100, 1100, 700)));
+    }
+
+    [Fact]
+    public void The_zoom_crop_holds_the_photos_own_pixels()
+    {
+        using var photo = Photo(1000, 800);
+        photo.SetPixel(500, 400, SKColors.Blue);
+        using var crop = CutOutChain.Zoom(photo, new SKRectI(480, 380, 520, 420));
+        Assert.Equal(SKColors.Blue, crop!.GetPixel(crop.Width / 2, crop.Height / 2));
+        Assert.Equal(Paint, crop.GetPixel(0, 0));
+    }
+
+    [Fact]
+    public void The_chain_looks_closer_at_a_thing_too_small_to_pass()
+    {
+        using var photo = Photo(1600, 1200);
+        var model = new FakeCutOut("isnet", available: true, succeeds: true, smallAbove: 800);
+        var result = new CutOutChain(model).Cut(photo);
+        using var picture = result.Picture;
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("isnet, zoomed in", result.Model);
+        Assert.Equal(2, model.Calls);
+        Assert.Equal((400, 300), model.LastSize);
+    }
+
+    [Fact]
+    public void The_chain_gives_up_when_the_closer_look_is_too_small_as_well()
+    {
+        using var photo = Photo(1600, 1200);
+        var model = new FakeCutOut("isnet", available: true, succeeds: false, smallAbove: 800);
+        var result = new CutOutChain(model).Cut(photo);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("too small", result.Reason);
+        Assert.Equal(2, model.Calls);
     }
 
     [Fact]
@@ -294,16 +344,24 @@ public sealed class CutOutPostTests
 
     /// <summary>A cut-out that is <paramref name="closed"/> still looks available (its file is on disk) but throws, as
     /// one disposed between the chain's check and its cut would.</summary>
-    private sealed class FakeCutOut(string name, bool available, bool succeeds, bool closed = false) : ICutOut
+    private sealed class FakeCutOut(string name, bool available, bool succeeds, bool closed = false, int smallAbove = int.MaxValue) : ICutOut
     {
         public int Calls { get; private set; }
+        public (int Width, int Height) LastSize { get; private set; }
         public string Name => name;
         public bool IsAvailable => available;
 
+        /// <summary>A photo wider than <paramref name="smallAbove"/> has its thing in a 200 by 150 box at the centre, too small to pass.</summary>
         public CutOutResult Cut(SKBitmap photo)
         {
             ObjectDisposedException.ThrowIf(closed, this);
             Calls++;
+            LastSize = (photo.Width, photo.Height);
+            if (photo.Width > smallAbove)
+            {
+                var box = new SKRectI((photo.Width / 2) - 100, (photo.Height / 2) - 75, (photo.Width / 2) + 100, (photo.Height / 2) + 75);
+                return new CutOutResult(null, name, 0.015, "too small", box);
+            }
             return succeeds
                 ? new CutOutResult(new SKBitmap(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Unpremul)), name, 0.5, null)
                 : new CutOutResult(null, name, 0.01, "too small");

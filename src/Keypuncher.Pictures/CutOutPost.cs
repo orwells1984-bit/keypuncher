@@ -34,9 +34,15 @@ public static class CutOutPost
     /// Null, with the reason, when the matte fails its gate; <paramref name="coverage"/> is the share of the photo the kept
     /// thing covers either way.
     /// </summary>
-    public static SKBitmap? Finish(SKBitmap rgba, byte[] matte, out double coverage, out string? reason)
+    public static SKBitmap? Finish(SKBitmap rgba, byte[] matte, out double coverage, out string? reason) =>
+        Finish(rgba, matte, out coverage, out reason, out _);
+
+    /// <summary>As <see cref="Finish(SKBitmap, byte[], out double, out string?)"/>, also giving the box of the kept
+    /// thing in photo pixels (null when the matte held nothing), so a thing too small to pass can be looked at closer.</summary>
+    public static SKBitmap? Finish(SKBitmap rgba, byte[] matte, out double coverage, out string? reason, out SKRectI? found)
     {
         ArgumentNullException.ThrowIfNull(rgba);
+        found = null;
         ArgumentNullException.ThrowIfNull(matte);
         int w = rgba.Width, h = rgba.Height;
         if (matte.Length != w * h) throw new ArgumentException($"The matte has {matte.Length} bytes for a {w}x{h} photo.", nameof(matte));
@@ -78,6 +84,7 @@ public static class CutOutPost
                 box = box.Union(patches[i]);
             }
             coverage = area / (double)(w * h);
+            found = new SKRectI(box.Left, box.Top, box.Right + 1, box.Bottom + 1);
             if (coverage < MinCoverage) { reason = "too small"; return null; }
             if (coverage > MaxCoverage) { reason = "fills the frame"; return null; }
             if (System.Numerics.BitOperations.PopCount((uint)edges) >= TooManyEdges) { reason = "touches three edges"; return null; }

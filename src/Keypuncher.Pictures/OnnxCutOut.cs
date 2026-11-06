@@ -82,8 +82,8 @@ public sealed class OnnxCutOut : ICutOut, IDisposable
             }
             finally { if (_disposed) Close(); }
         }
-        var picture = CutOutPost.Finish(photo, matte, out var coverage, out var reason);
-        return new CutOutResult(picture, Name, coverage, reason);
+        var picture = CutOutPost.Finish(photo, matte, out var coverage, out var reason, out var box);
+        return new CutOutResult(picture, Name, coverage, reason, box);
     }
 
     /// <summary>Closes the model without waiting: a cut under way closes it as it finishes instead, so the toy's exit
