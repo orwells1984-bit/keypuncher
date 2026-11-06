@@ -30,7 +30,14 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private const double WordHeight = 0.085;
 
     private readonly Dictionary<long, (double Clock, double Motion)> _motion = [];
+
+    /// <summary>Realistic pictures of real things, drawn in place of their stock shapes as the child gets to know
+    /// them; null draws every thing as its shape. The renderer counts each new thing it shows as a meeting.</summary>
+    public PictureLibrary? Pictures { get; set; }
+
     private readonly Dictionary<long, Sprite> _sprites = [];
+    /// <summary>Things already counted as a meeting with their picture.</summary>
+    private readonly HashSet<long> _met = [];
     private SKSurface? _baked, _still;
     private SKImage? _background, _previous, _history;
     private bool _stillDirty = true;
@@ -223,6 +230,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         }
         if (_motion.Count > seen.Count * 2 + 16)
             foreach (var id in _motion.Keys.Where(id => !seen.Contains(id)).ToList()) _motion.Remove(id);
+        if (_met.Count > seen.Count * 2 + 16) _met.RemoveWhere(id => !seen.Contains(id));
         if (_sprites.Count > seen.Count + 8)
             foreach (var id in _sprites.Keys.Where(id => !seen.Contains(id)).ToList())
             {
@@ -242,6 +250,8 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             var k = Math.Clamp((world.Time - at) / World.RetireSeconds, 0, 1);
             a += (world.Limits.HistoryOpacity - a) * k;
         }
+        // A thing just born is a meeting with it; one already there when the toy starts is not.
+        if (Pictures is not null && e.Age(world.Time) < 2 && _met.Add(e.Id)) Pictures.Meet(e.Recipe!.Name);
         if (Place(e, e.Age(world.Time), clock, motion, world.Limits.MaxMotionHz, width, height, unit, world.Style) is { } p)
             DrawSprite(canvas, e, p, clock, (byte)(255 * Math.Clamp(a, 0, 1)), unit, world.Style);
     }
@@ -378,12 +388,14 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
 
     /// <summary>Draws a thing about its own point, unrotated: a plant's stem from its foot and the body on top, or a
     /// creature's body centred there.</summary>
-    private static void PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, ArtStyle style, int unit)
+    private void PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, ArtStyle style, int unit)
     {
         canvas.Save();
-        if (p.Plant && recipe.Body.Shape.IsPicture())
+        // A thing drawn from its picture rests on the ground like the drawn pictures do, with no stem of its own.
+        var fromPicture = Pictures?.Stage(recipe) is { } stage && stage != PictureStage.Shape;
+        if (p.Plant && (fromPicture || recipe.Body.Shape.IsPicture()))
         {
-            canvas.Translate(0, -p.Stem);
+            canvas.Translate(0, fromPicture ? -p.R : -p.Stem);
         }
         else if (p.Plant)
         {
@@ -395,12 +407,13 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             canvas.DrawLine(0, 0, 0, -p.Stem, stemPaint);
             canvas.Translate(0, -p.Stem);
         }
-        RecipePainter.Paint(canvas, recipe, p.R, t, style, unit);
+        if (!fromPicture || !Pictures!.Paint(canvas, recipe, p.R, style, unit))
+            RecipePainter.Paint(canvas, recipe, p.R, t, style, unit);
         canvas.Restore();
     }
 
     /// <summary>Draws a thing straight onto the canvas, as one layer when it is translucent.</summary>
-    private static void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit, ArtStyle style)
+    private void DrawThing(SKCanvas canvas, Entity e, double age, double clock, double motion, byte alpha, double maxHz, int width, int height, int unit, ArtStyle style)
     {
         if (Place(e, age, clock, motion, maxHz, width, height, unit, style) is not { } p) return;
         var local = p.Local;

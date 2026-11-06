@@ -30,6 +30,7 @@ public sealed class PlayPage : ContentPage
     public PlayPage(ToyHost host)
     {
         _host = host;
+        _renderer.Pictures = new PictureLibrary(Path.Combine(host.DataFolder, ToyHost.PicturesName));
         BackgroundColor = Colors.LightBlue;
         // Draw at layout size rather than device pixels: on a 4K screen at 200% that is a quarter of the
         // pixels (17 frames a second at full resolution on the desktop), and the soft shapes don't need more.
