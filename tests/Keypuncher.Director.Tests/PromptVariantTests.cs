@@ -9,20 +9,24 @@ public class PromptVariantTests
     private static readonly DirectorRequest Animals = new(0, RecipeKind.Creature, null, ["cat", "dog"], Place: "that really lives at Lake Bled, Slovenia");
 
     [Fact]
-    public void Baseline_is_exactly_what_the_toy_sent_before()
+    public void Baseline_is_the_standing_orders_with_the_three_examples_and_plain_is_without()
     {
         var (system, user, schema) = DirectorPrompts.Author(Animals, []);
-        Assert.Equal(DirectorPrompts.RealSystem, system);
+        Assert.Equal(DirectorPrompts.RealSystem + DirectorPrompts.FewShotExamples, system);
         Assert.Equal(DirectorPrompts.RealThing(Animals, []), user);
         Assert.Equal(RealThingSchema.For(Animals).GetRawText(), schema.GetRawText());
         Assert.DoesNotContain("description", schema.GetRawText());
+
+        var (plain, _, _) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Plain);
+        Assert.Equal(DirectorPrompts.RealSystem, plain);
+        Assert.Same(PromptVariant.Plain, PromptVariant.Parse("plain"));
     }
 
     [Fact]
     public void A1_puts_the_schema_with_descriptions_in_the_user_prompt()
     {
         var (system, user, schema) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A1"));
-        Assert.Equal(DirectorPrompts.RealSystem, system);
+        Assert.StartsWith(DirectorPrompts.RealSystem, system);
         var subject = schema.GetProperty("properties").GetProperty("subject");
         Assert.Contains("brown trout", subject.GetProperty("description").GetString());
         Assert.EndsWith(schema.GetRawText(), user);
@@ -55,6 +59,7 @@ public class PromptVariantTests
         var (system, user, _) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A8"));
         Assert.DoesNotContain("real things", system);
         Assert.StartsWith(DirectorPrompts.RealSystem, user);
+        Assert.DoesNotContain(DirectorPrompts.FewShotExamples, user);
         Assert.EndsWith(DirectorPrompts.RealThing(Animals, []), user);
     }
 

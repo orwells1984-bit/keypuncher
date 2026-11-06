@@ -210,7 +210,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var place = scene is not null ? HerePlace(scene, category) : Pick(Places[category]);
         // Only a real, named place is checked: the starting meadow is nowhere in particular.
         return new DirectorRequest(slot, kind, current, existing, Category: category, Place: place,
-            Here: scene?.Place is { } named ? $"at {named}" : null);
+            Here: scene?.Place is { } named ? $"at {named}" : null, Landscape: scene?.Landscape);
     }
 
     /// <summary>Where the scene is, as a request's place: "that really lives at Reynisfjara, Iceland". An extinct

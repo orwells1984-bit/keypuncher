@@ -1,15 +1,17 @@
 namespace Keypuncher.Director;
 
 /// <summary>
-/// One way of asking the model, for the bench to compare. The toy runs <see cref="Baseline"/>, which is exactly
-/// the prompts that shipped; each switch changes one thing about how the author or the checker is asked, so a
-/// run with it on and one with it off differ in that alone. The letters match the experiment plan.
+/// One way of asking the model, for the bench to compare. The toy runs <see cref="Baseline"/>; each switch changes
+/// one thing about how the author or the checker is asked, so a run with it on and one with it off differ in that
+/// alone. The letters match the experiment plan. Since the Nov 2026 bench the baseline carries the three example
+/// answers (A2), which lifted qwen3:4b's right-kind first picks from 51% to 65% and halved its time; <see cref="Plain"/>
+/// is the prompt without them, for comparison.
 /// </summary>
 /// <param name="Name">How the bench names it on the command line and in its CSV.</param>
 /// <param name="SchemaInPrompt">A1: the author's user prompt ends with the JSON schema, each field carrying a
 /// <c>description</c> and an example. Ollama holds the schema at decode time but does not show it to the model, so
 /// without this the model never reads what "subject" means and sometimes echoes the type name "string".</param>
-/// <param name="FewShot">A2: the author's system prompt ends with three complete example answers.</param>
+/// <param name="FewShot">A2: the author's system prompt ends with three complete example answers. On in the baseline.</param>
 /// <param name="GentleChecker">A4: the checker is asked to recall first and is not told to be strict; the second
 /// look becomes the only look.</param>
 /// <param name="InstructionsInUserPrompt">A8: the standing orders go at the top of the user prompt instead of the
@@ -21,13 +23,17 @@ public sealed record PromptVariant(
     bool GentleChecker = false,
     bool InstructionsInUserPrompt = false)
 {
-    /// <summary>What the toy runs: the prompts as shipped.</summary>
-    public static readonly PromptVariant Baseline = new("baseline");
+    /// <summary>What the toy runs: the standing orders with the three example answers.</summary>
+    public static readonly PromptVariant Baseline = new("baseline", FewShot: true);
+
+    /// <summary>The standing orders alone, as the toy ran them before the examples were added.</summary>
+    public static readonly PromptVariant Plain = new("plain");
 
     /// <summary>Every variant the bench knows, the combined one last.</summary>
     public static readonly IReadOnlyList<PromptVariant> All =
     [
         Baseline,
+        Plain,
         new("A1", SchemaInPrompt: true),
         new("A2", FewShot: true),
         new("A4", GentleChecker: true),

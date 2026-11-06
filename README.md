@@ -138,6 +138,33 @@ The names and facts are never shown or said to the child; the child's words stil
 list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`
 another server.
 
+### What the bench chose (5-6 Nov 2026)
+
+The reliability bench (`dotnet run --project tools/Keypuncher.Sandbox -- bench`, steps in
+`tools/Keypuncher.Sandbox/Run-Bench.ps1`, summaries in `bench-results/`) settled these:
+
+- **The author is shown three example answers** (variant A2, now part of `PromptVariant.Baseline`; `plain` is the
+  prompt without them). On qwen3:4b the checker agreed with 65% of its picks against 51% before, at about half the
+  time a pick (3.7 s median against 6.8 s). Putting the schema in the prompt (A1), a gentler checker (A4), orders in
+  the user prompt (A8) and all of them together scored 44-53%.
+- **The checker prompt is unchanged.** It is right on 96% of the labelled names and lets 7% of made-up ones through;
+  the gentler one refused 7 in 100 real things. Its one steady blind spot was "unsure" on ordinary vehicles and Ice
+  Age animals (a jeep, a hydrofoil, a woolly rhinoceros), so those names pass unasked (`RealThingRules.WellKnownKind`),
+  and a vehicle and an everyday object count as each other, since the checker calls a boat either.
+- **A place in a name is kept.** The bench's first reading was to strip "slovenian" or "lake bled" from a pick;
+  hand-checking the picks showed many such names are real kinds (iceland poppy, icelandic horse, desert rose), and
+  the child never sees the name. The place comes off only for the repeat check (`RealThingRules.PlaceKey`).
+- **qwen3:4b stays the one model.** It is the best checker that fits the 1060's 6 GB. qwen3:8b checks better (97%)
+  and llama3.1:8b picks well, but neither fits and both take 9-16 s a pick. llama3.2:3b writes better picks (79-81%
+  with qwen3:4b judging) but checks worse (23% of made-up names let through), and Ollama will not keep it and
+  qwen3:4b loaded together on this card, so splitting author and checker would reload a model on every request.
+  phi4-mini and gemma3 refuse most real names as checkers.
+- **Thinking stays off.** With it, qwen3:4b's checker went from 96% to 97% right but from 1.8 s to 23 s a call.
+- **The habitat question moved into code.** Asked whether a thing is found at a place, every model and prompt let
+  41% or more of wrong pairs through (a shark at Lake Bled): they answer about continents and climates. The model is
+  now also asked whether the thing lives in the sea, in fresh water, on land or in the air, and `Habitat` holds that
+  against the scene's landscape; the toy's own sea shapes settle it without asking.
+
 ```powershell
 dotnet run --project tools/Keypuncher.Sandbox -- picks qwen3:4b 12   # restyle all twelve families, print each try
 dotnet run --project tools/Keypuncher.Sandbox -- check qwen3:4b      # score the checker on real and made-up names

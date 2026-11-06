@@ -22,8 +22,10 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// 1. The prompt (<see cref="DirectorPrompts.RealSystem"/>) asks only for real things by their ordinary names,
 ///    with a fact, and the schema's enums keep the drawing to shapes the toy knows.
 /// 2. <see cref="RealThingRules"/> turns away story creatures, odd names, impossible shapes and repeats.
-/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing, and a
-///    living animal or plant must be confirmed as found where the scene is.
+/// 3. <see cref="FactChecker"/>, a separate cold call, must say "real" and name the same kind of thing (a vehicle
+///    and an object counting as each other, and a few well-known names passing unasked), and a living animal or
+///    plant must be confirmed as found where the scene is: continent and climate by the model, and the element by
+///    code (<see cref="Habitat"/>), so no shark at a lake.
 /// A refused pick is named in the next try's prompt. A request for an extinct animal also offers a few well-known
 /// ones on every try and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
 /// Any other request that misses leaves the family as it is, which is always safe.
@@ -81,7 +83,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
 
             // Real, but it must also belong where the scene is.
             if (request.Here is { } here && request.GrowInto is null && pick.Category is RealCategory.Animal or RealCategory.Plant
-                && !await checker.FitsAsync(pick.Subject, pick.Category, here, cancellationToken))
+                && !await checker.FitsAsync(pick.Subject, pick.Category, here, request.Landscape, pick.Shape, cancellationToken))
             {
                 attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, $"checker: not found {here}", check));
                 turnedDown.Add($"{pick.Subject} (not found {here})");

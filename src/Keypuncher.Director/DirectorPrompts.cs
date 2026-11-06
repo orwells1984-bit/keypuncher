@@ -62,10 +62,10 @@ public static class DirectorPrompts
         Answer only with JSON that matches the schema you are given. Never add text around it.
         """;
 
-    /// <summary>A2: three complete answers in the shape asked for, appended to <see cref="RealSystem"/>. A small
-    /// model copies the shape of what it is shown far more reliably than it follows a description of it. The
-    /// examples are common things so that, if the model echoes one, the "already in the world" rule is all that is
-    /// lost; the bench counts how often it does.</summary>
+    /// <summary>Three complete answers in the shape asked for, appended to <see cref="RealSystem"/> (A2, part of the
+    /// baseline since the Nov 2026 bench). A small model copies the shape of what it is shown far more reliably than
+    /// it follows a description of it. The examples are common things so that, if the model echoes one, the "already
+    /// in the world" rule is all that is lost; the bench counts how often it does.</summary>
     public const string FewShotExamples = """
 
         Three examples of good answers, each for a different request:

@@ -19,6 +19,8 @@ namespace Keypuncher.Director;
 /// well-known real thing, which is still checked like any other.</param>
 /// <param name="Here">Where the scene is, when it is a named place ("at Lake Bled, Slovenia"); a living animal or plant must be
 /// confirmed as really found there by <see cref="FactChecker.FitsAsync"/>.</param>
+/// <param name="Landscape">What the scene looks like, when it is known: a lake takes no sea creatures, a desert no
+/// fish (<see cref="Habitat"/>).</param>
 public sealed record DirectorRequest(
     int Slot,
     RecipeKind Kind,
@@ -28,7 +30,8 @@ public sealed record DirectorRequest(
     RealCategory Category = RealCategory.Animal,
     string? Place = null,
     string? MustBe = null,
-    string? Here = null);
+    string? Here = null,
+    Landscape? Landscape = null);
 
 /// <summary>
 /// The checks a pick must pass before anything is asked about whether it is real. They cannot prove a thing
@@ -75,6 +78,95 @@ public static class RealThingRules
     /// <summary>What the model hands back when it echoes the schema instead of answering: in a run it offered
     /// "string" three times for a vehicle.</summary>
     private static readonly HashSet<string> Placeholders = ["string", "name", "subject", "text", "example", "placeholder", "item", "value", "unknown", "tbd"];
+
+    /// <summary>Ordinary things the checker is known to call "unsure": in the bench (Nov 2026) it turned away a jeep, a
+    /// pickup truck, a hydrofoil, an SUV, a woolly rhinoceros five times and a sabre-toothed cat, all real, while it
+    /// let fewer fakes through than that. A pick by one of these names, in the kind given, passes without the call.
+    /// Vehicles and the well-known extinct animals only: animals and plants alive today are too many to list and are
+    /// where a made-up name would hide.</summary>
+    private static readonly Dictionary<string, RealCategory> WellKnown = BuildWellKnown();
+
+    private static Dictionary<string, RealCategory> BuildWellKnown()
+    {
+        var known = new Dictionary<string, RealCategory>(StringComparer.Ordinal);
+        foreach (var v in new[]
+        {
+            "car", "bus", "van", "truck", "lorry", "pickup truck", "pick-up truck", "jeep", "suv", "taxi", "tractor", "digger", "excavator",
+            "bulldozer", "dump truck", "fire engine", "fire truck", "ambulance", "police car", "bicycle", "bike", "tricycle", "scooter",
+            "motorbike", "motorcycle", "skateboard", "train", "steam train", "tram", "cable car", "ski lift", "aeroplane", "airplane",
+            "helicopter", "hot-air balloon", "glider", "boat", "rowing boat", "rowboat", "row boat", "sailing boat", "sailboat", "fishing boat",
+            "motorboat", "speedboat", "canoe", "kayak", "ferry", "hydrofoil", "ship", "tugboat", "submarine", "snowmobile", "sled", "sledge",
+            "dune buggy", "quad bike", "camper van", "wheelbarrow", "pram", "pushchair",
+        }) known[v] = RealCategory.Vehicle;
+        foreach (var e in RealThingPick.WellKnownExtinct) known[e] = RealCategory.ExtinctAnimal;
+        foreach (var e in new[]
+        {
+            "tyrannosaurus", "tyrannosaurus rex", "t. rex", "t-rex", "triceratops", "stegosaurus", "brontosaurus", "apatosaurus",
+            "saber-toothed cat", "sabre-toothed tiger", "saber-toothed tiger", "woolly rhino", "mammoth", "quagga", "aurochs",
+            "elephant bird", "giant moa", "cave lion", "dire wolf", "pterodactyl", "mosasaurus",
+        }) known[e] = RealCategory.ExtinctAnimal;
+        return known;
+    }
+
+    /// <summary>The kind a well-known name is, or null if the name is not on the list.</summary>
+    public static RealCategory? WellKnownKind(string name)
+    {
+        var tidy = Tidy(name);
+        if (WellKnown.TryGetValue(tidy, out var kind)) return kind;
+        // "a jeep" and "jeeps" are a jeep.
+        if (tidy.StartsWith("a ") || tidy.StartsWith("an ")) return WellKnownKind(tidy[(tidy.IndexOf(' ') + 1)..]);
+        return WellKnown.FirstOrDefault(k => SameThing(k.Key, tidy)).Key is not null ? WellKnown.First(k => SameThing(k.Key, tidy)).Value : null;
+    }
+
+    /// <summary>Peoples and languages whose name is not made from the place's by a plain ending.</summary>
+    private static readonly Dictionary<string, string[]> IrregularDemonyms = new()
+    {
+        ["england"] = ["english"], ["britain"] = ["british"], ["wales"] = ["welsh"], ["scotland"] = ["scottish", "scots"],
+        ["ireland"] = ["irish"], ["france"] = ["french"], ["spain"] = ["spanish"], ["portugal"] = ["portuguese"],
+        ["netherlands"] = ["dutch"], ["holland"] = ["dutch"], ["switzerland"] = ["swiss"], ["denmark"] = ["danish"],
+        ["sweden"] = ["swedish"], ["finland"] = ["finnish"], ["norway"] = ["norwegian"], ["greece"] = ["greek"],
+        ["turkey"] = ["turkish"], ["poland"] = ["polish"], ["germany"] = ["german"], ["china"] = ["chinese"],
+        ["japan"] = ["japanese"], ["vietnam"] = ["vietnamese"], ["nepal"] = ["nepali", "nepalese"], ["thailand"] = ["thai"],
+        ["philippines"] = ["filipino", "philippine"], ["cyprus"] = ["cypriot"], ["malta"] = ["maltese"], ["peru"] = ["peruvian"],
+        ["argentina"] = ["argentine", "argentinian"], ["chile"] = ["chilean"], ["morocco"] = ["moroccan"], ["mexico"] = ["mexican"],
+        ["canada"] = ["canadian"], ["madagascar"] = ["malagasy"], ["new zealand"] = ["kiwi"], ["iceland"] = ["icelandic"],
+    };
+
+    /// <summary>The words a place lends to a name: the place's own words ("lake", "bled", "slovenia") and the ways
+    /// English makes a people from them ("slovenian"). The place is written as the prompt puts it ("that really lives at
+    /// Lake Bled, Slovenia"), so its proper nouns are the capitalised words.</summary>
+    public static HashSet<string> PlaceWords(params string?[] places)
+    {
+        var words = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var place in places)
+        {
+            if (place is null) continue;
+            foreach (var raw in place.Split(' ', ',', ';', '(', ')', '"'))
+            {
+                if (raw.Length < 3 || !char.IsUpper(raw[0])) continue;
+                var w = raw.ToLowerInvariant().Trim('.', '\'');
+                words.Add(w);
+                foreach (var ending in new[] { "n", "an", "ian", "ic", "ish", "ese", "i", "s" }) words.Add(w + ending);
+                var stem = w.TrimEnd('a', 'e', 'o', 'y');
+                if (stem.Length >= 3) foreach (var ending in new[] { "an", "ian", "ean", "n", "ic" }) words.Add(stem + ending);
+                if (IrregularDemonyms.TryGetValue(w, out var irregular)) words.UnionWith(irregular);
+            }
+            var lower = place.ToLowerInvariant();
+            foreach (var (name, people) in IrregularDemonyms) if (lower.Contains(name)) words.UnionWith(people);
+        }
+        return words;
+    }
+
+    /// <summary>The name without the place the request named, for telling repeats apart: "slovenian ferry", "lake bled
+    /// ferry" and "ferry" are one thing. The pick keeps its full name; a place in a name is harmless in itself (the child
+    /// never sees it) and often part of a real kind's name (iceland poppy, icelandic horse). Empty when the name was
+    /// nothing but the place.</summary>
+    public static string PlaceKey(string name, params string?[] places)
+    {
+        var words = PlaceWords(places);
+        var kept = Tidy(name).Split(' ').Where(w => !words.Contains(w.Trim('-')) && !w.Split('-').All(words.Contains));
+        return string.Join(' ', kept);
+    }
 
     /// <summary>What a model writes when it means no life stage.</summary>
     private static readonly HashSet<string> Nothing = ["null", "none", "nothing", "n/a", "na", "no", "-"];
@@ -147,14 +239,13 @@ public static class RealThingRules
         if (string.IsNullOrWhiteSpace(parsed.Fact)) { error = "no fact"; return false; }
 
         if ((request.GrowInto ?? request.MustBe) is { } next && subject != Tidy(next)) { error = $"should have been {next}"; return false; }
-        if (request.GrowInto is null && (request.Existing.Any(e => SameThing(e, subject)) || (request.Current is { } now && SameThing(now, subject))))
+        // Repeats are told apart without the place in the name: "lake bled ferry" is the ferry already there.
+        var key = PlaceKey(subject, request.Place, request.Here);
+        if (key.Length == 0 || (request.Place is { } where && where.Split(' ').Any(w => SameThing(w, subject)))) { error = "the place, not a thing in it"; return false; }
+        bool Same(string other) => SameThing(other, subject) || SameThing(PlaceKey(other, request.Place, request.Here), key);
+        if (request.GrowInto is null && (request.Existing.Any(Same) || (request.Current is { } now && Same(now))))
         {
             error = "already in the world";
-            return false;
-        }
-        if (request.Place is { } where && where.Split(' ').Any(w => SameThing(w, subject)))
-        {
-            error = "the place, not a thing in it";
             return false;
         }
 

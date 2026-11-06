@@ -294,7 +294,7 @@ public class RealThingTests
 
         Assert.Equal("moa", outcome.Recipe!.Name);
         Assert.Equal("turned down already", outcome.Attempts[1].Refused);
-        Assert.Equal(2, checker.Prompts.Count);
+        Assert.Single(checker.Prompts);   // the puffin; the moa is well known and goes unasked
         Assert.Contains("choose one of these", author.Prompts[0]);
         var last = author.Prompts[2];
         Assert.Contains("choose one of these: ", last);
@@ -315,7 +315,7 @@ public class RealThingTests
         Assert.Equal("dodo", outcome.Recipe!.Name);
         Assert.Equal(RealThingDirector.MaxAttempts + 1, outcome.Attempts.Count);
         Assert.Contains("subject must be \"dodo\"", author.Prompts[3]);
-        Assert.Single(checker.Prompts);   // the group words never reached the checker
+        Assert.Empty(checker.Prompts);   // the group words never reached the checker, and the dodo is well known
     }
 
     [Fact]
