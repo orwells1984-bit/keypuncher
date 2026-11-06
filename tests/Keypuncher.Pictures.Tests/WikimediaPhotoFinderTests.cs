@@ -293,6 +293,21 @@ public sealed class WikimediaPhotoFinderTests
     }
 
     [Fact]
+    public async Task A_file_whose_credit_calls_it_a_montage_is_passed_over()
+    {
+        var montage = File.ReadAllText(Path.Combine("TestData", "imageinfo-good.json")).Replace("Charles J. Sharp</a>", "Chicoutimi (montage) Karakal</a>");
+        var web = new FakeHandler()
+            .Json(Summary, "summary-standard.json")
+            .Json(Entity, "wikidata-p18.json")
+            .Text("titles=File:Sable antelope male.jpg&prop=imageinfo|categories", montage)
+            .ImageInfo("Sable antelope female.jpg", "imageinfo-lead.json");
+        var search = await Find(web);
+
+        Assert.Equal("File:Sable antelope female.jpg", search.Photo!.Provenance.FileTitle);
+        Assert.Contains("File:Sable antelope male.jpg: credit says montage", search.Notes);
+    }
+
+    [Fact]
     public async Task The_lead_image_is_found_without_the_tracking_tags_on_its_url()
     {
         var web = new FakeHandler()
@@ -439,6 +454,8 @@ public sealed class WikimediaPhotoFinderTests
     [Theory]
     [InlineData("No machine-readable author provided. <a href=\"//commons.wikimedia.org/wiki/User:Kabir_Bakie\">Kabir Bakie</a> assumed (based on copyright claims).", "Kabir Bakie (assumed)")]
     [InlineData("No machine-readable source provided. Own work assumed (based on copyright claims).", "Own work (assumed)")]
+    [InlineData("Mikel Ortega, with a retouche by Richard Bartz . See the original file here.", "Mikel Ortega, with a retouche by Richard Bartz")]
+    [InlineData("See the original file here.", null)]
     [InlineData("<a href=\"//commons.wikimedia.org/wiki/User:Example\">Charles J. Sharp</a>", "Charles J. Sharp")]
     [InlineData(null, null)]
     public void Credits_lose_commons_boilerplate(string? html, string? tidy) => Assert.Equal(tidy, WikimediaPhotoFinder.Tidy(html));

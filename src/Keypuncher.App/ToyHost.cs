@@ -80,7 +80,7 @@ public sealed class ToyHost : IDisposable
         PictureFolder = new PictureFolder(Path.Combine(DataFolder, PicturesName));
         Models = new ModelStore(DataFolder);
         _cutOuts = [new OnnxCutOut(OnnxCutOut.ISNet, Models.Folder), new OnnxCutOut(OnnxCutOut.BiRefNetLite, Models.Folder)];
-        var fetcher = new PhotoFetcher(PictureFolder, new WikimediaPhotoFinder(PictureHttp.NewClient()), new CutOutChain(_cutOuts), note: NotePicture);
+        var fetcher = new PhotoFetcher(PictureFolder, new ToyNameFinder(new WikimediaPhotoFinder(PictureHttp.NewClient())), new CutOutChain(_cutOuts), note: NotePicture);
         PictureJobs = new PictureJobs(PictureFolder, fetcher, enabled: () => Engine.Settings.Pictures, note: NotePicture);
         PictureJobs.Landed += name => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
         Director.Picked += (recipe, category) => PictureJobs.Enqueue(recipe.Name, category);
@@ -93,6 +93,9 @@ public sealed class ToyHost : IDisposable
             if (recipe.GrowsInto is { } grown)
                 PictureJobs.Enqueue(grown, recipe.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal, categoryGuessed: true);
         }
+        // The built-in animals and dinosaurs too, under their nursery names: the finder knows a rex is a Tyrannosaurus.
+        foreach (var animal in BuiltInRecipes.Animals.All)
+            PictureJobs.Enqueue(animal.Name, ToyNames.LookUp(animal.Name, RealCategory.Animal).Category);
         PictureJobs.RetryWanted();
 
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
