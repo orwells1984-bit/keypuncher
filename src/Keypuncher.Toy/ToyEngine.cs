@@ -120,8 +120,9 @@ public sealed class ToyEngine
     /// <summary>Raised with the tap's x when a tap lands on something already there and it pops.</summary>
     public event Action<double>? Popped;
 
-    /// <summary>Raised when a key or tap puts one of a director-restyled family's things on screen: the slot and
-    /// the recipe. For the log, so a run shows whether the child ever saw what the model chose.</summary>
+    /// <summary>Raised when one of a director-restyled family's things is put on screen, by a key or tap or by
+    /// <see cref="Show"/>: the slot and the recipe. For the log, so a run shows what the child saw of the model's
+    /// choices.</summary>
     public event Action<int, Recipe>? RestyledShown;
 
     public ToySettings Settings
@@ -322,9 +323,15 @@ public sealed class ToyEngine
     /// <summary>Clears key state after the window loses focus (key-ups went elsewhere).</summary>
     public void ResetInput() => _mash.Reset();
 
-    /// <summary>Puts one of <paramref name="recipe"/> on screen, unprompted: for the director's test mode, so a
-    /// grown-up sees each new thing as soon as it is chosen.</summary>
-    public void Show(Recipe recipe) => SpawnThing(recipe, 0.2 + (_random.NextDouble() * 0.6), 0.4, 1.2);
+    /// <summary>Puts one of <paramref name="recipe"/> on screen, unprompted, with a little burst: for a thing the
+    /// director has just chosen, so the child sees it as soon as it is chosen and not only when its key is next
+    /// pressed, which on a slow day could be never. Counts as shown for the log.</summary>
+    public void Show(Recipe recipe)
+    {
+        var thing = SpawnThing(recipe, 0.2 + (_random.NextDouble() * 0.6), 0.4, 1.2);
+        SpawnEffect(BuiltInRecipes.Burst, thing.X, thing.Y, 0.5, 1.2);
+        if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
+    }
 
     private void Respond(InputEvent ev, bool speak)
     {
@@ -501,14 +508,14 @@ public sealed class ToyEngine
             _mixer.Speak(samples, (x * 2) - 1);
     }
 
-    private void SpawnThing(Recipe recipe, double x, double y, double scale)
+    private Entity SpawnThing(Recipe recipe, double x, double y, double scale)
     {
         // Plants grow from the ground; creatures stay where the key is, kept clear of the hills' top edge.
         var jitter = (_random.NextDouble() - 0.5) * 0.04;
         var placeY = recipe.Kind == RecipeKind.Plant
             ? 0.74 + (y * 0.2) + (jitter * 0.5)
             : Math.Clamp(0.1 + (y * 0.6) + jitter, 0.08, 0.7);
-        _world.Add(new Entity
+        return _world.Add(new Entity
         {
             Id = _world.NextId(), Role = recipe.Kind == RecipeKind.Effect ? EntityRole.Effect : EntityRole.Thing,
             Recipe = recipe, X = Math.Clamp(x + jitter, 0.03, 0.97), Y = placeY,

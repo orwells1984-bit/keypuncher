@@ -9,6 +9,8 @@ public class SceneTests
 {
     private static readonly Scene Vik = new(Landscape.Beach, TimeOfDay.Morning, Weather.Cloudy, "Reynisfjara, Iceland", "A black sand beach.", Climate.Subpolar);
     private static readonly SceneRequest FromVik = new(Vik, ["Lake Myvatn, Iceland"], ["puffin", "seal"], Month: 1);
+    private static readonly Scene Thorsmork = new(Landscape.Meadow, TimeOfDay.Morning, Weather.Cloudy, "Thorsmork, Iceland", "A green valley.", Climate.Subpolar);
+    private static readonly SceneRequest FromThorsmork = new(Thorsmork, ["Lake Myvatn, Iceland"], ["sheep", "raven"], Month: 1);
 
     [Fact]
     public void The_schema_holds_each_kind_of_step_time_only_goes_forward_and_a_rainbow_only_follows_rain()
@@ -17,7 +19,9 @@ public class SceneTests
 
         var journey = SceneSchema.For(FromVik).GetProperty("properties");
         Assert.Equal(["Morning"], Values(journey, "timeOfDay"));
-        Assert.Equal(Enum.GetNames<Landscape>(), Values(journey, "landscape"));
+        // A journey must go somewhere that looks different: the beach it is on is not offered.
+        Assert.Equal(Enum.GetNames<Landscape>().Where(l => l != "Beach"), Values(journey, "landscape"));
+        Assert.Equal(["Meadow"], Values(SceneSchema.For(FromVik with { MustGoTo = KnownPlace.All.First(p => p.Name == "Thorsmork, Iceland") }).GetProperty("properties"), "landscape"));
         Assert.DoesNotContain("Rainbow", Values(journey, "weather"));
 
         var weather = SceneSchema.For(FromVik with { Change = SceneChange.Weather }).GetProperty("properties");
@@ -85,7 +89,8 @@ public class SceneTests
     [InlineData(SceneChange.Weather, "Bondi Beach, Australia", "Beach", "Morning", "Clear", "should have changed only the weather")]
     [InlineData(SceneChange.Time, "Reynisfjara, Iceland", "Beach", "Morning", "Rain", "should have moved the time on")]
     [InlineData(SceneChange.Journey, "Reynisfjara, Iceland", "Beach", "Morning", "Rain", "should have gone somewhere new")]
-    [InlineData(SceneChange.Journey, "Bondi Beach, Australia", "Beach", "Midday", "Clear", "changed everything at once")]
+    [InlineData(SceneChange.Journey, "Bondi Beach, Australia", "Beach", "Morning", "Clear", "should have gone somewhere that looks different")]
+    [InlineData(SceneChange.Journey, "Lake Bled, Slovenia", "Lake", "Midday", "Clear", "changed everything at once")]
     [InlineData(SceneChange.Journey, "Lake Myvatn, Iceland", "Lake", "Morning", "Cloudy", "been there lately")]
     [InlineData(SceneChange.Journey, "Seren: Tanzania", "Savanna", "Morning", "Cloudy", "not a plain place name")]
     public void Steps_the_real_world_does_not_take_are_refused(SceneChange change, string place, string landscape, string time, string weather, string why)
@@ -228,7 +233,7 @@ public class SceneTests
     {
         var author = new ScriptedModel(Step(place, "Beach", "Morning", "Snow"));
         var checker = new ScriptedModel(Place("a real place", "real", ["Beach"], climate, hemisphere), JsonSerializer.Serialize(new { verdict = "true" }));
-        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromVik with { Month = month });
+        var outcome = await new SceneDirector(author, new PlaceChecker(checker)).ProposeAsync(FromThorsmork with { Month = month });
         Assert.Equal(Enum.Parse<Weather>(weather), outcome.Scene!.Weather);
         var used = Assert.Single(outcome.Attempts);
         if (note is null) Assert.EndsWith("Snow", used.Tried);
@@ -250,6 +255,10 @@ public class SceneTests
         Assert.Contains("If you are not sure of a place, choose one of these:", author.Prompts[0]);
         Assert.DoesNotContain("Reynisfjara, Iceland (Beach)", author.Prompts[0]);
         Assert.DoesNotContain("Lake Myvatn, Iceland (Lake)", author.Prompts[0]);
+        // Nor any other beach: the known places offered, and the one gone to, look different from here.
+        Assert.DoesNotContain("(Beach)", author.Prompts[0]);
+        Assert.Contains("must not be Beach", author.Prompts[0]);
+        Assert.NotEqual(Landscape.Beach, outcome.Scene!.Landscape);
         // The known place's own landscape is used, even though the checker named another.
         var known = KnownPlace.All.Single(p => p.Name == outcome.Scene!.Place);
         Assert.Equal(known.Landscape, outcome.Scene!.Landscape);
@@ -264,7 +273,7 @@ public class SceneTests
         Assert.Equal("Eldhraun, Iceland", outcome.Scene!.Place);
 
         var unknown = new ScriptedModel(Step("Koh Rong San, Cambodia", "Beach", "Morning", "Cloudy"));
-        var refused = await new SceneDirector(unknown, new PlaceChecker(new ScriptedModel(Place("unknown", "unsure", []))), new Random(1)).ProposeAsync(FromVik);
+        var refused = await new SceneDirector(unknown, new PlaceChecker(new ScriptedModel(Place("unknown", "unsure", []))), new Random(1)).ProposeAsync(FromThorsmork);
         Assert.Equal("checker: not sure it is a real place", refused.Attempts[0].Refused);
     }
 

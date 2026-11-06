@@ -90,9 +90,11 @@ To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Previ
 
 With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the
 model busy with two jobs, one request at a time. Every 2 / 1 / 0.5 minutes of play (Baby / Toddler / Big
-toddler), starting 30 s in, it turns one key family into a real thing. Every 3 / 2 / 1.5 minutes it moves
-the scene a step (see below), the first a minute into play. Every request and what came of it is written
-to `director.log` in the data folder, as well as listed on the grown-ups' page. **Test mode** (a switch on the grown-ups' page) runs both jobs back to back as fast as the model answers, shows each new thing at once, writes the latest choice at the top of the screen, fades scenes in over 3 s and skips the goodnight. The twelve invented families at the front of the palette
+toddler), starting 30 s in, it turns one key family into a real thing, which appears once on its own the
+moment it is chosen and from then on whenever its key is pressed. Every 3 / 2 / 1.5 minutes it moves
+the scene a step (see below), the first a minute into play; a journey always goes somewhere that looks
+different, since the backdrop is all a journey changes. Every request and what came of it is written
+to `director.log` in the data folder, as well as listed on the grown-ups' page. **Test mode** (a switch on the grown-ups' page) runs both jobs back to back as fast as the model answers, writes the latest choice at the top of the screen, fades scenes in over 3 s and skips the goodnight. The twelve invented families at the front of the palette
 (puffbird, petalpop and so on) go first, one by one; a family keeps its kind, so a plant key stays a plant
 key, and the real animals after them never change. A thing that really grows into something (tadpole,
 caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy plays as before.
@@ -121,10 +123,10 @@ a time of day (dawn to evening; the goodnight is the only night, and each play s
 fog, a rainbow). The loop chooses the kind of step (a journey from the starting meadow and after three steps at one place, otherwise mostly a weather change or the time moving on; a small model left to choose only moves the clock) and the model chooses the weather or where to go. Each step is held to the real world:
 
 1. **Prompt and schema.** The time of day may only stay or move on; a rainbow is offered only after rain.
-   A weather step must change the weather, a journey must go somewhere new. Half of the later requests for an animal or plant ask for one really found at the scene's place.
+   A weather step must change the weather, a journey must go somewhere new that looks different (a new landscape). Half of the later requests for an animal or plant ask for one really found at the scene's place.
 2. **Rules** (`SceneRules`): no snow in deserts, jungles or the savanna, a new landscape needs a new place,
    not all three things at once, no going back to one of the last eight places.
-   A journey offers five well-known real places (Icelandic and Bulgarian ones among them, `KnownPlace.All`); if all three tries miss, it goes to one of them. A kind of country with a country after it ("Savannah, Botswana") is not a place.
+   A journey offers five well-known real places with another landscape than here (Icelandic and Bulgarian ones among them, `KnownPlace.All`); if all three tries miss, it goes to one of them. A kind of country with a country after it ("Savannah, Botswana") is not a place.
 3. **Place check** (`PlaceChecker`): a new place goes to a second, cold call that sees only its name, must
    say it is real, lists the landscapes found there itself (the claimed one must be among them) and, for
    snow, must say snow falls there.
