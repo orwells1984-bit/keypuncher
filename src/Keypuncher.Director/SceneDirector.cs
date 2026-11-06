@@ -139,8 +139,10 @@ public static class SceneSchema
                 ["place"] = request.MustGoTo is { } to ? Enum([to.Name])
                     : !journey && now.Place is { } here ? Enum([here])
                     : new JsonObject { ["type"] = "string", ["minLength"] = 3, ["maxLength"] = 48 },
+                // A journey goes somewhere that looks different, so the child sees the world move: the backdrop is
+                // all a journey changes, and savanna to savanna looked like nothing at all.
                 ["landscape"] = Enum(request.MustGoTo is { } must ? [must.Landscape.ToString()]
-                    : request.Change == SceneChange.Journey ? Enum<Landscape>() : [now.Landscape.ToString()]),
+                    : request.Change == SceneChange.Journey ? Enum<Landscape>().Where(l => l != now.Landscape.ToString()) : [now.Landscape.ToString()]),
                 ["timeOfDay"] = Enum([(request.Change == SceneChange.Time ? Scene.Next(now.TimeOfDay) : now.TimeOfDay).ToString()]),
                 ["weather"] = Enum(Enum<Weather>()
                     .Where(w => w != nameof(Weather.Rainbow) || now.Weather == Weather.Rain)
@@ -170,8 +172,8 @@ public static class SceneSchema
 /// <summary>
 /// The checks a scene must pass before its place is asked about. Like <see cref="RealThingRules"/>, they cannot
 /// prove the place is real, but they hold the scene to how the real world works: time goes forward, a rainbow comes
-/// after rain, the weather is usual for the place and season, a new landscape is a new place, and only one or two
-/// things change.
+/// after rain, the weather is usual for the place and season, a new landscape is a new place, a journey is to a new
+/// landscape, and only one or two things change.
 /// </summary>
 public static class SceneRules
 {
@@ -218,6 +220,7 @@ public static class SceneRules
         var asked = request.Change switch
         {
             SceneChange.Journey when !newPlace => "should have gone somewhere new",
+            SceneChange.Journey when pick.Landscape == now.Landscape => "should have gone somewhere that looks different",
             SceneChange.Weather when newPlace || pick.Weather == now.Weather => "should have changed only the weather",
             SceneChange.Time when newPlace || pick.TimeOfDay == now.TimeOfDay => "should have moved the time on",
             _ => null,
@@ -274,10 +277,11 @@ public sealed class SceneDirector(ILanguageModel author, PlaceChecker checker, R
         return new SceneOutcome(request, scene, attempts, DateTime.UtcNow - started);
     }
 
-    /// <summary>A few known places that are not here or somewhere recent.</summary>
+    /// <summary>A few known places that are not here or somewhere recent, and do not look like here.</summary>
     private List<KnownPlace> Suggestions(SceneRequest request) =>
         [.. KnownPlace.All
-            .Where(p => !SceneRules.SamePlace(p.Name, request.Current.Place) && !request.RecentPlaces.Any(r => SceneRules.SamePlace(r, p.Name)))
+            .Where(p => p.Landscape != request.Current.Landscape && !SceneRules.SamePlace(p.Name, request.Current.Place)
+                && !request.RecentPlaces.Any(r => SceneRules.SamePlace(r, p.Name)))
             .OrderBy(_ => _random.Next())
             .Take(5)];
 

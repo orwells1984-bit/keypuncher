@@ -530,6 +530,24 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_thing_the_director_has_just_chosen_is_shown_once_on_its_own_and_counts_as_shown()
+    {
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin" };
+        Assert.True(_world.Families.Restyle(0, puffin, 1));
+        var shown = new List<(int, string)>();
+        _engine.RestyledShown += (slot, recipe) => shown.Add((slot, recipe.Name));
+
+        _engine.Show(puffin);
+        Assert.Same(puffin, Assert.Single(_world.Live, e => e.Role == EntityRole.Thing).Recipe);
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Effect);   // a little burst, so it is noticed
+        Assert.Equal([(0, "puffin")], shown);
+
+        // A thing that is not a restyled family (the test-mode hedgehog, say) is shown but not logged as one.
+        _engine.Show(BuiltInRecipes.Palette[1] with { Name = "hedgehog" });
+        Assert.Single(shown);
+    }
+
+    [Fact]
     public void Letters_are_small_by_default()
     {
         Assert.False(ToySettings.Default.UpperCase);

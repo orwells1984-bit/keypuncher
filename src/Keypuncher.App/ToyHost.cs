@@ -64,10 +64,9 @@ public sealed class ToyHost : IDisposable
         OllamaAddress = ollama;
         _directorLog = Path.Combine(DataFolder, DirectorLogName);
         Director.Noted += WriteDirectorLog;
-        Director.Restyled += (_, recipe) =>
-        {
-            if (Engine.Settings.DirectorTest) Engine.Show(recipe);
-        };
+        // A new thing appears once on its own as soon as it is chosen; before, it waited for its key, and a whole
+        // play could pass without that key being pressed again.
+        Director.Restyled += (_, recipe) => Engine.Show(recipe);
         WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
         if (Engine.Settings.Director) _ = WarmUpAsync(author);
 
