@@ -30,7 +30,7 @@ public sealed class PlayPage : ContentPage
     public PlayPage(ToyHost host)
     {
         _host = host;
-        _renderer.Pictures = new PictureLibrary(Path.Combine(host.DataFolder, ToyHost.PicturesName));
+        _renderer.Pictures = host.Pictures;
         BackgroundColor = Colors.LightBlue;
         // Draw at layout size rather than device pixels: on a 4K screen at 200% that is a quarter of the
         // pixels (17 frames a second at full resolution on the desktop), and the soft shapes don't need more.
@@ -196,6 +196,9 @@ public sealed class PlayPage : ContentPage
         _host.Engine.GrownUpRequested -= OnGrownUp;
         _timer.Stop();
         StopRecording();
+        // This page is never shown again: the grown-ups' page makes a new one.
+        _canvas.PaintSurface -= OnPaint;
+        _renderer.Dispose();
         ToyApp.Show(new ParentPage(_host));
     }
 }

@@ -36,8 +36,13 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     public PictureLibrary? Pictures { get; set; }
 
     private readonly Dictionary<long, Sprite> _sprites = [];
-    /// <summary>Things already counted as a meeting with their picture.</summary>
+    /// <summary>Each live thing's rung on the realism ladder, decided when it is first seen and kept for its life,
+    /// so a promotion shows on the next thing born rather than changing one already there.</summary>
+    private readonly Dictionary<long, PictureStage> _stageOf = [];
+    /// <summary>Things whose birth has been counted as a meeting.</summary>
     private readonly HashSet<long> _met = [];
+    /// <summary>World time of the first frame: things born before it were there already, not met now.</summary>
+    private double _firstDraw = double.NaN;
     private SKSurface? _baked, _still;
     private SKImage? _background, _previous, _history;
     private bool _stillDirty = true;
@@ -60,6 +65,9 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
 
         var dt = double.IsNaN(_lastTime) ? 0 : Math.Clamp(world.Time - _lastTime, 0, 0.25);
         _lastTime = world.Time;
+        if (double.IsNaN(_firstDraw)) _firstDraw = world.Time;
+        // A picture that just finished loading or drawing may belong to something in the history too.
+        if (Pictures?.Pump() == true) _bakedGeneration = -1;
 
         var start = Stopwatch.GetTimestamp();
         var fade = UpdateBackdrop(world, width, height);
@@ -230,7 +238,13 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         }
         if (_motion.Count > seen.Count * 2 + 16)
             foreach (var id in _motion.Keys.Where(id => !seen.Contains(id)).ToList()) _motion.Remove(id);
-        if (_met.Count > seen.Count * 2 + 16) _met.RemoveWhere(id => !seen.Contains(id));
+        if (_stageOf.Count > seen.Count * 2 + 16)
+        {
+            var kept = new HashSet<long>(seen);
+            foreach (var b in world.Baked) kept.Add(b.Id);
+            foreach (var id in _stageOf.Keys.Where(id => !kept.Contains(id)).ToList()) _stageOf.Remove(id);
+            _met.RemoveWhere(id => !kept.Contains(id));
+        }
         if (_sprites.Count > seen.Count + 8)
             foreach (var id in _sprites.Keys.Where(id => !seen.Contains(id)).ToList())
             {
@@ -250,8 +264,15 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             var k = Math.Clamp((world.Time - at) / World.RetireSeconds, 0, 1);
             a += (world.Limits.HistoryOpacity - a) * k;
         }
-        // A thing just born is a meeting with it; one already there when the toy starts is not.
-        if (Pictures is not null && e.Age(world.Time) < 2 && _met.Add(e.Id)) Pictures.Meet(e.Recipe!.Name);
+        // A thing's rung is settled the first time it is seen, before the meeting is counted, so its first few
+        // meetings really are as its shape. A thing born since the toy started is a meeting; one restored is not.
+        // While its picture is still being read the rung is not settled yet, so a thing whose picture is read for
+        // the first time this session still gets it.
+        if (Pictures is not null && !_stageOf.ContainsKey(e.Id))
+        {
+            if (Pictures.TryStage(e.Recipe!, world.Style, out var stage)) _stageOf[e.Id] = stage;
+            if (e.Born >= _firstDraw && _met.Add(e.Id)) Pictures.Meet(e.Recipe!.Name);
+        }
         if (Place(e, e.Age(world.Time), clock, motion, world.Limits.MaxMotionHz, width, height, unit, world.Style) is { } p)
             DrawSprite(canvas, e, p, clock, (byte)(255 * Math.Clamp(a, 0, 1)), unit, world.Style);
     }
@@ -388,11 +409,12 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
 
     /// <summary>Draws a thing about its own point, unrotated: a plant's stem from its foot and the body on top, or a
     /// creature's body centred there.</summary>
-    private void PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, ArtStyle style, int unit)
+    /// <returns>Whether it was drawn from its picture rather than as its stock shape.</returns>
+    private bool PaintLocal(SKCanvas canvas, Recipe recipe, Placement p, double t, PictureStage stage, ArtStyle style, int unit)
     {
         canvas.Save();
         // A thing drawn from its picture rests on the ground like the drawn pictures do, with no stem of its own.
-        var fromPicture = Pictures?.Stage(recipe) is { } stage && stage != PictureStage.Shape;
+        var fromPicture = stage != PictureStage.Shape;
         if (p.Plant && (fromPicture || recipe.Body.Shape.IsPicture()))
         {
             canvas.Translate(0, fromPicture ? -p.R : -p.Stem);
@@ -407,9 +429,19 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             canvas.DrawLine(0, 0, 0, -p.Stem, stemPaint);
             canvas.Translate(0, -p.Stem);
         }
-        if (!fromPicture || !Pictures!.Paint(canvas, recipe, p.R, style, unit))
-            RecipePainter.Paint(canvas, recipe, p.R, t, style, unit);
+        var drawn = fromPicture && Pictures is not null && Pictures.Paint(canvas, recipe, stage, p.R, style, unit);
+        if (!drawn) RecipePainter.Paint(canvas, recipe, p.R, t, style, unit);
         canvas.Restore();
+        return drawn;
+    }
+
+    /// <summary>The rung a thing is drawn at: the one settled when it was first seen, capped by the level now, or
+    /// its current rung for a thing (in the history) seen before this renderer existed.</summary>
+    private PictureStage StageOf(Entity e, ArtStyle style)
+    {
+        if (Pictures is null) return PictureStage.Shape;
+        var stage = _stageOf.TryGetValue(e.Id, out var s) ? s : Pictures.Stage(e.Recipe!, style);
+        return (PictureStage)Math.Min((int)stage, (int)style.MaxPictureStage);
     }
 
     /// <summary>Draws a thing straight onto the canvas, as one layer when it is translucent.</summary>
@@ -422,7 +454,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             canvas.Save();
             canvas.Translate(p.X, p.Y);
             canvas.RotateDegrees(p.Rotation);
-            PaintLocal(canvas, e.Recipe!, p, clock, style, unit);
+            PaintLocal(canvas, e.Recipe!, p, clock, StageOf(e, style), style, unit);
             canvas.Restore();
         });
     }
@@ -436,6 +468,9 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         public ArtStyle? Style;
         public float R, Rotation;
         public long Tick = -1;
+        public PictureStage Stage;
+        /// <summary>Whether it shows the thing's picture; until the picture is ready it shows the stock shape and is tried again.</summary>
+        public bool FromPicture;
 
         public void Dispose() => Image?.Dispose();
     }
@@ -447,9 +482,11 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     private void DrawSprite(SKCanvas canvas, Entity e, Placement p, double clock, byte alpha, int unit, ArtStyle style)
     {
         if (!_sprites.TryGetValue(e.Id, out var sprite)) _sprites[e.Id] = sprite = new Sprite();
-        var tick = (long)Math.Floor(clock * SpriteHz);
+        var stage = StageOf(e, style);
+        // A picture does not blink or wobble, so a thing drawn from one is not repainted as its clock runs.
+        var tick = sprite.FromPicture && stage != PictureStage.Shape ? sprite.Tick : (long)Math.Floor(clock * SpriteHz);
         if (sprite.Image is null || sprite.Tick != tick || Math.Abs(sprite.R - p.R) > 0.25f || Math.Abs(sprite.Rotation - p.Rotation) > 3
-            || !ReferenceEquals(sprite.Recipe, e.Recipe) || !Equals(sprite.Style, style))
+            || !ReferenceEquals(sprite.Recipe, e.Recipe) || !Equals(sprite.Style, style) || sprite.Stage != stage || (stage != PictureStage.Shape && !sprite.FromPicture))
         {
             // Recorded first, so the pixels cover only what was drawn rather than everything the thing could reach.
             // The rock is drawn into the sprite too, so it can be put down square, pixel for pixel, which is far
@@ -460,7 +497,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
             using var recorder = new SKPictureRecorder();
             var recording = recorder.BeginRecording(bounds, true);
             recording.RotateDegrees(p.Rotation);
-            PaintLocal(recording, e.Recipe!, p, tick / SpriteHz, style, unit);
+            var fromPicture = PaintLocal(recording, e.Recipe!, p, tick / SpriteHz, stage, style, unit);
             using var picture = recorder.EndRecording();
             var cull = SKRect.Intersect(picture.CullRect, bounds);
             var area = new SKRectI((int)Math.Floor(cull.Left) - 1, (int)Math.Floor(cull.Top) - 1, (int)Math.Ceiling(cull.Right) + 1, (int)Math.Ceiling(cull.Bottom) + 1);
@@ -473,7 +510,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
                 surface.Canvas.DrawPicture(picture);
                 sprite.Image = surface.Snapshot();
             }
-            (sprite.Offset, sprite.Recipe, sprite.Style, sprite.R, sprite.Rotation, sprite.Tick) = (new SKPoint(area.Left, area.Top), e.Recipe, style, p.R, p.Rotation, tick);
+            (sprite.Offset, sprite.Recipe, sprite.Style, sprite.R, sprite.Rotation, sprite.Tick, sprite.Stage, sprite.FromPicture) = (new SKPoint(area.Left, area.Top), e.Recipe, style, p.R, p.Rotation, tick, stage, fromPicture);
         }
 
         using var paint = new SKPaint { Color = SKColors.White.WithAlpha(alpha) };

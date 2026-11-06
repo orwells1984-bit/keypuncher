@@ -147,9 +147,7 @@ static int PictureSheet(string outDir, string folder)
     }
     const int tileW = 480, tileH = 320;
     var stages = Enum.GetValues<PictureStage>();
-    using var renderer = new SceneRenderer(Fonts.LoadAndika());
     using var pictures = new PictureLibrary(folder);
-    renderer.Pictures = pictures;
     using var label = new SKFont(Fonts.LoadAndika(), 20);
     using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70) };
     foreach (var level in Enum.GetValues<CalmLevel>())
@@ -162,14 +160,22 @@ static int PictureSheet(string outDir, string folder)
             for (var col = 0; col < stages.Length; col++)
             {
                 pictures.Forced = stages[col];
+                // The level's cap is shown too, so a rung the level does not reach draws the rung it does.
                 var world = new World { Style = ArtStyle.For(level) };
                 world.Add(new Entity { Id = (row * 10) + col + 1, Role = EntityRole.Thing, Recipe = recipe, X = 0.5, Y = 0.5, Born = -100, Phase = 0.05, Scale = 1.4 });
                 using var tile = SKSurface.Create(new SKImageInfo(tileW, tileH));
-                renderer.Draw(tile.Canvas, tileW, tileH, world, null);
+                // Pictures are read and drawn on the pool, so the tile is drawn again once they are ready.
+                using var scratch = new SceneRenderer(Fonts.LoadAndika()) { Pictures = pictures };
+                scratch.Draw(tile.Canvas, tileW, tileH, world, null);
+                pictures.WaitIdle(TimeSpan.FromSeconds(30));
+                scratch.Draw(tile.Canvas, tileW, tileH, world, null);
+                pictures.WaitIdle(TimeSpan.FromSeconds(30));
+                scratch.Draw(tile.Canvas, tileW, tileH, world, null);
                 using var image = tile.Snapshot();
                 var (x, y) = (col * tileW, row * tileH);
                 sheet.Canvas.DrawImage(image, x, y, SKSamplingOptions.Default);
-                sheet.Canvas.DrawText($"{name}: {stages[col]}", x + 10, y + 24, SKTextAlign.Left, label, ink);
+                var shown = (PictureStage)Math.Min((int)stages[col], (int)ArtStyle.For(level).MaxPictureStage);
+                sheet.Canvas.DrawText($"{name}: {stages[col]}{(shown != stages[col] ? $" (capped at {shown} here)" : "")}", x + 10, y + 24, SKTextAlign.Left, label, ink);
             }
         }
         using var snapshot = sheet.Snapshot();
