@@ -142,7 +142,8 @@ public static class Bench
                 var label = opts.Label(variant);
                 var author = new OllamaLanguageModel(opts.Host, model, temperature: opts.Temperature, think: opts.Think);
                 var coldModel = new OllamaLanguageModel(opts.Host, model, temperature: 0, think: opts.Think);
-                var checker = new FactChecker(coldModel, variant);
+                // The model alone is measured: the toy's list of well-known names stays out of it.
+                var checker = new FactChecker(coldModel, variant) { TrustWellKnown = false };
                 var placeChecker = new PlaceChecker(coldModel);
                 Console.WriteLine($"-- {label} --");
 
@@ -207,16 +208,8 @@ public static class Bench
         return JsonSerializer.Deserialize<List<T>>(File.ReadAllText(path), Json) ?? [];
     }
 
-    /// <summary>Words a pick's name must not carry: the author folds the place into the name ("icelandic potato",
-    /// "wadi rum gazelle") when asked for something that lives there, and the checker then knows no such kind.</summary>
-    private static readonly string[] PlaceWords =
-    [
-        "icelandic", "iceland", "slovenian", "slovenia", "bulgarian", "bulgaria", "jordanian", "jordan", "african", "africa",
-        "australian", "english", "lake", "bled", "wadi", "rum", "kruger", "hallormsstadaskogur", "reynisfjara", "savanna", "desert",
-    ];
-
     /// <summary>One author call. Passed means the rules let the pick through, as the toy would send it to the checker;
-    /// a name that carries the place fails too, since the checker always turns those away. Agrees is then the
+    /// a name that carries the place ("icelandic horse") is kept, as the toy keeps it. Agrees is then the
     /// checker's word on whether it is real and the kind asked for: the schema holds the category to the one asked,
     /// so a "gazelle" offered as a vehicle passes the rules and only the checker catches it. The timing is the
     /// author's call alone. With no <paramref name="checker"/> the pick comes back for a judge to look at later.
@@ -234,7 +227,6 @@ public static class Bench
         var ok = RealThingRules.TryBuild(result.Json, request, out var pick, out _, out var error);
         var subject = pick?.Subject ?? "?";
         var outcome = ok ? "ok" : error ?? "?";
-        if (ok && subject.Split(' ', '-').Any(w => PlaceWords.Contains(w))) { ok = false; outcome = "place in the name"; }
         var row = new Row(model, label, "author", c.Id, run, 1, subject, outcome, result.Json is not null, ok, null,
             Ms(result, clock), result.Timing.Load.TotalMilliseconds, result.Timing.PromptTokens, result.Timing.OutputTokens, result.RawText);
         if (!ok) return (row, null);
@@ -272,7 +264,9 @@ public static class Bench
         var clock = Stopwatch.StartNew();
         var result = await cold.GenerateJsonAsync(FactChecker.System, FactChecker.FitPrompt(c.Name, c.Category, c.Here), JsonDocument.Parse(FactChecker.FitSchemaJson).RootElement.Clone());
         clock.Stop();
-        var fits = FactChecker.Fits(result.Json?.RootElement);
+        // As in the toy, the landscape has its say: the known places give it.
+        var landscape = KnownPlace.All.FirstOrDefault(p => c.Here == $"at {p.Name}")?.Landscape;
+        var fits = FactChecker.Fits(result.Json?.RootElement, landscape, c.Name);
         return new Row(model, label, "habitat", c.Name + " " + c.Here, run, 1, c.Name, fits ? "found there" : "not found there", result.Json is not null,
             fits, fits == c.Found, Ms(result, clock), result.Timing.Load.TotalMilliseconds, result.Timing.PromptTokens, result.Timing.OutputTokens, result.RawText);
     }

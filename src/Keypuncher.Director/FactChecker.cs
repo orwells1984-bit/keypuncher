@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Keypuncher.Core;
 using Keypuncher.Inference;
 
 namespace Keypuncher.Director;
@@ -18,8 +19,13 @@ public sealed record FactCheck(
     [property: JsonPropertyName("growsInto")] string GrowsInto)
 {
     /// <summary>Only a sure "real" of the claimed kind passes; "unsure" counts as no, and so does a puffin
-    /// offered as an extinct animal.</summary>
-    public bool Passes(RealCategory claimed) => Verdict == "real" && Kind == claimed.ToString();
+    /// offered as an extinct animal. A vehicle and an everyday object count as each other: the bench found the
+    /// checker calls a boat an Object and a sledge a Vehicle as often as not, and either is drawn the same way.</summary>
+    public bool Passes(RealCategory claimed) => Verdict == "real" && Enum.TryParse<RealCategory>(Kind, out var kind) && SameKind(kind, claimed);
+
+    public static bool SameKind(RealCategory a, RealCategory b) => a == b || (IsThing(a) && IsThing(b));
+
+    private static bool IsThing(RealCategory c) => c is RealCategory.Vehicle or RealCategory.Object;
 
     public bool GrowsIntoConfirmed => GrowsInto == "true";
 
@@ -37,6 +43,11 @@ public sealed record FactCheck(
 public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = null)
 {
     private readonly PromptVariant _variant = variant ?? PromptVariant.Baseline;
+
+    /// <summary>Whether a name in <see cref="RealThingRules.WellKnownKind"/> (a jeep, a woolly rhinoceros) passes without
+    /// a call. The toy trusts the list; the bench switches it off to measure the model alone. The small model's one
+    /// steady blind spot is ordinary vehicles and Ice Age animals, which it calls "unsure".</summary>
+    public bool TrustWellKnown { get; init; } = true;
 
     public const string System = """
         You check facts for a children's picture encyclopedia. You are strict: anything you do not know well
@@ -79,17 +90,19 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
 
     private const string Continents = "\"Africa\", \"Asia\", \"Europe\", \"NorthAmerica\", \"SouthAmerica\", \"Oceania\", \"Antarctica\"";
     private const string Climates = "\"Tropical\", \"Dry\", \"Temperate\", \"Cold\", \"Polar\"";
+    private const string Elements = "\"Sea\", \"FreshWater\", \"Land\", \"Air\"";
 
     public const string FitSchemaJson = $$"""
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["placeContinent", "placeClimate", "thingContinents", "thingClimates"],
+          "required": ["placeContinent", "placeClimate", "thingContinents", "thingClimates", "thingElements"],
           "properties": {
             "placeContinent": { "type": "string", "enum": [{{Continents}}] },
             "placeClimate": { "type": "string", "enum": [{{Climates}}] },
             "thingContinents": { "type": "array", "minItems": 1, "maxItems": 7, "items": { "type": "string", "enum": [{{Continents}}] } },
-            "thingClimates": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "enum": [{{Climates}}] } }
+            "thingClimates": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "enum": [{{Climates}}] } },
+            "thingElements": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "type": "string", "enum": [{{Elements}}] } }
           }
         }
         """;
@@ -112,16 +125,24 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
             winters, mountains, subarctic) or Polar.
             thingContinents: every continent where a {subject} {lives} today, in the wild or {kept}.
             thingClimates: every climate a {subject} {lives} in.
+            thingElements: where a {subject} {lives}: in the Sea, in FreshWater (rivers, lakes, ponds), on Land, or in the Air; every one that is true.
             """;
     }
 
     /// <summary>Whether a living animal or plant could be found <paramref name="here"/> ("at Lake Bled, Slovenia"):
-    /// the place's continent and climate must both be among the thing's. No answer is a no.</summary>
-    public async Task<bool> FitsAsync(string subject, RealCategory category, string here, CancellationToken cancellationToken = default)
+    /// the place's continent and climate must both be among the thing's, and where the scene's
+    /// <paramref name="landscape"/> is known, the thing's element must fit it (<see cref="Habitat"/>): no shark at a
+    /// lake. <paramref name="shape"/> is how the pick is drawn, which settles the element for the sea shapes. No answer is a no.</summary>
+    public async Task<bool> FitsAsync(string subject, RealCategory category, string here, Landscape? landscape = null, Shape? shape = null, CancellationToken cancellationToken = default)
     {
         var result = await model.GenerateJsonAsync(System, FitPrompt(subject, category, here), FitSchema, cancellationToken);
-        return Fits(result.Json?.RootElement);
+        return Fits(result.Json?.RootElement, landscape, subject, shape);
     }
+
+    /// <summary>Whether a found-there answer fits: continent and climate as <see cref="Fits(JsonElement?)"/>, and the
+    /// thing's element in the landscape.</summary>
+    public static bool Fits(JsonElement? answer, Landscape? landscape, string subject, Shape? shape = null) =>
+        Fits(answer) && Habitat.Fits(Habitat.Of(subject, shape, answer), landscape);
 
     /// <summary>Whether a found-there answer puts the place's continent and climate among the thing's.</summary>
     public static bool Fits(JsonElement? answer)
@@ -181,6 +202,9 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
     /// and the first pass both. With <see cref="PromptVariant.GentleChecker"/> the first look is already the gentle one, so there is no second.</param>
     public async Task<FactCheck> CheckAsync(string subject, string? growsInto, RealCategory? claimed = null, CancellationToken cancellationToken = default)
     {
+        // A well-known name of the kind claimed needs no call; a growth claim on it is not confirmed, so it is dropped.
+        if (TrustWellKnown && claimed is { } c && RealThingRules.WellKnownKind(subject) is { } known && FactCheck.SameKind(known, c))
+            return new FactCheck("well known", "real", known.ToString(), growsInto is null ? "none" : "false");
         var (system, user) = FirstLook(subject, growsInto);
         var first = await AskAsync(system, user, cancellationToken);
         if (_variant.GentleChecker) return first;
