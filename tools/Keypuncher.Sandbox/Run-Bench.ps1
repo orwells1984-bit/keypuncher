@@ -26,7 +26,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "bench exited with $LASTEXITCODE" }
     }
     switch ($Step) {
-        'smoke'    { & $bench @('--models', 'qwen3:4b', '--variants', 'baseline', '--sets', 'checker', '--runs', '1') }
+        'smoke'    { & $bench @('--models', 'qwen3:4b', '--variants', 'A2', '--sets', 'checker', '--runs', '1') }
         'baseline' { & $bench @('--models', 'qwen3:4b,qwen3:1.7b', '--variants', 'baseline', '--runs', '3') }
         'prompts'  { & $bench @('--models', 'qwen3:4b', '--variants', 'A1,A2,A4,A8,best', '--runs', '3') }
         'models'   { & $bench @('--models', 'gemma3:4b,llama3.1:8b,qwen3:8b,llama3.2:3b,phi4-mini,gemma3:1b', '--variants', 'baseline,A2', '--runs', '2', '--judge', 'qwen3:4b') }

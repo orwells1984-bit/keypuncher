@@ -29,11 +29,11 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 /// Any other request that misses leaves the family as it is, which is always safe.
 /// </summary>
 /// <param name="random">Picks the well-known extinct animals to offer.</param>
-/// <param name="variant">How the author is asked; the toy uses <see cref="PromptVariant.Baseline"/>, the bench tries others.</param>
+/// <param name="variant">How the author is asked; by default <see cref="PromptVariant.Shipped"/>, what the toy runs; the bench tries others.</param>
 public sealed class RealThingDirector(ILanguageModel author, FactChecker checker, Random? random = null, PromptVariant? variant = null)
 {
     private readonly Random _random = random ?? new Random();
-    private readonly PromptVariant _variant = variant ?? PromptVariant.Baseline;
+    private readonly PromptVariant _variant = variant ?? PromptVariant.Shipped;
 
     public const int MaxAttempts = 3;
 

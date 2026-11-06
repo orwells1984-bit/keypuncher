@@ -50,6 +50,21 @@ public class PromptVariantTests
     }
 
     [Fact]
+    public void The_toy_runs_the_examples_and_the_baseline_checker()
+    {
+        Assert.Same(PromptVariant.Shipped, PromptVariant.Parse("A2"));
+        Assert.Equal(PromptVariant.Shipped, new PromptVariant("A2", FewShot: true));
+    }
+
+    [Fact]
+    public async Task The_director_sends_the_examples_unless_told_otherwise()
+    {
+        var model = new RealThingTests.ScriptedModel(JsonSerializer.Serialize(new { subject = "x" }));
+        await new RealThingDirector(model, new FactChecker(model)).ProposeAsync(Animals);
+        Assert.EndsWith(DirectorPrompts.FewShotExamples, model.Systems[0]);
+    }
+
+    [Fact]
     public void A8_moves_the_standing_orders_into_the_user_prompt()
     {
         var (system, user, _) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A8"));

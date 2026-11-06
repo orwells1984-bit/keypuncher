@@ -479,6 +479,7 @@ public class RealThingTests
     {
         private int _next;
         public List<string> Prompts { get; } = [];
+        public List<string> Systems { get; } = [];
         public Task? Gate { get; init; }
         public string ModelName => "scripted";
 
@@ -486,6 +487,7 @@ public class RealThingTests
         {
             if (Gate is not null) await Gate;
             Prompts.Add(userPrompt);
+            Systems.Add(systemPrompt);
             var raw = answers[Math.Min(_next++, answers.Length - 1)];
             return new GenerationResult(raw, JsonDocument.Parse(raw), new GenerationTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, 0, 0));
         }

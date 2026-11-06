@@ -7,6 +7,8 @@
 // each model's own checking; without it each model checks its own picks, as it would in the toy. The judge runs
 // after each author pass, so the two models swap once a pass rather than twice a call.
 //
+// Without --variants it runs what the toy runs, PromptVariant.Shipped.
+//
 // It refuses to start while another job's model is loaded (the nightly tournament), and --until HH:mm stops it
 // cleanly, summary written, before the tournament's hour: a run that starts at noon has until about 04:30.
 //
@@ -71,7 +73,7 @@ public static class Bench
             return new Options(
                 host,
                 Get("models", "qwen3:4b").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                [.. Get("variants", "baseline").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(PromptVariant.Parse)],
+                [.. Get("variants", PromptVariant.Shipped.Name).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(PromptVariant.Parse)],
                 Get("sets", "author,checker,habitat,scene").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                 int.Parse(Get("runs", "1"), CultureInfo.InvariantCulture),
                 float.Parse(Get("temperature", "0.8"), CultureInfo.InvariantCulture),
