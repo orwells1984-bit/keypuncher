@@ -86,6 +86,13 @@ while it is in front; use the grown-up exit below to get back.
 
 To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`. Add `--calls` to write every animal noise as a WAV instead.
 
+Realistic pictures: a cut-out PNG or WebP (transparent background) named after a real thing, such as
+`sable-antelope.png`, in `%LOCALAPPDATA%\Keypuncher\pictures` replaces that thing's stock shape step by step as the
+child meets it: three meetings as its shape, three as its silhouette in its palette colour, three in a few flat
+colours, then the picture itself with a pale rim and an outline. Meetings are kept in `meetings.json` in the same
+folder; delete a picture to put the stock shape back. `--pictures DIR` makes Preview write a sheet of every picture in
+DIR at each stage and calm level (with a drawn sample when DIR is empty).
+
 ## Phase 2: the director
 
 With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the

@@ -75,6 +75,8 @@ public sealed class ToyHost : IDisposable
 
     public const string DefaultModel = "qwen3:4b";
     public const string DirectorLogName = "director.log";
+    /// <summary>The folder of realistic cut-out pictures of real things, one per name; see <c>PictureLibrary</c>.</summary>
+    public const string PicturesName = "pictures";
     /// <summary>The folder, next to the log, that play and test mode are recorded into.</summary>
     public const string VideosName = "videos";
     /// <summary>The log file is moved aside to director.old.log when it grows past this.</summary>

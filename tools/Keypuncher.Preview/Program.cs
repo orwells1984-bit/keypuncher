@@ -15,6 +15,9 @@
 // and weather, with the toy's real fades, to tour.avi.
 // --bench instead plays a minute of fast mashing at 1920x1080 and prints how long each part of drawing takes,
 // before and during a scene's fade, with and without recording.
+// --pictures DIR instead writes one contact sheet per calm level of every cut-out picture in DIR (sable-antelope.png
+// and so on), each at the four stages of the realism ladder: stock shape, silhouette, flat colours, picture. With no
+// pictures in DIR it first writes a drawn sample there, so the ladder can be seen without any photos.
 // --calls instead writes every animal noise as a WAV, bold and baby (gentle) versions, for a quick listen.
 
 using Keypuncher.Audio;
@@ -35,6 +38,7 @@ Directory.CreateDirectory(outDir);
 if (args.Contains("--sheet")) return Sheet(outDir, "animals", BuiltInRecipes.Animals.All);
 if (args.Contains("--concepts")) return Sheet(outDir, "concepts", [.. BuiltInRecipes.Concepts.Values.Where(r => !r.Body.Shape.IsAnimal())]);
 if (args.Contains("--calls")) return Calls(outDir);
+if (args.Contains("--pictures")) return PictureSheet(outDir, Get("--pictures", "pictures"));
 if (args.Contains("--scenes")) return Scenes(outDir);
 if (args.Contains("--tour")) return Tour(outDir, calm);
 if (args.Contains("--bench")) return Bench(outDir, calm, int.Parse(Get("--width", "1920")), int.Parse(Get("--height", "1080")));
@@ -127,6 +131,55 @@ using (var wav = File.Create(Path.Combine(outDir, "audio.wav")))
 Console.WriteLine($"live {world.Live.Count}, things {world.LiveThingCount}{(taps > 0 ? $", pops {pops}" : "")}");
 
 return 0;
+
+static int PictureSheet(string outDir, string folder)
+{
+    Directory.CreateDirectory(folder);
+    var files = Directory.GetFiles(folder).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)).ToList();
+    if (files.Count == 0)
+    {
+        var sample = Path.Combine(folder, "sample-animal.png");
+        using (var bitmap = SamplePicture.Draw())
+        using (var data = bitmap.Encode(SKEncodedImageFormat.Png, 100))
+        using (var f = File.Create(sample)) data.SaveTo(f);
+        files.Add(sample);
+        Console.WriteLine($"no pictures in {folder}; drew {sample}");
+    }
+    const int tileW = 480, tileH = 320;
+    var stages = Enum.GetValues<PictureStage>();
+    using var renderer = new SceneRenderer(Fonts.LoadAndika());
+    using var pictures = new PictureLibrary(folder);
+    renderer.Pictures = pictures;
+    using var label = new SKFont(Fonts.LoadAndika(), 20);
+    using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70) };
+    foreach (var level in Enum.GetValues<CalmLevel>())
+    {
+        using var sheet = SKSurface.Create(new SKImageInfo(tileW * stages.Length, tileH * files.Count));
+        for (var row = 0; row < files.Count; row++)
+        {
+            var name = Path.GetFileNameWithoutExtension(files[row]).Replace('-', ' ');
+            var recipe = BuiltInRecipes.Animals.Cat with { Name = name };
+            for (var col = 0; col < stages.Length; col++)
+            {
+                pictures.Forced = stages[col];
+                var world = new World { Style = ArtStyle.For(level) };
+                world.Add(new Entity { Id = (row * 10) + col + 1, Role = EntityRole.Thing, Recipe = recipe, X = 0.5, Y = 0.5, Born = -100, Phase = 0.05, Scale = 1.4 });
+                using var tile = SKSurface.Create(new SKImageInfo(tileW, tileH));
+                renderer.Draw(tile.Canvas, tileW, tileH, world, null);
+                using var image = tile.Snapshot();
+                var (x, y) = (col * tileW, row * tileH);
+                sheet.Canvas.DrawImage(image, x, y, SKSamplingOptions.Default);
+                sheet.Canvas.DrawText($"{name}: {stages[col]}", x + 10, y + 24, SKTextAlign.Left, label, ink);
+            }
+        }
+        using var snapshot = sheet.Snapshot();
+        using var png = snapshot.Encode(SKEncodedImageFormat.Png, 90);
+        var path = Path.Combine(outDir, $"pictures-{level}.png");
+        using (var f = File.Create(path)) png.SaveTo(f);
+        Console.WriteLine(path);
+    }
+    return 0;
+}
 
 static int Sheet(string outDir, string name, IReadOnlyList<Recipe> animals)
 {
