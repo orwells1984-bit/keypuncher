@@ -4,9 +4,10 @@
 //   dotnet run --project tools/Keypuncher.Pictures -- wanted                    the things with no picture yet, and why
 //   dotnet run --project tools/Keypuncher.Pictures -- fetch [--until HH:mm] [--limit N] [--again]
 //                                                                               fetch a photo for every wanted thing (no GPU, any time)
-//   dotnet run --project tools/Keypuncher.Pictures -- dryrun [--into DIR] [--out report.md] [--sets DIR] [--names file] [--no-download] [--until HH:mm]
+//   dotnet run --project tools/Keypuncher.Pictures -- dryrun [--into DIR] [--out report.md] [--sets DIR] [--names file [--all]] [--no-download] [--until HH:mm]
 //                                                                               every real thing in world.db and the bench sets through the finder
-//                                                                               (and the cut-out), into a folder of its own, with a Markdown report
+//                                                                               (and the cut-out), into a folder of its own, with a Markdown report;
+//                                                                               with --names, only that file's names unless --all is given too
 //   dotnet run --project tools/Keypuncher.Pictures -- model                     download the two cut-out models (about 400 MB) and check them
 //   dotnet run --project tools/Keypuncher.Pictures -- recut [slug]              cut out again from raw/ (a new model, or new rules)
 //   dotnet run --project tools/Keypuncher.Pictures -- hide <slug> | show <slug>  take a picture out of play, or put it back
@@ -148,7 +149,7 @@ string Describe(FetchOutcome outcome, string name)
 namespace Keypuncher.PicturesTool
 {
     /// <summary>The command line, shared by the verbs.</summary>
-    public sealed record Options(string Data, string? Into, string? Out, string? Sets, string? Names, bool NoDownload, DateTime? Until, int? Limit, bool Again)
+    public sealed record Options(string Data, string? Into, string? Out, string? Sets, string? Names, bool All, bool NoDownload, DateTime? Until, int? Limit, bool Again)
     {
         public static Options Parse(string[] args)
         {
@@ -159,7 +160,7 @@ namespace Keypuncher.PicturesTool
             }
             var data = Get("data") ?? Environment.GetEnvironmentVariable("KEYPUNCHER_DATA");
             if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Keypuncher");
-            return new Options(data, Get("into"), Get("out"), Get("sets"), Get("names"), args.Contains("--no-download"),
+            return new Options(data, Get("into"), Get("out"), Get("sets"), Get("names"), args.Contains("--all"), args.Contains("--no-download"),
                 ParseUntil(Get("until"), DateTime.Now), Get("limit") is { } l ? int.Parse(l, CultureInfo.InvariantCulture) : null, args.Contains("--again"));
         }
 

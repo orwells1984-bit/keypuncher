@@ -115,11 +115,17 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
             notes.Add($"{skip ?? name} ({described ?? "no description"}) is not {Describe(category)}; searching");
         }
 
-        using var search = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/w/api.php?action=query&format=json&formatversion=2&list=search&srsearch={Uri.EscapeDataString(name)}&srlimit=5", ct);
+        // The search is nudged towards the kind of thing wanted ("kite animal" rather than "kite"), and a hit is taken
+        // only when it is plainly about the name: its title shares a word with the name, or its snippet says the
+        // name whole. Without that, "arctic thyme" takes the first plant the search ranks highly (Subshrub).
+        var hint = SearchHint(category);
+        var terms = hint is null ? name : $"{name} {hint}";
+        using var search = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/w/api.php?action=query&format=json&formatversion=2&list=search&srsearch={Uri.EscapeDataString(terms)}&srlimit=5", ct);
         if (search is null || !search.RootElement.TryGetProperty("query", out var query) || !query.TryGetProperty("search", out var hits)) return Article.None;
         foreach (var hit in hits.EnumerateArray())
         {
             if (!hit.TryGetProperty("title", out var t) || t.GetString() is not { } title || title == skip) continue;
+            if (!Named(title, Text(hit, "snippet"), name)) { notes.Add($"{title} does not say {name}"); continue; }
             using var page = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/api/rest_v1/page/summary/{Uri.EscapeDataString(title.Replace(' ', '_'))}", ct);
             if (page is null) continue;
             var root = page.RootElement;
@@ -139,6 +145,9 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
             string? leadTitle = null, leadUrl = null;
             if (root.TryGetProperty("originalimage", out var image) && image.TryGetProperty("source", out var s) && s.GetString() is { } source)
             {
+                // The summary sometimes tags the URL with tracking parameters; the file is the path alone.
+                var query = source.IndexOf('?');
+                if (query >= 0) source = source[..query];
                 leadUrl = source;
                 leadTitle = "File:" + Uri.UnescapeDataString(source[(source.LastIndexOf('/') + 1)..]).Replace('_', ' ');
             }
@@ -205,7 +214,8 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
     /// scientific name or the term the search matched, a plural allowed. The search itself is fuzzy and ranked by
     /// observations, so its first hit is not taken on trust. The photo is the 1024 px "large" copy, which the taxa
     /// answer does not list but which sits beside the medium one; a photo smaller or narrower than
-    /// <see cref="PhotoRules"/> allow is passed over. Any licence is accepted and recorded.</summary>
+    /// <see cref="PhotoRules"/> allow is passed over. Only a Creative Commons licence that allows the cut-out is
+    /// accepted: no licence means all rights reserved, and a no-derivatives one forbids the cut-out.</summary>
     private async Task<FoundPhoto?> INaturalistAsync(string name, IReadOnlyCollection<string> exclude, List<string> notes, CancellationToken ct)
     {
         using var doc = await PictureHttp.GetJsonAsync(http, $"{INaturalist}/v1/taxa?q={Uri.EscapeDataString(name)}&per_page=3", ct);
@@ -227,6 +237,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
             var taxonName = Text(taxon, "preferred_common_name") ?? Text(taxon, "name") ?? name;
             var taxonId = taxon.TryGetProperty("id", out var ti) && ti.ValueKind == JsonValueKind.Number ? ti.GetInt64().ToString(CultureInfo.InvariantCulture) : "";
             var licence = Text(photo, "license_code");
+            if (licence is null || !INaturalistLicences.Contains(licence)) { notes.Add($"{fileTitle}: licence {licence ?? "all rights reserved"}"); continue; }
             int width = 0, height = 0;
             if (photo.TryGetProperty("original_dimensions", out var dims) && dims.ValueKind == JsonValueKind.Object)
             {
@@ -238,7 +249,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
             var provenance = new PhotoProvenance(
                 PageTitle: taxonName, PageUrl: $"https://www.inaturalist.org/taxa/{taxonId}", FileTitle: fileTitle, FileUrl: url,
                 DescriptionUrl: $"https://www.inaturalist.org/photos/{id}", Artist: Text(photo, "attribution"), Credit: null,
-                LicenseShortName: licence is null ? "all rights reserved" : licence.ToUpperInvariant().Replace("-", " "),
+                LicenseShortName: licence.ToUpperInvariant().Replace("-", " "),
                 LicenseUrl: null, Attribution: Text(photo, "attribution"), Sha1: null, Width: width, Height: height,
                 Mime: url.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", How: "iNaturalist's photo of the taxon");
             notes.Add($"took iNaturalist's photo of {taxonName}");
@@ -268,7 +279,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
                 info.TryGetProperty("width", out var w) ? w.GetInt32() : 0, info.TryGetProperty("height", out var h) ? h.GetInt32() : 0,
                 categories, Meta("LicenseShortName") ?? "", Meta("Copyrighted") ?? "", Text(info, "url"));
             return new Candidate(facts, Text(info, "descriptionurl") ?? $"{Commons}/wiki/{title.Replace(' ', '_')}", Text(info, "thumburl"),
-                Plain(Meta("Artist")), Plain(Meta("Credit")), Meta("LicenseUrl"), Plain(Meta("Attribution")), Text(info, "sha1"));
+                Tidy(Meta("Artist")), Tidy(Meta("Credit")), Meta("LicenseUrl"), Tidy(Meta("Attribution")), Text(info, "sha1"));
         }
         return null;
     }
@@ -336,6 +347,8 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         "rodent", "primate", "cetacean", "butterfly", "moth", "beetle", "frog", "toad", "snake", "lizard", "turtle", "shark", "whale", "dolphin", "seal",
         "bat", "bear", "deer", "antelope", "monkey", "ape", "parrot", "owl", "eagle", "penguin", "cat", "dog", "horse", "pony", "marsupial", "pinniped",
         "canid", "felid", "ungulate", "bovid", "wasp", "bee", "ant", "worm", "snail", "crab", "squid", "octopus", "jellyfish", "sponge", "coral",
+        "bovine", "cattle", "livestock", "poultry", "domesticated", "pet", "equine", "canine", "feline", "porcine", "ovine", "caprine",
+        "fowl", "waterfowl", "seabird", "songbird", "raptor",
     ];
     private static readonly string[] ExtinctWords = ["extinct", "dinosaur", "fossil", "prehistoric", "pterosaur", "mammoth", "ichthyosaur", "plesiosaur", "trilobite", "ammonite"];
     private static readonly string[] PlantWords =
@@ -356,6 +369,36 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         "game", "poet", "painter", "author", "composer", "comedian", "athlete", "wrestler", "boxer", "cyclist", "swimmer", "lake", "mountain",
         "island", "county", "district", "municipality", "neighbourhood", "neighborhood", "street", "magazine", "newspaper", "journal",
     ];
+
+    /// <summary>The word added to a search so that the kind of thing wanted ranks first; none for an object, which can be anything.</summary>
+    private static string? SearchHint(RealCategory category) => category switch
+    {
+        RealCategory.Animal => "animal",
+        RealCategory.ExtinctAnimal => "extinct animal",
+        RealCategory.Plant => "plant",
+        RealCategory.Vehicle => "vehicle",
+        _ => null,
+    };
+
+    /// <summary>Whether a search hit is plainly about the name: its title shares a word of three letters or more with
+    /// the name (a plural allowed), or its snippet says the whole name.</summary>
+    public static bool Named(string title, string? snippet, string name)
+    {
+        static string[] Words(string text) => text.ToLowerInvariant().Split([' ', ',', '.', ';', ':', '(', ')', '-', '/', '\''], StringSplitOptions.RemoveEmptyEntries);
+        static bool SameWord(string a, string b) => a == b || a == b + "s" || b == a + "s" || a == b + "es" || b == a + "es";
+        var wanted = Words(name).Where(w => w.Length >= 3).ToList();
+        if (wanted.Count == 0) wanted = Words(name).ToList();
+        if (Words(title).Any(t => wanted.Any(w => SameWord(t, w)))) return true;
+        if (Plain(snippet) is not { } text) return false;
+        var said = Words(text);
+        var all = Words(name);
+        for (var i = 0; i + all.Length <= said.Length; i++)
+            if (all.Select((w, j) => SameWord(said[i + j], w)).All(same => same)) return true;
+        return false;
+    }
+
+    /// <summary>The iNaturalist licence codes under which a photo may be cut out and shown.</summary>
+    private static readonly HashSet<string> INaturalistLicences = new(StringComparer.OrdinalIgnoreCase) { "cc0", "cc-by", "cc-by-sa", "cc-by-nc", "cc-by-nc-sa" };
 
     private static string Describe(RealCategory category) => category switch
     {
@@ -390,6 +433,23 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         text = Spaces().Replace(text, " ").Trim();
         return text.Length == 0 ? null : text;
     }
+
+    /// <summary>A credit fit for a line on the grown-ups' page: the plain words, Commons' "no machine-readable author"
+    /// boilerplate cut down to the name it assumed, and no more than about 120 characters.</summary>
+    public static string? Tidy(string? html)
+    {
+        if (Plain(html) is not { } text) return null;
+        text = Assumed().Replace(text, "$1 (assumed)").Trim();
+        if (text.Length > 120)
+        {
+            var cut = text.LastIndexOf(' ', 117);
+            text = text[..(cut >= 60 ? cut : 117)] + "...";
+        }
+        return text.Length == 0 ? null : text;
+    }
+
+    [GeneratedRegex(@"No machine-readable (?:author|source) provided\.\s*(.+?)\s+assumed \(based on copyright claims\)\.?", RegexOptions.IgnoreCase)]
+    private static partial Regex Assumed();
 
     [GeneratedRegex("<[^>]+>")]
     private static partial Regex Tags();

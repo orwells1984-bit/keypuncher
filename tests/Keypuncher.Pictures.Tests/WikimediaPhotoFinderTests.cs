@@ -191,14 +191,14 @@ public sealed class WikimediaPhotoFinderTests
         var web = new FakeHandler()
             .Json("rest_v1/page/summary/Kite_(bird)", "summary-kite-bird.json")
             .Json("rest_v1/page/summary/Kite", "summary-kite.json")
-            .Json("list=search&srsearch=kite&srlimit=5", "search-kite.json")
+            .Json("list=search&srsearch=kite animal&srlimit=5", "search-kite.json")
             .ImageInfo("Red kite in flight.jpg", "imageinfo-kite.json");
         var search = await Find(web, "kite");
 
         Assert.Equal("File:Red kite in flight.jpg", search.Photo!.Provenance.FileTitle);
         Assert.Equal("Kite (bird)", search.Photo.Provenance.PageTitle);
         Assert.Contains("summary/Kite", web.Requests[0]);
-        Assert.Contains("list=search", web.Requests[1]);
+        Assert.Contains("list=search&srsearch=kite animal&srlimit=5", web.Requests[1]);
         Assert.Contains("summary/Kite_(bird)", web.Requests[2]);
         Assert.DoesNotContain(web.Requests, r => r.Contains("Q42861") || r.Contains("Colourful"));
         Assert.Contains(search.Notes, n => n.Contains("Kite (Tethered aircraft) is not an animal"));
@@ -228,7 +228,7 @@ public sealed class WikimediaPhotoFinderTests
         var web = new FakeHandler()
             .Json("rest_v1/page/summary/Seal_(musician)", "summary-seal-musician.json")
             .Json("rest_v1/page/summary/Seal", "summary-disambiguation.json")
-            .Json("list=search&srsearch=seal&srlimit=5", "search-seal.json")
+            .Json("list=search&srsearch=seal animal&srlimit=5", "search-seal.json")
             .Json("rest_v1/page/summary/Pinniped", "summary-pinniped.json")
             .Json("Special:EntityData/Q25587.json", "wikidata-pinniped.json")
             .ImageInfo("Harbor seal on rocks.jpg", "imageinfo-harbor-seal.json");
@@ -244,6 +244,65 @@ public sealed class WikimediaPhotoFinderTests
         Assert.Contains("summary/Pinniped", web.Requests[3]);
         Assert.Contains("Q25587", web.Requests[4]);
         Assert.Contains(search.Notes, n => n.Contains("singer") && n.Contains("not an animal"));
+    }
+
+    [Fact]
+    public async Task A_search_hit_that_does_not_say_the_name_is_passed_over_even_when_its_description_fits()
+    {
+        var web = new FakeHandler()
+            .Json("rest_v1/page/summary/Arctic_thyme", "summary-disambiguation.json")
+            .Text("list=search&srsearch=arctic thyme plant&srlimit=5", """{"query":{"search":[{"ns":0,"title":"Subshrub","snippet":"A <span class=\"searchmatch\">subshrub</span> is a short woody plant"},{"ns":0,"title":"Thymus praecox","snippet":"<span class=\"searchmatch\">Thymus praecox</span>, commonly known as mother of thyme or <span class=\"searchmatch\">arctic</span> <span class=\"searchmatch\">thyme</span>, is a species"}]}}""")
+            .Text("rest_v1/page/summary/Thymus_praecox", """{"type":"standard","title":"Thymus praecox","titles":{"canonical":"Thymus_praecox"},"description":"Species of flowering plant","wikibase_item":"Q159040","originalimage":{"source":"https://upload.wikimedia.org/wikipedia/commons/1/1a/Thymus_praecox.jpg?utm_source=summary","width":1600,"height":1200}}""")
+            .Json("Special:EntityData/Q159040.json", "wikidata-empty.json")
+            .ImageInfo("Thymus praecox.jpg", "imageinfo-lead.json");
+        var search = await Find(web, "arctic thyme", RealCategory.Plant);
+
+        Assert.Equal("Thymus praecox", search.Photo!.Provenance.PageTitle);
+        Assert.Contains(web.Requests, r => r.Contains("titles=File:Thymus praecox.jpg&prop=imageinfo"));
+        Assert.DoesNotContain(web.Requests, r => r.Contains("summary/Subshrub"));
+        Assert.Contains(search.Notes, n => n == "Subshrub does not say arctic thyme");
+    }
+
+    [Theory]
+    [InlineData("Pinniped", "Pinnipeds, commonly known as <span>seals</span>, are mammals", "seal", true)]
+    [InlineData("Kite (bird)", "birds of prey", "kite", true)]
+    [InlineData("Red kites", null, "kite", true)]
+    [InlineData("Subshrub", "A short woody plant", "arctic thyme", false)]
+    [InlineData("Thymus praecox", "known as arctic thyme", "arctic thyme", true)]
+    [InlineData("Thymus praecox", "found in the arctic, where thyme is rare", "arctic thyme", false)]
+    [InlineData("Sealing wax", "wax for seals", "seal", true)]
+    [InlineData("Ox", "a draught animal", "ox", true)]
+    public void A_search_hit_is_about_the_name_or_is_not(string title, string? snippet, string name, bool named) =>
+        Assert.Equal(named, WikimediaPhotoFinder.Named(title, snippet, name));
+
+    [Theory]
+    [InlineData("null", "all rights reserved")]
+    [InlineData("\"cc-by-nd\"", "cc-by-nd")]
+    [InlineData("\"cc-by-nc-nd\"", "cc-by-nc-nd")]
+    public async Task An_inaturalist_photo_under_a_licence_that_forbids_the_cut_out_is_passed_over(string code, string said)
+    {
+        var web = new FakeHandler()
+            .Json(Summary, "summary-no-image.json")
+            .Json(Entity, "wikidata-empty.json")
+            .Text(INaturalist, $$$"""{"results":[{"id":42054,"name":"Hippotragus niger","preferred_common_name":"Sable Antelope","matched_term":"Sable Antelope","default_photo":{"id":77,"license_code":{{{code}}},"attribution":"(c) Someone, all rights reserved","original_dimensions":{"width":2048,"height":1365},"medium_url":"https://inaturalist-open-data.s3.amazonaws.com/photos/77/medium.jpg"}}]}""")
+            .Text(ArticleImages, """{"revision":"1254893321","items":[]}""");
+        var search = await Find(web);
+
+        Assert.Null(search.Photo);
+        Assert.Contains($"inaturalist:77: licence {said}", search.Notes);
+    }
+
+    [Fact]
+    public async Task The_lead_image_is_found_without_the_tracking_tags_on_its_url()
+    {
+        var web = new FakeHandler()
+            .Text(Summary, """{"type":"standard","title":"Sable antelope","titles":{"canonical":"Sable_antelope"},"description":"Species of antelope","wikibase_item":"Q214062","originalimage":{"source":"https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_female.jpg?utm_source=rest_v1&utm_medium=summary","width":1600,"height":1067}}""")
+            .Json(Entity, "wikidata-empty.json")
+            .ImageInfo("Sable antelope female.jpg", "imageinfo-lead.json");
+        var search = await Find(web);
+
+        Assert.Equal("File:Sable antelope female.jpg", search.Photo!.Provenance.FileTitle);
+        Assert.Contains(web.Requests, r => r.Contains("titles=File:Sable antelope female.jpg&prop=imageinfo"));
     }
 
     [Fact]
@@ -376,6 +435,22 @@ public sealed class WikimediaPhotoFinderTests
     [InlineData("<br/>", null)]
     [InlineData(null, null)]
     public void Credits_lose_their_html(string? html, string? plain) => Assert.Equal(plain, WikimediaPhotoFinder.Plain(html));
+
+    [Theory]
+    [InlineData("No machine-readable author provided. <a href=\"//commons.wikimedia.org/wiki/User:Kabir_Bakie\">Kabir Bakie</a> assumed (based on copyright claims).", "Kabir Bakie (assumed)")]
+    [InlineData("No machine-readable source provided. Own work assumed (based on copyright claims).", "Own work (assumed)")]
+    [InlineData("<a href=\"//commons.wikimedia.org/wiki/User:Example\">Charles J. Sharp</a>", "Charles J. Sharp")]
+    [InlineData(null, null)]
+    public void Credits_lose_commons_boilerplate(string? html, string? tidy) => Assert.Equal(tidy, WikimediaPhotoFinder.Tidy(html));
+
+    [Fact]
+    public void A_long_credit_is_cut_at_a_word()
+    {
+        var tidy = WikimediaPhotoFinder.Tidy(string.Join(' ', Enumerable.Range(1, 60).Select(i => $"word{i}")));
+        Assert.True(tidy!.Length <= 120, tidy);
+        Assert.EndsWith("...", tidy);
+        Assert.Matches(@"^word\d+$", tidy[..^3].Split(' ')[^1]);
+    }
 
     [Theory]
     [InlineData("Sable_antelope_male.jpg", "File:Sable antelope male.jpg")]

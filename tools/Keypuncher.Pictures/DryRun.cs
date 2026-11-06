@@ -110,8 +110,11 @@ public static class DryRun
             items.Add(new Item(name.Trim(), category, source));
         }
 
+        // A names file on its own is a chosen few to try again (the gaps, say); with --all it joins the rest.
+        var namesOnly = options.Names is not null && !options.All;
         var db = Path.Combine(options.Data, "world.db");
-        if (File.Exists(db))
+        if (namesOnly) { }
+        else if (File.Exists(db))
         {
             // A snapshot, so the toy's own file is never opened for writing by anyone but the toy. Taken through
             // SQLite rather than by copying the file: while the toy runs, its latest saves sit in world.db-wal, and a
@@ -144,7 +147,8 @@ public static class DryRun
         else log.WriteLine($"no world.db in {options.Data}");
 
         var sets = options.Sets ?? FindBenchSets();
-        if (sets is not null && Directory.Exists(sets))
+        if (namesOnly) { }
+        else if (sets is not null && Directory.Exists(sets))
         {
             var before = items.Count;
             foreach (var c in Load<CheckerCase>(Path.Combine(sets, "checker.json")).Where(c => c.Real)) Add(c.Name, c.Claimed, "bench, checker set");
@@ -158,14 +162,17 @@ public static class DryRun
         }
         else log.WriteLine("no bench sets found (pass --sets DIR)");
 
-        if (options.Names is { } file && File.Exists(file))
+        if (options.Names is { } file)
         {
+            if (!File.Exists(file)) { log.WriteLine($"no names file at {file}"); return items; }
+            var before = items.Count;
             foreach (var line in File.ReadLines(file))
             {
                 var parts = line.Split(',', 2, StringSplitOptions.TrimEntries);
                 if (parts.Length == 0 || parts[0].Length == 0 || parts[0].StartsWith('#')) continue;
                 Add(parts[0], parts.Length > 1 && Enum.TryParse<RealCategory>(parts[1], true, out var c) ? c : RealCategory.Animal, "names file");
             }
+            log.WriteLine($"names file {file}: {items.Count - before} names");
         }
         return items;
     }
