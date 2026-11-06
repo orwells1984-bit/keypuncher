@@ -24,7 +24,9 @@ public interface ICutOut
 /// <param name="Model">The cut-out model that ran.</param>
 /// <param name="Coverage">The share of the photo the kept subject covers, 0 to 1.</param>
 /// <param name="Reason">Why there is no picture: "too small", "fills the frame", "touches three edges", "model missing".</param>
-public sealed record CutOutResult(SKBitmap? Picture, string Model, double Coverage, string? Reason)
+/// <param name="Box">Where in the photo the thing was found, in photo pixels, whether or not it passed; null when
+/// nothing was found at all. A thing too small to pass is cut out again from a closer crop round this box.</param>
+public sealed record CutOutResult(SKBitmap? Picture, string Model, double Coverage, string? Reason, SKRectI? Box = null)
 {
     public bool Succeeded => Picture is not null;
 }
