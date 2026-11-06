@@ -58,7 +58,8 @@ public class PromptVariantTests
     {
         var (system, user, _) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A8"));
         Assert.DoesNotContain("real things", system);
-        Assert.StartsWith(DirectorPrompts.RealSystem + DirectorPrompts.FewShotExamples, user);
+        Assert.StartsWith(DirectorPrompts.RealSystem, user);
+        Assert.DoesNotContain(DirectorPrompts.FewShotExamples, user);
         Assert.EndsWith(DirectorPrompts.RealThing(Animals, []), user);
     }
 

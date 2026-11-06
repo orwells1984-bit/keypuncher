@@ -91,8 +91,9 @@ public class RecommendationTests
         Assert.True((await checker.CheckAsync("woolly rhinoceros", null, RealCategory.ExtinctAnimal)).Passes(RealCategory.ExtinctAnimal));
         Assert.Empty(model.Prompts);
         // The name alone does not pass for another kind: a "jeep" offered as an animal is still asked about.
+        // Asked twice: on "unsure" about an animal the checker takes its second look.
         Assert.False((await checker.CheckAsync("jeep", null, RealCategory.Animal)).Passes(RealCategory.Animal));
-        Assert.Single(model.Prompts);
+        Assert.Equal(2, model.Prompts.Count);
         // A growth claim on a well-known thing is not confirmed.
         Assert.False((await checker.CheckAsync("dodo", "phoenix", RealCategory.ExtinctAnimal)).GrowsIntoConfirmed);
 
