@@ -4,13 +4,15 @@ using SkiaSharp;
 
 namespace Keypuncher.Toy.Tests;
 
-/// <summary>The realism ladder: a thing with a picture climbs from its stock shape to its picture as it is met,
-/// one without keeps its shape, and the meetings are kept between sessions.</summary>
+/// <summary>The realism ladder: a thing with a picture climbs from its stock shape to its picture as it is met
+/// over separate plays, one without keeps its shape, the level caps the rung, pictures are read and drawn off the
+/// drawing thread and seen when they land, and a picture is drawn afresh only a few times in a long play.</summary>
 public sealed class PictureLibraryTests : IDisposable
 {
     /// <summary>A colour no palette or landscape uses, so any of it on screen came from the picture.</summary>
     private static readonly SKColor Magenta = new(0xFF, 0x00, 0xFF);
     private readonly string _dir = Directory.CreateTempSubdirectory("keypuncher-picture-tests").FullName;
+    private DateTime _now = new(2026, 11, 6, 12, 0, 0, DateTimeKind.Utc);
 
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
@@ -33,58 +35,148 @@ public sealed class PictureLibraryTests : IDisposable
     }
 
     [Fact]
-    public void Meetings_are_counted_only_for_things_with_a_picture_and_kept()
+    public void Meetings_within_the_gap_count_once_and_are_kept_between_sessions()
+    {
+        using (var library = Library())
+        {
+            Assert.True(library.Meet("sable antelope"));
+            Assert.False(library.Meet("Sable Antelope"));
+            _now += PictureLibrary.MeetingGap / 2;
+            Assert.False(library.Meet("sable antelope"));
+            _now += PictureLibrary.MeetingGap;
+            Assert.True(library.Meet("sable antelope"));
+            Assert.True(library.Meet("zebra"));
+            Assert.Equal(2, library.Meetings("sable antelope"));
+            Assert.Equal(1, library.Meetings("zebra"));
+            Assert.True(library.Dirty);
+            library.Save();
+            Assert.False(library.Dirty);
+            Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+        }
+        using var again = Library();
+        Assert.Equal(2, again.Meetings("sable antelope"));
+        _now += TimeSpan.FromMinutes(1);
+        Assert.False(again.Meet("zebra"), "the gap holds across a restart");
+    }
+
+    [Fact]
+    public void The_first_versions_bare_counts_are_read_and_old_names_without_a_picture_are_forgotten()
     {
         WritePicture("sable-antelope");
-        using (var library = new PictureLibrary(_dir))
-        {
-            library.Meet("sable antelope");
-            library.Meet("Sable Antelope");
-            library.Meet("zebra");
-            Assert.Equal(2, library.Meetings("sable antelope"));
-            Assert.Equal(0, library.Meetings("zebra"));
-        }
-        using var again = new PictureLibrary(_dir);
-        Assert.Equal(2, again.Meetings("sable antelope"));
+        var stale = (_now - PictureLibrary.Forget - TimeSpan.FromDays(1)).ToString("o");
+        File.WriteAllText(Path.Combine(_dir, "meetings.json"),
+            "{\"cat\": 4, \"sable-antelope\": {\"n\": 2, \"last\": \"" + stale + "\"}, \"dodo\": {\"n\": 7, \"last\": \"" + stale + "\"}}");
+        using var library = Library();
+        Assert.Equal(4, library.Meetings("cat"));
+        Assert.Equal(2, library.Meetings("sable antelope"));
+        Assert.Equal(0, library.Meetings("dodo"));
     }
 
     [Fact]
     public void A_broken_file_is_ignored_and_the_thing_keeps_its_shape()
     {
         File.WriteAllText(Path.Combine(_dir, "zebra.png"), "not a picture");
-        using var library = new PictureLibrary(_dir) { Forced = PictureStage.Photo };
+        using var library = Library();
+        library.Forced = PictureStage.Photo;
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("zebra"), ArtStyle.Toddler));
+        library.WaitIdle(TimeSpan.FromSeconds(10));
         Assert.False(library.Has("zebra"));
-        Assert.Equal(PictureStage.Shape, library.Stage(Thing("zebra")));
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("zebra"), ArtStyle.Toddler));
+    }
+
+    [Fact]
+    public void A_picture_written_during_play_is_seen_once_it_is_renamed_into_place()
+    {
+        using var library = Library();
+        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        library.Forced = PictureStage.Photo;
+        var world = World(CalmLevel.BigToddler, "sable antelope");
+        using (var before = Render(renderer, world)) Assert.Equal(0, Count(before, p => Near(p, Magenta)));
+
+        // Written under a temporary name first: not a picture yet.
+        WritePicture("sable-antelope", ".png.tmp");
+        _now += TimeSpan.FromSeconds(10);
+        using (var still = Render(renderer, world)) Assert.Equal(0, Count(still, p => Near(p, Magenta)));
+        Assert.False(library.IsLoading("sable antelope"));
+
+        File.Move(Path.Combine(_dir, "sable-antelope.png.tmp"), Path.Combine(_dir, "sable-antelope.png"));
+        _now += TimeSpan.FromSeconds(10);
+        using (Render(renderer, world)) { }
+        library.Has("sable antelope");
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        Assert.True(library.Has("sable antelope"), "the picture is read once it is in place");
+        // The thing already on screen keeps the rung it was born at; the next one born gets the picture.
+        using (var same = Render(renderer, world)) Assert.Equal(0, Count(same, p => Near(p, Magenta)));
+        world.Add(new Entity { Id = 2, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.8, Y = 0.5, Born = world.Time });
+        world.Tick(1);
+        using var after = Settled(renderer, library, world);
+        Assert.True(Count(after, p => Near(p, Magenta)) > 500, "the next one born is drawn from the picture");
     }
 
     [Theory]
     [InlineData(CalmLevel.Baby)]
     [InlineData(CalmLevel.Toddler)]
     [InlineData(CalmLevel.BigToddler)]
-    public void Only_the_photo_stage_shows_the_picture_itself(CalmLevel level)
+    public void Only_the_photo_stage_shows_the_picture_itself_and_the_level_caps_it(CalmLevel level)
     {
         WritePicture("sable-antelope");
-        using var library = new PictureLibrary(_dir);
-        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        using var library = Library();
+        var style = ArtStyle.For(level);
         var counts = new Dictionary<PictureStage, (int Magenta, int Palette)>();
         foreach (var stage in Enum.GetValues<PictureStage>())
         {
             library.Forced = stage;
-            using var frame = Render(renderer, World(level, "sable antelope"));
+            using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+            using var frame = Settled(renderer, library, World(level, "sable antelope"));
             counts[stage] = (Count(frame, p => Near(p, Magenta)), Count(frame, p => Near(p, PaletteFill(level))));
         }
 
         Assert.Equal(0, counts[PictureStage.Shape].Magenta);
         Assert.Equal(0, counts[PictureStage.Silhouette].Magenta);
         Assert.True(counts[PictureStage.Silhouette].Palette > counts[PictureStage.Shape].Palette / 2, "the silhouette is filled with the thing's palette colour");
-        Assert.True(counts[PictureStage.Flat].Magenta > 500, "a one-colour picture keeps its colour when flattened");
-        Assert.True(counts[PictureStage.Photo].Magenta > 500, "the photo stage draws the picture");
+        if (style.PalettePictures)
+            Assert.Equal(0, counts[PictureStage.Flat].Magenta);
+        else
+            Assert.True(counts[PictureStage.Flat].Magenta > 500, "a one-colour picture keeps its colour when flattened");
+        if (style.MaxPictureStage == PictureStage.Photo)
+            Assert.True(counts[PictureStage.Photo].Magenta > 500, "the photo stage draws the picture");
+        else
+            Assert.Equal(0, counts[PictureStage.Photo].Magenta);
+    }
+
+    [Fact]
+    public void Flat_colours_at_the_youngest_levels_come_from_the_palette()
+    {
+        using (var bitmap = SamplePicture.Draw())
+        using (var data = bitmap.Encode(SKEncodedImageFormat.Png, 100))
+        using (var f = File.Create(Path.Combine(_dir, "sample.png"))) data.SaveTo(f);
+        using var library = Library();
+        library.Forced = PictureStage.Flat;
+        var style = ArtStyle.Baby;
+        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        using var frame = Settled(renderer, library, World(CalmLevel.Baby, "sample"));
+        var allowed = style.Colors.Select(c => Rgb(c.Fill)).Append(Rgb(style.Ink)).Append(SKColors.White).ToList();
+        // Everything that is not sky or hills is in the palette, ink or white; edges blend, so a few pixels are not.
+        using var empty = Render(renderer, new World { Style = style });
+        var pixels = frame.Pixels;
+        var backdrop = empty.Pixels;
+        int body = 0, off = 0;
+        for (var i = 0; i < pixels.Length; i++)
+        {
+            if (pixels[i] == backdrop[i]) continue;
+            body++;
+            if (!allowed.Any(a => Near(pixels[i], a, 32))) off++;
+        }
+        Assert.True(body > 2000, $"the thing is drawn ({body} px)");
+        // Edges blend neighbours (ink into yellow, ink into sky), so a share of the pixels is between colours.
+        Assert.True(off < body / 5, $"{off} of {body} px are off the palette");
     }
 
     [Fact]
     public void A_thing_without_a_picture_draws_as_before()
     {
-        using var library = new PictureLibrary(_dir) { Forced = PictureStage.Photo };
+        using var library = Library();
+        library.Forced = PictureStage.Photo;
         using var plain = new SceneRenderer(Fonts.LoadAndika());
         using var withLibrary = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
         using var a = Render(plain, World(CalmLevel.Toddler, "zebra"));
@@ -93,21 +185,89 @@ public sealed class PictureLibraryTests : IDisposable
     }
 
     [Fact]
-    public void Showing_a_new_thing_counts_as_meeting_it_but_one_already_there_does_not()
+    public void A_thing_born_in_play_is_a_meeting_but_one_restored_or_seen_before_is_not()
     {
-        WritePicture("sable-antelope");
-        using var library = new PictureLibrary(_dir);
+        using var library = Library();
         using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
         var world = new World { Style = ArtStyle.Toddler };
-        world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.3, Y = 0.5, Born = -60 });
+        world.Tick(500);
+        // Restored from the last save a second after it was born: there already.
+        world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.3, Y = 0.5, Born = world.Time - 1 });
         using (Render(renderer, world)) { }
         Assert.Equal(0, library.Meetings("sable antelope"));
 
+        world.Tick(1);
         world.Add(new Entity { Id = 2, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.7, Y = 0.5, Born = world.Time });
+        world.Tick(1);
         using (Render(renderer, world)) { }
         using (Render(renderer, world)) { }
         Assert.Equal(1, library.Meetings("sable antelope"));
     }
+
+    [Fact]
+    public void A_things_rung_is_settled_when_it_is_first_seen_and_a_promotion_shows_on_the_next_one_born()
+    {
+        WritePicture("sable-antelope");
+        using var library = Library();
+        for (var i = 0; i < PictureLibrary.MeetingsPerStage - 1; i++)
+        {
+            library.Meet("sable antelope");
+            _now += PictureLibrary.MeetingGap;
+        }
+        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        var world = new World { Style = ArtStyle.BigToddler };
+        world.Tick(10);
+        using (Render(renderer, world)) { }
+        world.Add(new Entity { Id = 1, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.25, Y = 0.5, Born = world.Time });
+        world.Tick(1);
+        using (Settled(renderer, library, world)) { }
+        // Its third meeting: it was born as its shape and stays so, though the count now says silhouette.
+        Assert.Equal(PictureLibrary.MeetingsPerStage, library.Meetings("sable antelope"));
+        Assert.Equal(PictureStage.Silhouette, library.Stage(Thing("sable antelope"), ArtStyle.BigToddler));
+        using var one = Render(renderer, world);
+        // A thing's colour fades a little as it settles, so matches are loose.
+        var left = Count(one, p => Near(p, PaletteFill(CalmLevel.BigToddler), 48), new SKRectI(0, 0, 320, 360));
+        Assert.True(left > 200, $"the first is drawn as its shape ({left} px)");
+        Assert.Equal(0, Count(one, p => Near(p, Magenta, 48), new SKRectI(0, 0, 320, 360)));
+
+        _now += PictureLibrary.MeetingGap;
+        world.Tick(1);
+        world.Add(new Entity { Id = 2, Role = EntityRole.Thing, Recipe = Thing("sable antelope"), X = 0.75, Y = 0.5, Born = world.Time });
+        world.Tick(1);
+        using var two = Settled(renderer, library, world);
+        var rightPalette = Count(two, p => Near(p, PaletteFill(CalmLevel.BigToddler), 48), new SKRectI(320, 0, 640, 360));
+        Assert.True(rightPalette > 300, $"the new one is a silhouette in the palette colour ({rightPalette} px)");
+        Assert.Equal(0, Count(two, p => Near(p, Magenta, 48), new SKRectI(320, 0, 640, 360)));
+        // The old one is unchanged: still drawn as the stock shape.
+        Assert.InRange(Count(two, p => Near(p, PaletteFill(CalmLevel.BigToddler), 48), new SKRectI(0, 0, 320, 360)), left * 0.7, left * 1.3);
+    }
+
+    [Fact]
+    public void A_pictured_thing_is_drawn_afresh_only_a_few_times_as_it_pops_in_grows_and_joins_the_history()
+    {
+        WritePicture("sable-antelope");
+        using var library = Library();
+        library.Forced = PictureStage.Photo;
+        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        var world = new World { Style = ArtStyle.Toddler, Limits = CalmLimits.Toddler };
+        var recipe = Thing("sable antelope");
+        world.Add(new Entity { Id = world.NextId(), Role = EntityRole.Thing, Recipe = recipe, X = 0.3, Y = 0.5, Born = world.Time, Scale = 1.2 });
+        world.Add(new Entity { Id = world.NextId(), Role = EntityRole.Thing, Recipe = recipe, X = 0.7, Y = 0.5, Born = world.Time, Scale = 0.7 });
+        // Ten minutes of play at 20 frames a second: the pop-in, the slow growth, two sizes awake at once.
+        for (var frame = 0; frame < 600 * 20; frame++)
+        {
+            world.Tick(1 / 20.0);
+            using (Render(renderer, world)) { }
+            if (frame % 200 == 0) library.WaitIdle(TimeSpan.FromSeconds(10));
+        }
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        using var frameAfter = Render(renderer, world);
+        // Things settled long ago are drawn a little faded, so magenta-ish rather than magenta.
+        Assert.True(Count(frameAfter, p => p.Red > 150 && p.Blue > 150 && p.Green < 110) > 500, "both are drawn from the picture");
+        Assert.InRange(library.CompositeDraws, 1, 6);
+    }
+
+    private PictureLibrary Library() => new(_dir, () => _now);
 
     private static Recipe Thing(string name) => BuiltInRecipes.Animals.Cat with { Name = name };
 
@@ -118,14 +278,12 @@ public sealed class PictureLibraryTests : IDisposable
         return world;
     }
 
-    private static SKColor PaletteFill(CalmLevel level)
-    {
-        var rgb = ArtStyle.For(level).Snap(Thing("x").Body.Hue).Fill;
-        return new SKColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
-    }
+    private static SKColor Rgb(uint rgb) => new((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+
+    private static SKColor PaletteFill(CalmLevel level) => Rgb(ArtStyle.For(level).Snap(Thing("x").Body.Hue).Fill);
 
     /// <summary>A magenta blob with a transparent margin, as a cut-out would be.</summary>
-    private void WritePicture(string slug)
+    private void WritePicture(string slug, string extension = ".png")
     {
         using var bitmap = new SKBitmap(new SKImageInfo(200, 120, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var c = new SKCanvas(bitmap))
@@ -135,7 +293,7 @@ public sealed class PictureLibraryTests : IDisposable
             c.DrawOval(new SKRect(20, 20, 180, 100), paint);
         }
         using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
-        using var f = File.Create(Path.Combine(_dir, slug + ".png"));
+        using var f = File.Create(Path.Combine(_dir, slug + extension));
         data.SaveTo(f);
     }
 
@@ -147,13 +305,27 @@ public sealed class PictureLibraryTests : IDisposable
         return bitmap;
     }
 
-    private static int Count(SKBitmap bitmap, Func<SKColor, bool> match)
+    /// <summary>A frame drawn once the pictures it needs are read and drawn on the pool.</summary>
+    private static SKBitmap Settled(SceneRenderer renderer, PictureLibrary library, World world)
     {
+        for (var i = 0; i < 3; i++)
+        {
+            using (Render(renderer, world)) { }
+            library.WaitIdle(TimeSpan.FromSeconds(10));
+        }
+        return Render(renderer, world);
+    }
+
+    private static int Count(SKBitmap bitmap, Func<SKColor, bool> match, SKRectI? within = null)
+    {
+        var area = within ?? new SKRectI(0, 0, bitmap.Width, bitmap.Height);
         var n = 0;
-        foreach (var p in bitmap.Pixels) if (match(p)) n++;
+        for (var y = area.Top; y < area.Bottom; y++)
+            for (var x = area.Left; x < area.Right; x++)
+                if (match(bitmap.GetPixel(x, y))) n++;
         return n;
     }
 
-    private static bool Near(SKColor a, SKColor b) =>
-        Math.Abs(a.Red - b.Red) < 12 && Math.Abs(a.Green - b.Green) < 12 && Math.Abs(a.Blue - b.Blue) < 12;
+    private static bool Near(SKColor a, SKColor b, int tolerance = 12) =>
+        Math.Abs(a.Red - b.Red) < tolerance && Math.Abs(a.Green - b.Green) < tolerance && Math.Abs(a.Blue - b.Blue) < tolerance;
 }

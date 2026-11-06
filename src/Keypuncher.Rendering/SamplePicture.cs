@@ -1,8 +1,10 @@
 using SkiaSharp;
 
-/// <summary>A stand-in cut-out for the picture sheet when no real pictures are at hand: a shaded, four-legged,
-/// horned animal on a transparent background, with enough tones that the flat-colour stage has work to do.</summary>
-internal static class SamplePicture
+namespace Keypuncher.Rendering;
+
+/// <summary>A stand-in cut-out for the picture sheet and the tests when no real pictures are at hand: a shaded,
+/// four-legged, horned animal on a transparent background, with enough tones that the flat-colour stage has work to do.</summary>
+public static class SamplePicture
 {
     public static SKBitmap Draw()
     {

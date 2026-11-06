@@ -26,6 +26,8 @@ namespace Keypuncher.Core;
 /// <param name="MultiHueDots">Whether a dot field's dots may each take a different palette colour.</param>
 /// <param name="LetterHeight">A letter's height as a share of the screen height.</param>
 /// <param name="Ground">Sky top, sky bottom, far hill, near hill: a quiet backdrop close in tone to itself, so the things are what stands out.</param>
+/// <param name="MaxPictureStage">How real a thing with a picture may get at this level: the youngest stop at flat colours, which keep the outline and the palette, rather than the photo.</param>
+/// <param name="PalettePictures">Whether a picture's flat colours snap to this palette (plus ink and white), so the level's few colours hold for pictures too.</param>
 public sealed record ArtStyle(
     double SizeScale,
     double MinDiameter,
@@ -45,7 +47,9 @@ public sealed record ArtStyle(
     int MaxDots,
     bool MultiHueDots,
     double LetterHeight,
-    Ground Ground)
+    Ground Ground,
+    PictureStage MaxPictureStage = PictureStage.Photo,
+    bool PalettePictures = false)
 {
     /// <summary>The five colour categories 4-month-olds already sort by, flat and fully saturated,
     /// every one drawn in the same near-black ink: 9:1 or better against the ground.</summary>
@@ -94,7 +98,8 @@ public sealed record ArtStyle(
         Ink: 0x1E2240, Stem: 0x1E2240, Colors: BabyColors, Highlight: 0.15,
         EyeScale: 2.0, MinPupil: 0.03, MinEyes: 2, MaxEyes: 2,
         MaxLobes: 5, MaxStripes: 0, MaxDots: 4, MultiHueDots: false, LetterHeight: 0.30,
-        Ground: new(0xDCE9F2, 0xF5EFE3, 0xC9DCC4, 0xB7D1B0));
+        Ground: new(0xDCE9F2, 0xF5EFE3, 0xC9DCC4, 0xB7D1B0),
+        MaxPictureStage: PictureStage.Flat, PalettePictures: true);
 
     /// <summary>About 12 to 18 months: medium detail works, still with a dark outline on everything.</summary>
     public static readonly ArtStyle Toddler = new(
@@ -102,7 +107,8 @@ public sealed record ArtStyle(
         Ink: 0x262A4A, Stem: 0x2E6B34, Colors: ToddlerColors, Highlight: 0.30,
         EyeScale: 1.4, MinPupil: 0.018, MinEyes: 0, MaxEyes: 2,
         MaxLobes: 6, MaxStripes: 3, MaxDots: 6, MultiHueDots: false, LetterHeight: 0.26,
-        Ground: new(0xC9E6FA, 0xFBF1DD, 0xB5DBAC, 0x9DCF95));
+        Ground: new(0xC9E6FA, 0xFBF1DD, 0xB5DBAC, 0x9DCF95),
+        MaxPictureStage: PictureStage.Photo, PalettePictures: true);
 
     /// <summary>18 months and up: near-adult sight for coarse shapes; the Phase 1 sizes and sky, bolder colours.</summary>
     public static readonly ArtStyle BigToddler = new(

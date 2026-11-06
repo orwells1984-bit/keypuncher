@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Keypuncher.Audio;
 using Keypuncher.Core;
+using Keypuncher.Rendering;
 using Keypuncher.Director;
 using Keypuncher.Inference.Ollama;
 using Keypuncher.Language;
@@ -43,6 +44,7 @@ public sealed class ToyHost : IDisposable
         Speech = new SpeechLibrary(Clips, new WindowsVoices());
         WorldStore = new WorldStore(Path.Combine(DataFolder, "world.db"));
         WorldStore.Load(World);
+        Pictures = new PictureLibrary(Path.Combine(DataFolder, PicturesName));
 
         try { Audio = new AudioOutput(Mixer); }
         catch (Exception e) { AudioError = e.Message; }
@@ -87,6 +89,8 @@ public sealed class ToyHost : IDisposable
     public static IntPtr WindowHandle { get; set; }
 
     public string DataFolder { get; }
+    /// <summary>Realistic pictures of real things and how often each has been met; see <see cref="PictureLibrary"/>.</summary>
+    public PictureLibrary Pictures { get; }
     public World World { get; } = new();
     public Mixer Mixer { get; } = new();
     public AudioOutput? Audio { get; }
@@ -130,6 +134,7 @@ public sealed class ToyHost : IDisposable
     public void SaveWorld()
     {
         if (World.Dirty) WorldStore.Save(World);
+        Pictures.Save();
     }
 
     public void Dispose()
@@ -141,6 +146,7 @@ public sealed class ToyHost : IDisposable
         Director.Dispose();
         SaveWorld();
         WorldStore.Dispose();
+        Pictures.Dispose();
         Audio?.Dispose();
     }
 

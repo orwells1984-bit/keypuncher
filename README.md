@@ -89,9 +89,14 @@ To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Previ
 Realistic pictures: a cut-out PNG or WebP (transparent background) named after a real thing, such as
 `sable-antelope.png`, in `%LOCALAPPDATA%\Keypuncher\pictures` replaces that thing's stock shape step by step as the
 child meets it: three meetings as its shape, three as its silhouette in its palette colour, three in a few flat
-colours, then the picture itself with a pale rim and an outline. Meetings are kept in `meetings.json` in the same
-folder; delete a picture to put the stock shape back. `--pictures DIR` makes Preview write a sheet of every picture in
-DIR at each stage and calm level (with a drawn sample when DIR is empty).
+colours (snapped to the level's palette at Baby and Toddler), then the picture itself with a pale rim and an outline.
+A meeting is the thing appearing, at most once every 20 minutes, so the ladder is climbed over separate plays; a
+thing keeps the rung it was born at, and the next one born shows a promotion. Baby stops at flat colours. Meetings
+are kept in `meetings.json` in the same folder; delete or move a picture to put the stock shape back. Pictures are
+read and drawn on a background thread and the folder is looked at again whenever it changes, so a picture written
+during play is used by the next thing born; write it under a temporary name (no `.png`) and rename it into place.
+`--pictures DIR` makes Preview write a sheet of every picture in DIR at each stage and calm level (with a drawn
+sample when DIR is empty).
 
 ## Phase 2: the director
 
