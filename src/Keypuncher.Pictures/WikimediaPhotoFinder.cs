@@ -52,6 +52,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
                 var candidate = await CommonsFileAsync(fileTitle, ct);
                 if (candidate is null) { notes.Add($"{fileTitle}: not on Commons"); return null; }
                 var verdict = PhotoRules.Vet(candidate.Facts, category, name);
+                if (verdict is null && Composite(candidate) is { } composite) verdict = (Rejection.Hard, $"credit says {composite}");
                 if (verdict is null) return await ReadyAsync(candidate, article, how, null, ct);
                 notes.Add($"{fileTitle}: {verdict.Value.Why}");
                 if (verdict.Value.Kind == Rejection.Soft) soft ??= await ReadyAsync(candidate, article, how, verdict.Value.Why, ct);
@@ -397,6 +398,13 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         return false;
     }
 
+    /// <summary>The word in a file's credit that gives it away as several pictures in one (a montage of the family's
+    /// members, say), which the file name and categories may not say; null when the credit says no such thing.</summary>
+    private static string? Composite(Candidate c) =>
+        CompositeWords.FirstOrDefault(w => c.Artist?.Contains(w, StringComparison.OrdinalIgnoreCase) == true || c.Credit?.Contains(w, StringComparison.OrdinalIgnoreCase) == true);
+
+    private static readonly string[] CompositeWords = ["montage", "collage", "composite", "compilation"];
+
     /// <summary>The iNaturalist licence codes under which a photo may be cut out and shown.</summary>
     private static readonly HashSet<string> INaturalistLicences = new(StringComparer.OrdinalIgnoreCase) { "cc0", "cc-by", "cc-by-sa", "cc-by-nc", "cc-by-nc-sa" };
 
@@ -440,6 +448,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
     {
         if (Plain(html) is not { } text) return null;
         text = Assumed().Replace(text, "$1 (assumed)").Trim();
+        text = Boilerplate().Replace(text, "").Trim().TrimEnd('.', ',', ';').Trim();
         if (text.Length > 120)
         {
             var cut = text.LastIndexOf(' ', 117);
@@ -450,6 +459,9 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
 
     [GeneratedRegex(@"No machine-readable (?:author|source) provided\.\s*(.+?)\s+assumed \(based on copyright claims\)\.?", RegexOptions.IgnoreCase)]
     private static partial Regex Assumed();
+
+    [GeneratedRegex(@"\s*(?:See the original file here|Original uploader was .+?|This file was derived from:?.*?)\.?(?=\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex Boilerplate();
 
     [GeneratedRegex("<[^>]+>")]
     private static partial Regex Tags();

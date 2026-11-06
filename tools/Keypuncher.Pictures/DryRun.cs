@@ -63,7 +63,14 @@ public static class DryRun
                 else
                 {
                     var result = await fetcher.FetchAsync(item.Name, item.Category);
-                    if (result == FetchOutcome.Offline) { log.WriteLine("offline; stopping"); rows.Add((item, "offline", "")); break; }
+                    if (result == FetchOutcome.Offline)
+                    {
+                        // One blip is not the network gone: wait and try the same thing once more before giving up.
+                        log.Write("offline; trying again in 20 s: ");
+                        await Task.Delay(TimeSpan.FromSeconds(20));
+                        result = await fetcher.FetchAsync(item.Name, item.Category);
+                        if (result == FetchOutcome.Offline) { log.WriteLine("still offline; stopping"); rows.Add((item, "offline", "")); break; }
+                    }
                     outcome = result switch
                     {
                         FetchOutcome.Pictured or FetchOutcome.AlreadyHave => "pictured",
@@ -139,7 +146,7 @@ public static class DryRun
                     Add(recipe.GrowsInto, recipe.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal, "world, grows into");
                 }
                 foreach (var e in world.Live.Concat(world.Baked))
-                    if (e.Recipe is { } recipe) Add(recipe.Name, CategoryOf(recipe), "world, thing on screen");
+                    if (e.Recipe is { } recipe && !ToyNames.IsInvented(recipe.Name)) Add(recipe.Name, CategoryOf(recipe), "world, thing on screen");
                 log.WriteLine($"world.db: {items.Count} names");
             }
             finally { TryDelete(copy); TryDelete(copy + "-wal"); TryDelete(copy + "-shm"); }

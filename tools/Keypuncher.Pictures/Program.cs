@@ -29,7 +29,7 @@ using var isnet = new OnnxCutOut(OnnxCutOut.ISNet, models.Folder);
 using var birefnet = new OnnxCutOut(OnnxCutOut.BiRefNetLite, models.Folder);
 var cutOut = new CutOutChain(isnet, birefnet);
 using var http = PictureHttp.NewClient();
-var finder = new WikimediaPhotoFinder(http);
+var finder = new ToyNameFinder(new WikimediaPhotoFinder(http));
 
 switch (verb)
 {
