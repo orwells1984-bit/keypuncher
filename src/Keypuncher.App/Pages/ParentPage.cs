@@ -1,7 +1,9 @@
 using Keypuncher.Audio;
 using Keypuncher.Core;
 using Keypuncher.Language;
+using Keypuncher.Pictures;
 using Keypuncher.Platform.Windows;
+using Keypuncher.Rendering;
 using Keypuncher.Storage;
 
 namespace Keypuncher.App.Pages;
@@ -11,7 +13,9 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _noises, _director, _directorTest, _recordPlay;
+    private readonly Switch _upper, _words, _noises, _director, _directorTest, _recordPlay, _pictures;
+    private readonly Label _pictureStatus = new() { FontSize = 13 };
+    private readonly VerticalStackLayout _pictureRows = new() { Spacing = 8 };
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
 
@@ -78,6 +82,18 @@ public sealed class ParentPage : ContentPage
         layout.Add(new Label { Text = $"Each play session is saved as a small video (4 frames a second, stamped with the time the log uses) in {Path.Combine(host.DataFolder, ToyHost.VideosName)}, so a problem can be looked at afterwards; test mode is always recorded. Nothing leaves this computer, and the oldest videos are deleted past 4 GB. When play starts and ends, the goodnight and how many keys were pressed go in {Path.Combine(host.DataFolder, ToyHost.DirectorLogName)}.", FontSize = 13 });
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
+        layout.Add(Heading("Pictures"));
+        layout.Add(new Label { Text = $"Each real thing the model picks gets a photo of the real thing, fetched in the background from Wikipedia (Wikidata and iNaturalist as backups), cut out on this computer and kept in {host.PictureFolder.Root} with its credit beside it. The toy draws it step by step as the child meets the thing: shape, silhouette, a few flat colours, then the photo. Nothing is shown before it is cut out, and play never waits on the internet. The cut-out needs two model files (about 400 MB) that are only downloaded from here." });
+        _pictures = new Switch { IsToggled = s.Pictures };
+        layout.Add(Row("Fetch pictures from the internet", _pictures));
+        layout.Add(_pictureStatus);
+        var modelButtons = new HorizontalStackLayout { Spacing = 12 };
+        if (!host.Models.AllPresent) modelButtons.Add(Button("Download the cut-out models (about 400 MB)", DownloadModels));
+        modelButtons.Add(Button("Fetch wanted pictures now", () => { _host.PictureJobs.RetryWanted(again: true); RefreshPictures(); }));
+        layout.Add(modelButtons);
+        layout.Add(_pictureRows);
+        RefreshPictures();
+
         layout.Add(Heading("Voices"));
         var recorded = KeyMeanings.Languages
             .Select(tag => $"{tag}: {ClipCatalog.For(tag).Count(e => host.Clips.Exists(e.Id))} of {ClipCatalog.For(tag).Count(e => !e.Optional)} recorded");
@@ -112,11 +128,91 @@ public sealed class ParentPage : ContentPage
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled));
+            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled));
         base.OnDisappearing();
     }
 
     private void Play() => ToyApp.Show(new PlayPage(_host));
+
+    /// <summary>Fills the status line and the list of pictures and wanted things from the folder as it is now.</summary>
+    private void RefreshPictures()
+    {
+        var host = _host;
+        var all = host.PictureFolder.All();
+        var wanted = host.PictureFolder.Wanted.All();
+        var jobs = host.PictureJobs.Status;
+        var models = host.Models.AllPresent ? "both cut-out models are here"
+            : host.Models.AnyPresent ? "one cut-out model is here" : "the cut-out models are not downloaded yet, so photos wait as they are";
+        _pictureStatus.Text = $"{all.Count} pictures ({all.Count(p => p.Source == PictureSource.Photo)} photos, {all.Count(p => p.Source == PictureSource.Generated)} made by an image model, {all.Count(p => p.Hidden)} hidden); "
+            + $"{wanted.Count} wanted; {models}. "
+            + (jobs.Fetching is { } fetching ? $"Fetching {fetching} now" : jobs.Queued > 0 ? $"{jobs.Queued} waiting" : "Nothing being fetched")
+            + (jobs.Last is { } last ? $"; last: {last}." : ".");
+
+        _pictureRows.Clear();
+        foreach (var picture in all.Take(60)) _pictureRows.Add(PictureRow(picture));
+        if (all.Count > 60) _pictureRows.Add(new Label { Text = $"and {all.Count - 60} more", FontSize = 13 });
+        if (wanted.Count > 0)
+        {
+            _pictureRows.Add(new Label { Text = "Wanted, no picture yet:", FontAttributes = FontAttributes.Bold, FontSize = 13 });
+            foreach (var w in wanted.Take(60))
+                _pictureRows.Add(new Label { Text = $"{w.Name} ({w.Category}), since {w.Since:d MMM}{(w.Reason is { } r ? ", " + r : "")}{(w.Tries > 0 ? $", tried {w.Tries}" : "")}", FontSize = 13 });
+        }
+    }
+
+    /// <summary>One picture: its thumbnail, what it is and where it came from, and the buttons to take it out of
+    /// play or ask for another.</summary>
+    private HorizontalStackLayout PictureRow(PictureSidecar picture)
+    {
+        var host = _host;
+        var row = new HorizontalStackLayout { Spacing = 12 };
+        var thumb = host.PictureFolder.ThumbPath(picture.Slug);
+        row.Add(File.Exists(thumb)
+            ? new Image { Source = ImageSource.FromFile(thumb), WidthRequest = 64, HeightRequest = 64, Aspect = Aspect.AspectFit }
+            : new BoxView { WidthRequest = 64, HeightRequest = 64, Color = Colors.Transparent });
+        var meetings = host.Pictures.Meetings(picture.Name);
+        var lines = $"{picture.Name} ({picture.Category}){(picture.Hidden ? ", hidden" : "")}: met {meetings} times, drawn as {PictureLibrary.StageFor(meetings).ToString().ToLowerInvariant()}
+"
+            + picture.CreditLine
+            + (picture.Photo?.DescriptionUrl is { } url ? $"
+{url}" : "")
+            + (picture.Check is { } check ? $"
+Checked by {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}, it saw {check.Saw}" : "");
+        row.Add(new Label { Text = lines, FontSize = 13, WidthRequest = 420, VerticalOptions = LayoutOptions.Center });
+        row.Add(Button(picture.Hidden ? "Show" : "Hide", () =>
+        {
+            if (picture.Hidden) host.PictureFolder.Unhide(picture.Slug);
+            else host.PictureFolder.Hide(picture.Slug);
+            host.Pictures.Invalidate(picture.Name);
+            RefreshPictures();
+        }));
+        row.Add(Button("Try another", () =>
+        {
+            var now = DateTime.Now;
+            host.PictureFolder.Wanted.Add(picture.Name, picture.Category, now);
+            host.PictureFolder.Wanted.Bump(picture.Slug, "another was asked for", now, countTry: false, exclude: picture.Photo?.FileTitle);
+            host.PictureJobs.Enqueue(picture.Name, picture.Category, again: true);
+            RefreshPictures();
+        }));
+        return row;
+    }
+
+    /// <summary>Downloads the two cut-out models with a running line of progress, then fetches what was waiting.</summary>
+    private async void DownloadModels()
+    {
+        var progress = new Progress<ModelProgress>(p =>
+            _pictureStatus.Text = $"Downloading {p.Model.FileName}: {p.Done / 1_000_000} of {p.Total / 1_000_000} MB");
+        try
+        {
+            await _host.Models.DownloadMissingAsync(progress);
+            _host.PictureJobs.RetryWanted(again: true);
+        }
+        catch (Exception e)
+        {
+            _pictureStatus.Text = $"The download did not finish: {e.GetBaseException().Message}";
+            return;
+        }
+        RefreshPictures();
+    }
 
     private async void FreshWorld()
     {

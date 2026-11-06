@@ -5,6 +5,7 @@ using Keypuncher.Rendering;
 using Keypuncher.Director;
 using Keypuncher.Inference.Ollama;
 using Keypuncher.Language;
+using Keypuncher.Pictures;
 using Keypuncher.Platform.Windows;
 using Keypuncher.Storage;
 using Keypuncher.Toy;
@@ -30,6 +31,7 @@ public sealed class ToyHost : IDisposable
     private readonly AccessibilityShortcuts _shortcuts;
     private readonly LockShortcut _lock;
     private readonly KeepAwake _keepAwake = new();
+    private readonly OnnxCutOut[] _cutOuts;
     private volatile HostMode _mode = HostMode.Play;
 
     public ToyHost()
@@ -72,6 +74,25 @@ public sealed class ToyHost : IDisposable
         WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
         if (Engine.Settings.Director) _ = WarmUpAsync(author);
 
+        // Pictures of real things: fetched in the background as the director picks them, cut out on the CPU, and
+        // handed to the renderer; the toy never waits on any of it. The two cut-out models are only used when a
+        // grown-up has downloaded them; until then the photo is kept for later.
+        PictureFolder = new PictureFolder(Path.Combine(DataFolder, PicturesName));
+        Models = new ModelStore(DataFolder);
+        _cutOuts = [new OnnxCutOut(OnnxCutOut.ISNet, Models.Folder), new OnnxCutOut(OnnxCutOut.BiRefNetLite, Models.Folder)];
+        var fetcher = new PhotoFetcher(PictureFolder, new WikimediaPhotoFinder(PictureHttp.NewClient()), new CutOutChain(_cutOuts), note: NotePicture);
+        PictureJobs = new PictureJobs(PictureFolder, fetcher, enabled: () => Engine.Settings.Pictures, note: NotePicture);
+        PictureJobs.Landed += name => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
+        Director.Picked += (recipe, category) => PictureJobs.Enqueue(recipe.Name, category);
+        // Things picked before there were pictures, or whose fetch was lost, are asked for now; the wanted list
+        // remembers everything that was tried and why.
+        foreach (var (_, recipe, _) in World.Families.Restyled())
+        {
+            PictureJobs.Enqueue(recipe.Name, CategoryOf(recipe), categoryGuessed: true);
+            if (recipe.GrowsInto is { } grown) PictureJobs.Enqueue(grown, RealCategory.Animal, categoryGuessed: true);
+        }
+        PictureJobs.RetryWanted();
+
         _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
     }
 
@@ -102,6 +123,24 @@ public sealed class ToyHost : IDisposable
     public KeyboardHook Keyboard { get; }
     public DirectorLoop Director { get; }
     public Uri OllamaAddress { get; }
+    /// <summary>The pictures folder as the fetcher and the grown-ups' page see it: sidecars, raw photos, the wanted list.</summary>
+    public PictureFolder PictureFolder { get; }
+    /// <summary>The cut-out models on this computer, and where to get them.</summary>
+    public ModelStore Models { get; }
+    /// <summary>The background fetching of pictures.</summary>
+    public PictureJobs PictureJobs { get; }
+
+    /// <summary>The best guess at what a thing is from its recipe alone, for things picked before the director
+    /// said: creatures are animals, plants are plants, and the rest are objects.</summary>
+    public static RealCategory CategoryOf(Recipe recipe) => recipe.Kind switch
+    {
+        RecipeKind.Creature => RealCategory.Animal,
+        RecipeKind.Plant => RealCategory.Plant,
+        _ => RealCategory.Object,
+    };
+
+    /// <summary>A line about a picture, stamped, in the director's log.</summary>
+    private void NotePicture(string line) => WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
 
     public HostMode Mode
     {
@@ -144,6 +183,8 @@ public sealed class ToyHost : IDisposable
         _lock.Dispose();
         _keepAwake.Dispose();
         Director.Dispose();
+        PictureJobs.Dispose();
+        foreach (var cutOut in _cutOuts) cutOut.Dispose();
         SaveWorld();
         WorldStore.Dispose();
         Pictures.Dispose();

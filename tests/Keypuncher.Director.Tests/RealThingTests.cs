@@ -438,6 +438,31 @@ public class RealThingTests
         Assert.True(Assert.Single(loop.Log).Outcome!.Accepted);
     }
 
+    [Fact]
+    public async Task A_pick_is_announced_with_the_category_it_was_asked_for_right_after_the_restyle()
+    {
+        var world = new World();
+        var author = new ScriptedModel(Pick("hedgehog", "Animal", "Blob"));
+        using var loop = new DirectorLoop(new RealThingDirector(author, new FactChecker(new ScriptedModel(Check("a small mammal", "real")))), creatureCategories: [RealCategory.Animal]);
+        for (var i = 0; i < BuiltInRecipes.InventedFamilies; i++)
+            if (world.Families[i].Kind == RecipeKind.Plant) world.Families.Restyle(i, world.Families[i] with { Name = $"plant{i}" }, 0);
+        var order = new List<string>();
+        var picked = new List<(Recipe Recipe, RealCategory Category)>();
+        loop.Restyled += (_, recipe) => order.Add("restyled " + recipe.Name);
+        loop.Picked += (recipe, category) => { order.Add("picked " + recipe.Name); picked.Add((recipe, category)); };
+
+        loop.Update(world, Every(10), enabled: true);
+        Tick(world, DirectorLoop.FirstAfterSeconds);
+        loop.Update(world, Every(10), enabled: true);
+        await Settle(loop, world);
+
+        var (recipe, category) = Assert.Single(picked);
+        Assert.Equal("hedgehog", recipe.Name);
+        Assert.Equal(RealCategory.Animal, category);
+        Assert.Equal(["restyled hedgehog", "picked hedgehog"], order);
+        Assert.Contains(world.Families.Restyled(), f => ReferenceEquals(f.Recipe, recipe));
+    }
+
     /// <summary>Limits with a family change every <paramref name="minutes"/> and no scene change for a long while.</summary>
     internal static CalmLimits Every(double minutes) => CalmLimits.Toddler with { RestyleMinutes = minutes, SceneMinutes = 1000 };
 

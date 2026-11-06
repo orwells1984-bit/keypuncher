@@ -1,0 +1,49 @@
+{
+  "type": "standard",
+  "title": "Woolly mammoth",
+  "displaytitle": "<span class=\"mw-page-title-main\">Woolly mammoth</span>",
+  "namespace": {
+    "id": 0,
+    "text": ""
+  },
+  "titles": {
+    "canonical": "Woolly_mammoth",
+    "normalized": "Woolly mammoth",
+    "display": "Woolly mammoth"
+  },
+  "pageid": 20751,
+  "lang": "en",
+  "dir": "ltr",
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "timestamp": "2026-10-29T14:21:07Z",
+  "description": "Extinct species of mammoth",
+  "description_source": "local",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/Woolly_mammoth",
+      "revisions": "https://en.wikipedia.org/wiki/Woolly_mammoth?action=history",
+      "edit": "https://en.wikipedia.org/wiki/Woolly_mammoth?action=edit",
+      "talk": "https://en.wikipedia.org/wiki/Talk:Woolly_mammoth"
+    },
+    "mobile": {
+      "page": "https://en.m.wikipedia.org/wiki/Woolly_mammoth",
+      "revisions": "https://en.m.wikipedia.org/wiki/Special:History/Woolly_mammoth",
+      "edit": "https://en.m.wikipedia.org/wiki/Woolly_mammoth?action=edit",
+      "talk": "https://en.m.wikipedia.org/wiki/Talk:Woolly_mammoth"
+    }
+  },
+  "extract": "Woolly mammoth is described here.",
+  "extract_html": "<p>Woolly mammoth is described here.</p>",
+  "wikibase_item": "Q33854",
+  "thumbnail": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Woolly_mammoth_skeleton.jpg/320px-Woolly_mammoth_skeleton.jpg",
+    "width": 320,
+    "height": 213
+  },
+  "originalimage": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/7/7e/Woolly_mammoth_skeleton.jpg",
+    "width": 2400,
+    "height": 1600
+  }
+}

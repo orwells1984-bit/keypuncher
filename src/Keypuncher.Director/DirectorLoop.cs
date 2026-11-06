@@ -99,6 +99,10 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// <summary>Raised on the UI thread when a family has been restyled.</summary>
     public event Action<int, Recipe>? Restyled;
 
+    /// <summary>Raised on the UI thread right after <see cref="Restyled"/>, with the category the request asked for
+    /// (a thing growing into what it becomes is asked for as an animal or a plant, by its kind).</summary>
+    public event Action<Recipe, RealCategory>? Picked;
+
     /// <summary>Raised on the UI thread with a line for the log file: each request as it goes out, and each line of
     /// what came of it.</summary>
     public event Action<string>? Noted;
@@ -293,7 +297,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         _familyDue = world.Time + Math.Min(outcome.Accepted ? double.MaxValue : FirstAfterSeconds, limits.RestyleMinutes * 60);
         // A fresh world, or another change, since the request was made: the answer is for something gone.
         if (outcome.Recipe is not { } recipe || !ReferenceEquals(world.Families[slot], was)) return;
-        if (world.Families.Restyle(slot, recipe, world.Time)) Restyled?.Invoke(slot, recipe);
+        if (!world.Families.Restyle(slot, recipe, world.Time)) return;
+        Restyled?.Invoke(slot, recipe);
+        Picked?.Invoke(recipe, outcome.Request.Category);
     }
 
     private void Finish(World world, Task<SceneOutcome> done, CalmLimits limits)

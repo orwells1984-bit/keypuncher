@@ -16,6 +16,8 @@ public sealed class PictureFolder
 {
     public const string PictureExtension = ".png";
     public const int ThumbSide = 96;
+    /// <summary>The types a raw photo or image may be kept as.</summary>
+    public static readonly string[] RawExtensions = [".jpg", ".jpeg", ".png", ".webp"];
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private readonly Lock _lock = new();
 
@@ -39,6 +41,19 @@ public sealed class PictureFolder
 
     /// <summary>Whether the toy has a picture of this thing in play (hidden ones do not count).</summary>
     public bool HasPicture(string slug) => File.Exists(PicturePath(slug));
+
+    /// <summary>Whether a grown-up has hidden this thing's picture.</summary>
+    public bool IsHidden(string slug) => File.Exists(HiddenPath(slug));
+
+    /// <summary>The photo or image under <c>raw/</c> this thing's cut-out was (or will be) made from, whatever its type; null when there is none.</summary>
+    public string? FindRaw(string slug)
+    {
+        lock (_lock)
+        {
+            if (!Directory.Exists(RawFolder)) return null;
+            return RawExtensions.Select(e => RawPath(slug, e)).FirstOrDefault(File.Exists);
+        }
+    }
 
     public PictureSidecar? ReadSidecar(string slug)
     {

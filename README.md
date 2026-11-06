@@ -98,6 +98,21 @@ during play is used by the next thing born; write it under a temporary name (no 
 `--pictures DIR` makes Preview write a sheet of every picture in DIR at each stage and calm level (with a drawn
 sample when DIR is empty).
 
+Pictures of real things: when the director picks a real thing, the toy fetches a photo of it in the background
+(Wikipedia's lead image, Wikidata's image, iNaturalist for animals and plants, then the next pictures in the article;
+maps, skeletons, logos, drawings and tiny files are turned down), cuts the subject out on the CPU with a small
+background-removal model (ISNet, with BiRefNet-lite as a second try), and writes `<slug>.png` into the pictures
+folder with `<slug>.json` beside it: the real name, where the photo came from, who took it and under what licence.
+Nothing leaves this computer and play never waits on the network; a thing with no picture yet simply keeps its
+stock shape, and the wanted list (`wanted.json`) remembers it. The two cut-out models (about 400 MB, in
+`%LOCALAPPDATA%\Keypuncher\models`) are only downloaded when a grown-up asks, from the grown-ups' page or with
+`dotnet run --project tools/Keypuncher.Pictures -- model`; until then photos are kept under `raw/` and cut out later.
+The grown-ups' page lists every picture with its credit and a Hide button, has a "Try another" for a wrong one, and
+a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`, `fetch`, `recut`, `hide`, `show`,
+and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
+folder of its own and writes a report of what photos cover and which things are gaps (the image model, if it earns
+its place, is for those).
+
 ## Phase 2: the director
 
 With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the

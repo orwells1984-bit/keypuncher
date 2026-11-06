@@ -36,7 +36,7 @@ public sealed record PictureSidecar(
     /// <summary>One line of credit for the grown-ups' page: who, which licence, where.</summary>
     public string CreditLine => Source switch
     {
-        PictureSource.Photo when Photo is { } p => string.Join(", ", new[] { p.Artist, p.LicenseShortName, "via Wikimedia Commons" }.Where(s => !string.IsNullOrWhiteSpace(s))),
+        PictureSource.Photo when Photo is { } p => string.Join(", ", new[] { p.Artist, p.LicenseShortName, "via " + p.Site }.Where(s => !string.IsNullOrWhiteSpace(s))),
         PictureSource.Generated when Generated is { } g => $"made by {g.Model}, seed {g.Seed}",
         _ => "put here by hand",
     };
@@ -58,7 +58,12 @@ public sealed record PhotoProvenance(
     [property: JsonPropertyName("width")] int Width,
     [property: JsonPropertyName("height")] int Height,
     [property: JsonPropertyName("mime")] string Mime,
-    [property: JsonPropertyName("how")] string How);
+    [property: JsonPropertyName("how")] string How)
+{
+    /// <summary>Where the photo was found, for the credit line: Wikimedia Commons unless the file page says otherwise.</summary>
+    [JsonIgnore]
+    public string Site => DescriptionUrl.Contains("inaturalist.org", StringComparison.OrdinalIgnoreCase) ? "iNaturalist" : "Wikimedia Commons";
+}
 
 /// <summary>How the local image model made a picture, so it can be made again or varied.</summary>
 public sealed record GenerationProvenance(

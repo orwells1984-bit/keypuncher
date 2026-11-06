@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "Q214062": {
+      "pageid": 212345,
+      "ns": 0,
+      "title": "Q214062",
+      "lastrevid": 2231234567,
+      "modified": "2026-10-12T04:11:09Z",
+      "type": "item",
+      "id": "Q214062",
+      "labels": {
+        "en": {
+          "language": "en",
+          "value": "sable antelope"
+        }
+      },
+      "descriptions": {
+        "en": {
+          "language": "en",
+          "value": "species of mammal"
+        }
+      },
+      "claims": {
+        "P31": [
+          {
+            "mainsnak": {
+              "snaktype": "value",
+              "property": "P31",
+              "datavalue": {
+                "value": {
+                  "entity-type": "item",
+                  "numeric-id": 16521,
+                  "id": "Q16521"
+                },
+                "type": "wikibase-entityid"
+              },
+              "datatype": "wikibase-item"
+            },
+            "type": "statement",
+            "id": "Q214062$1",
+            "rank": "normal"
+          }
+        ]
+      }
+    }
+  }
+}

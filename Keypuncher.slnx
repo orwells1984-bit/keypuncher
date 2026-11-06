@@ -25,6 +25,7 @@
     <Project Path="tools/Keypuncher.Bench/Keypuncher.Bench.csproj" />
     <Project Path="tools/Keypuncher.KeySpike/Keypuncher.KeySpike.csproj" />
     <Project Path="tools/Keypuncher.Preview/Keypuncher.Preview.csproj" />
+    <Project Path="tools/Keypuncher.Pictures/Keypuncher.Pictures.Tool.csproj" />
     <Project Path="tools/Keypuncher.Sandbox/Keypuncher.Sandbox.csproj" />
   </Folder>
 </Solution>

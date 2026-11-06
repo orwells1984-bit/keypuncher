@@ -64,7 +64,9 @@ public static class PhotoRules
     private static readonly string[] ArtWords = ["painting", "paintings", "drawing", "drawings", "illustration", "illustrations", "engraving", "engravings", "lithograph", "lithographs", "artwork", "artworks"];
 
     /// <summary>Null when the file will do; otherwise how firmly it is turned down and why.</summary>
-    public static (Rejection Kind, string Why)? Vet(FileFacts facts, RealCategory category)
+    /// <param name="name">The thing's own name, whose words are never held against a file: a seal is not a stamp,
+    /// a horn is not a part of something.</param>
+    public static (Rejection Kind, string Why)? Vet(FileFacts facts, RealCategory category, string? name = null)
     {
         if (!Mimes.Contains(facts.Mime)) return (Rejection.Hard, $"{facts.Mime} is not a photo");
         if (!string.IsNullOrEmpty(facts.MediaType) && !facts.MediaType.Equals("BITMAP", StringComparison.OrdinalIgnoreCase)) return (Rejection.Hard, $"media type {facts.MediaType}");
@@ -73,7 +75,8 @@ public static class PhotoRules
         if (facts.Height > 0 && (facts.Width / (double)facts.Height < MinAspect || facts.Width / (double)facts.Height > MaxAspect)) return (Rejection.Hard, $"shape {facts.Width}x{facts.Height}");
         if (string.IsNullOrWhiteSpace(facts.LicenseShortName) && facts.Copyrighted.Equals("True", StringComparison.OrdinalIgnoreCase)) return (Rejection.Hard, "no licence tag");
 
-        var words = Words(facts.FileTitle).ToList();
+        var own = name is null ? [] : Words(name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var words = Words(facts.FileTitle).Where(w => !own.Contains(w)).ToList();
         var categories = facts.Categories.Select(c => c.StartsWith("Category:") ? c[9..] : c).Select(c => c.ToLowerInvariant()).ToList();
 
         if (category == RealCategory.ExtinctAnimal)

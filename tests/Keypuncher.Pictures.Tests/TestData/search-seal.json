@@ -1,0 +1,41 @@
+{
+  "batchcomplete": true,
+  "continue": {
+    "sroffset": 5,
+    "continue": "-||"
+  },
+  "query": {
+    "searchinfo": {
+      "totalhits": 48123
+    },
+    "search": [
+      {
+        "ns": 0,
+        "title": "Seal",
+        "pageid": 28302,
+        "size": 4215,
+        "wordcount": 523,
+        "snippet": "<span class=\"searchmatch\">Seal</span> may refer to:",
+        "timestamp": "2026-09-02T10:00:00Z"
+      },
+      {
+        "ns": 0,
+        "title": "Seal (musician)",
+        "pageid": 236110,
+        "size": 61234,
+        "wordcount": 7123,
+        "snippet": "Henry Olusegun Adeola Samuel, known professionally as <span class=\"searchmatch\">Seal</span>",
+        "timestamp": "2026-10-21T09:12:00Z"
+      },
+      {
+        "ns": 0,
+        "title": "Pinniped",
+        "pageid": 157533,
+        "size": 141212,
+        "wordcount": 15200,
+        "snippet": "Pinnipeds, commonly known as <span class=\"searchmatch\">seals</span>, are a widely distributed",
+        "timestamp": "2026-10-30T18:45:00Z"
+      }
+    ]
+  }
+}

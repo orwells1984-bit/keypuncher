@@ -1,0 +1,42 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "pageid": 1030727,
+        "ns": 0,
+        "title": "Sable antelope",
+        "images": [
+          {
+            "ns": 6,
+            "title": "File:Commons-logo.svg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Sable antelope female.jpg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Sable antelope range.svg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Sable antelope poster art.jpg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Sable antelope male.jpg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Sable antelope skeleton.jpg"
+          },
+          {
+            "ns": 6,
+            "title": "File:Status iucn3.1 LC.svg"
+          }
+        ]
+      }
+    ]
+  }
+}
