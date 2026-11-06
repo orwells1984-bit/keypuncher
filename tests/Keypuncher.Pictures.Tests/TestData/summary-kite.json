@@ -1,0 +1,40 @@
+{
+  "type": "standard",
+  "title": "Kite",
+  "displaytitle": "<span class=\"mw-page-title-main\">Kite</span>",
+  "namespace": {
+    "id": 0,
+    "text": ""
+  },
+  "titles": {
+    "canonical": "Kite",
+    "normalized": "Kite",
+    "display": "Kite"
+  },
+  "pageid": 16925,
+  "lang": "en",
+  "dir": "ltr",
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "timestamp": "2026-10-29T14:21:07Z",
+  "description": "Tethered aircraft",
+  "description_source": "local",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/Kite"
+    }
+  },
+  "extract": "A kite is a tethered aircraft.",
+  "extract_html": "<p>A kite is a tethered aircraft.</p>",
+  "wikibase_item": "Q42861",
+  "thumbnail": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Colourful_kite_flying.jpg/320px-Colourful_kite_flying.jpg",
+    "width": 320,
+    "height": 213
+  },
+  "originalimage": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/5/5e/Colourful_kite_flying.jpg",
+    "width": 2000,
+    "height": 1333
+  }
+}

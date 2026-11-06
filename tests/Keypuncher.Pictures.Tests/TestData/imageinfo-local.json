@@ -1,0 +1,14 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "ns": 6,
+        "title": "File:Sable antelope poster art.jpg",
+        "missing": true,
+        "imagerepository": "",
+        "known": true
+      }
+    ]
+  }
+}

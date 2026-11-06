@@ -33,6 +33,7 @@
     <ProjectReference Include="..\Keypuncher.Toy\Keypuncher.Toy.csproj" />
     <ProjectReference Include="..\Keypuncher.Director\Keypuncher.Director.csproj" />
     <ProjectReference Include="..\Keypuncher.Inference.Ollama\Keypuncher.Inference.Ollama.csproj" />
+    <ProjectReference Include="..\Keypuncher.Pictures\Keypuncher.Pictures.csproj" />
   </ItemGroup>
 
 </Project>

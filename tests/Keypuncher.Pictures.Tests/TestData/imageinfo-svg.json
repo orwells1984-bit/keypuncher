@@ -1,0 +1,81 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "normalized": [
+      {
+        "fromencoded": false,
+        "from": "File:Sable_antelope_range.svg",
+        "to": "File:Sable antelope range.svg"
+      }
+    ],
+    "pages": [
+      {
+        "pageid": 52213,
+        "ns": 6,
+        "title": "File:Sable antelope range.svg",
+        "imagerepository": "local",
+        "imageinfo": [
+          {
+            "size": 1849212,
+            "width": 1200,
+            "height": 800,
+            "responsiveUrls": {
+              "2": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_range.svg"
+            },
+            "url": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_range.svg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sable_antelope_range.svg",
+            "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=52213",
+            "sha1": "3f1e7b0c8a9d2e4f5a6b7c8d9e0f1a2b3c4d5e6f",
+            "mime": "image/svg+xml",
+            "mediatype": "DRAWING",
+            "extmetadata": {
+              "LicenseShortName": {
+                "value": "CC BY-SA 4.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "LicenseUrl": {
+                "value": "https://creativecommons.org/licenses/by-sa/4.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "Artist": {
+                "value": "<a href=\"//commons.wikimedia.org/wiki/User:Example\" title=\"User:Example\">Charles J. Sharp</a>",
+                "source": "commons-desc-page"
+              },
+              "Credit": {
+                "value": "<span class=\"int-own-work\" lang=\"en\">Own work</span>",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "AttributionRequired": {
+                "value": "true",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "Copyrighted": {
+                "value": "True",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "UsageTerms": {
+                "value": "Creative Commons Attribution-Share Alike 4.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              }
+            },
+            "thumburl": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_range.svg",
+            "thumbwidth": 1200,
+            "thumbheight": 800
+          }
+        ],
+        "categories": [
+          {
+            "ns": 14,
+            "title": "Category:Range maps of mammals of Africa"
+          }
+        ]
+      }
+    ]
+  }
+}

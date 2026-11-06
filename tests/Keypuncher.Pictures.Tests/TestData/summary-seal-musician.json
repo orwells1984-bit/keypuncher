@@ -1,0 +1,49 @@
+{
+  "type": "standard",
+  "title": "Seal (musician)",
+  "displaytitle": "<span class=\"mw-page-title-main\">Seal (musician)</span>",
+  "namespace": {
+    "id": 0,
+    "text": ""
+  },
+  "titles": {
+    "canonical": "Seal_(musician)",
+    "normalized": "Seal (musician)",
+    "display": "Seal (musician)"
+  },
+  "pageid": 236110,
+  "lang": "en",
+  "dir": "ltr",
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "timestamp": "2026-10-29T14:21:07Z",
+  "description": "British singer-songwriter",
+  "description_source": "local",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/Seal_(musician)",
+      "revisions": "https://en.wikipedia.org/wiki/Seal_(musician)?action=history",
+      "edit": "https://en.wikipedia.org/wiki/Seal_(musician)?action=edit",
+      "talk": "https://en.wikipedia.org/wiki/Talk:Seal_(musician)"
+    },
+    "mobile": {
+      "page": "https://en.m.wikipedia.org/wiki/Seal_(musician)",
+      "revisions": "https://en.m.wikipedia.org/wiki/Special:History/Seal_(musician)",
+      "edit": "https://en.m.wikipedia.org/wiki/Seal_(musician)?action=edit",
+      "talk": "https://en.m.wikipedia.org/wiki/Talk:Seal_(musician)"
+    }
+  },
+  "extract": "Seal (musician) is described here.",
+  "extract_html": "<p>Seal (musician) is described here.</p>",
+  "wikibase_item": "Q207375",
+  "thumbnail": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Seal_in_concert.jpg/320px-Seal_in_concert.jpg",
+    "width": 320,
+    "height": 213
+  },
+  "originalimage": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/1/1f/Seal_in_concert.jpg",
+    "width": 1800,
+    "height": 1200
+  }
+}

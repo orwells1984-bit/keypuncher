@@ -1,0 +1,86 @@
+{
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "items": [
+    {
+      "title": "File:Sable antelope female.jpg",
+      "section_id": 0,
+      "type": "image",
+      "leadImage": true,
+      "showInGallery": true,
+      "srcset": [
+        {
+          "src": "//upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_female.jpg/220px-Sable_antelope_female.jpg",
+          "scale": "1x"
+        }
+      ]
+    },
+    {
+      "title": "File:Sable antelope range.svg",
+      "section_id": 0,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": true,
+      "srcset": [
+        {
+          "src": "//upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Sable_antelope_range.svg/220px-Sable_antelope_range.svg.png",
+          "scale": "1x"
+        }
+      ]
+    },
+    {
+      "title": "File:Status iucn3.1 LC.svg",
+      "section_id": 0,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": false
+    },
+    {
+      "title": "File:Sable antelope poster art.jpg",
+      "section_id": 2,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": true,
+      "srcset": [
+        {
+          "src": "//upload.wikimedia.org/wikipedia/en/thumb/3/3a/Sable_antelope_poster_art.jpg/220px-Sable_antelope_poster_art.jpg",
+          "scale": "1x"
+        }
+      ]
+    },
+    {
+      "title": "File:Sable antelope call.ogg",
+      "section_id": 2,
+      "type": "audio",
+      "leadImage": false,
+      "showInGallery": true
+    },
+    {
+      "title": "File:Sable antelope male.jpg",
+      "section_id": 3,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": true,
+      "srcset": [
+        {
+          "src": "//upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_male.jpg/220px-Sable_antelope_male.jpg",
+          "scale": "1x"
+        }
+      ]
+    },
+    {
+      "title": "File:Sable antelope skeleton.jpg",
+      "section_id": 4,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": true
+    },
+    {
+      "title": "File:Commons-logo.svg",
+      "section_id": 7,
+      "type": "image",
+      "leadImage": false,
+      "showInGallery": false
+    }
+  ]
+}

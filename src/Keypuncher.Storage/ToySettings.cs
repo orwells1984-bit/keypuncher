@@ -18,6 +18,8 @@ namespace Keypuncher.Storage;
 /// screen, a new scene fades in over a few seconds, and there is no goodnight. Not for a child's play.</param>
 /// <param name="RecordPlay">Record every play session as a small video on this computer, for looking back at what
 /// happened alongside the log. Test mode is always recorded.</param>
+/// <param name="Pictures">Fetch a photo of each real thing the director picks from the internet, in the background,
+/// and cut it out for the toy to draw; off, the things are only noted as wanted.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -28,7 +30,8 @@ public sealed record ToySettings(
     bool AnimalNoises = true,
     bool Director = true,
     bool DirectorTest = false,
-    bool RecordPlay = true)
+    bool RecordPlay = true,
+    bool Pictures = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 

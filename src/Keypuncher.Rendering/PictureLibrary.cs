@@ -172,6 +172,8 @@ public sealed class PictureLibrary : IDisposable
         while (_composed.TryDequeue(out var c))
         {
             Interlocked.Decrement(ref _pending);
+            // A drawing for a picture thrown away meanwhile (replaced, hidden or evicted) has nowhere to go.
+            if (c.Picture.IsDisposed) { c.Image?.Dispose(); continue; }
             if (c.Picture.Adopt(c.Key, c.Image)) arrived = true;
         }
         var stamp = FolderStamp();
@@ -330,6 +332,7 @@ public sealed class PictureLibrary : IDisposable
         private readonly HashSet<CompositeKey> _requested = [];
         private readonly Dictionary<(int Levels, bool Palette, ArtStyle Style), SKImage> _flat = [];
         private readonly Lock _draw = new();
+        private volatile bool _disposed;
 
         private Picture(SKBitmap pixels)
         {
@@ -339,6 +342,9 @@ public sealed class PictureLibrary : IDisposable
 
         public int Width => _pixels.Width;
         public int Height => _pixels.Height;
+
+        /// <summary>True once the pixels are gone: a drawing of it still on its way is then dropped.</summary>
+        public bool IsDisposed => _disposed;
 
         /// <summary>Reads a cut-out, decoding big files at a reduced size where the codec can, and trims it to the part
         /// that is not transparent. Null when the file is not a picture or is all transparent.</summary>
@@ -440,6 +446,8 @@ public sealed class PictureLibrary : IDisposable
         {
             lock (_draw)
             {
+                // Disposed while this drawing waited for a pool thread: its pixels are gone.
+                if (_disposed) return null;
                 var margin = Margin(key);
                 var w = Width + (2 * margin);
                 var h = Height + (2 * margin);
@@ -630,6 +638,8 @@ public sealed class PictureLibrary : IDisposable
         {
             lock (_draw)
             {
+                if (_disposed) return;
+                _disposed = true;
                 _photo.Dispose();
                 _pixels.Dispose();
                 foreach (var c in _composites.Values) c?.Dispose();

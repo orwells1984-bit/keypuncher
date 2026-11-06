@@ -1,0 +1,49 @@
+{
+  "type": "standard",
+  "title": "Sable antelope",
+  "displaytitle": "<span class=\"mw-page-title-main\">Sable antelope</span>",
+  "namespace": {
+    "id": 0,
+    "text": ""
+  },
+  "titles": {
+    "canonical": "Sable_antelope",
+    "normalized": "Sable antelope",
+    "display": "Sable antelope"
+  },
+  "pageid": 1030727,
+  "lang": "en",
+  "dir": "ltr",
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "timestamp": "2026-10-29T14:21:07Z",
+  "description": "Species of antelope",
+  "description_source": "local",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/Sable_antelope",
+      "revisions": "https://en.wikipedia.org/wiki/Sable_antelope?action=history",
+      "edit": "https://en.wikipedia.org/wiki/Sable_antelope?action=edit",
+      "talk": "https://en.wikipedia.org/wiki/Talk:Sable_antelope"
+    },
+    "mobile": {
+      "page": "https://en.m.wikipedia.org/wiki/Sable_antelope",
+      "revisions": "https://en.m.wikipedia.org/wiki/Special:History/Sable_antelope",
+      "edit": "https://en.m.wikipedia.org/wiki/Sable_antelope?action=edit",
+      "talk": "https://en.m.wikipedia.org/wiki/Talk:Sable_antelope"
+    }
+  },
+  "extract": "Sable antelope is described here.",
+  "extract_html": "<p>Sable antelope is described here.</p>",
+  "wikibase_item": "Q214062",
+  "thumbnail": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_female.jpg/320px-Sable_antelope_female.jpg",
+    "width": 320,
+    "height": 213
+  },
+  "originalimage": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_female.jpg",
+    "width": 1600,
+    "height": 1067
+  }
+}

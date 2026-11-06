@@ -1,0 +1,85 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "normalized": [
+      {
+        "fromencoded": false,
+        "from": "File:Sable_antelope_painting.jpg",
+        "to": "File:Sable antelope painting.jpg"
+      }
+    ],
+    "pages": [
+      {
+        "pageid": 52216,
+        "ns": 6,
+        "title": "File:Sable antelope painting.jpg",
+        "imagerepository": "local",
+        "imageinfo": [
+          {
+            "size": 1849212,
+            "width": 1900,
+            "height": 1300,
+            "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_painting.jpg/1280px-Sable_antelope_painting.jpg",
+            "thumbwidth": 1280,
+            "thumbheight": 876,
+            "responsiveUrls": {
+              "2": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_painting.jpg"
+            },
+            "url": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_painting.jpg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sable_antelope_painting.jpg",
+            "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=52216",
+            "sha1": "3f1e7b0c8a9d2e4f5a6b7c8d9e0f1a2b3c4d5e6f",
+            "mime": "image/jpeg",
+            "mediatype": "BITMAP",
+            "extmetadata": {
+              "LicenseShortName": {
+                "value": "Public domain",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "LicenseUrl": {
+                "value": "https://creativecommons.org/licenses/by-sa/4.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "Artist": {
+                "value": "<a href=\"//commons.wikimedia.org/wiki/User:Example\" title=\"User:Example\">Charles J. Sharp</a>",
+                "source": "commons-desc-page"
+              },
+              "Credit": {
+                "value": "<span class=\"int-own-work\" lang=\"en\">Own work</span>",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "AttributionRequired": {
+                "value": "true",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "Copyrighted": {
+                "value": "True",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "UsageTerms": {
+                "value": "Creative Commons Attribution-Share Alike 4.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              }
+            }
+          }
+        ],
+        "categories": [
+          {
+            "ns": 14,
+            "title": "Category:Paintings of antelopes"
+          },
+          {
+            "ns": 14,
+            "title": "Category:Hippotragus niger in art"
+          }
+        ]
+      }
+    ]
+  }
+}

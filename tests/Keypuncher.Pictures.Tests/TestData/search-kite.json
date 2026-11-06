@@ -1,0 +1,32 @@
+{
+  "batchcomplete": true,
+  "continue": {
+    "sroffset": 5,
+    "continue": "-||"
+  },
+  "query": {
+    "searchinfo": {
+      "totalhits": 21345
+    },
+    "search": [
+      {
+        "ns": 0,
+        "title": "Kite",
+        "pageid": 16925,
+        "size": 61234,
+        "wordcount": 7123,
+        "snippet": "A <span class=\"searchmatch\">kite</span> is a tethered aircraft",
+        "timestamp": "2026-10-21T09:12:00Z"
+      },
+      {
+        "ns": 0,
+        "title": "Kite (bird)",
+        "pageid": 417533,
+        "size": 14121,
+        "wordcount": 1520,
+        "snippet": "<span class=\"searchmatch\">Kite</span> is the common name for birds of prey",
+        "timestamp": "2026-10-30T18:45:00Z"
+      }
+    ]
+  }
+}

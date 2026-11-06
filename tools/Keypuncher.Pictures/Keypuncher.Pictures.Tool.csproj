@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Keypuncher.Core\Keypuncher.Core.csproj" />
+    <ProjectReference Include="..\..\src\Keypuncher.Director\Keypuncher.Director.csproj" />
+    <ProjectReference Include="..\..\src\Keypuncher.Pictures\Keypuncher.Pictures.csproj" />
+    <ProjectReference Include="..\..\src\Keypuncher.Storage\Keypuncher.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets the cut-out run on Linux too, for a dry run from a cloud machine. -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
+    <!-- The dry run snapshots world.db through SQLite's backup API. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Keypuncher.Pictures.Tool</AssemblyName>
+    <RootNamespace>Keypuncher.PicturesTool</RootNamespace>
+  </PropertyGroup>
+
+</Project>
