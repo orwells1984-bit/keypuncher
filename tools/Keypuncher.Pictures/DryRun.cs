@@ -5,6 +5,7 @@ using Keypuncher.Core;
 using Keypuncher.Director;
 using Keypuncher.Pictures;
 using Keypuncher.Storage;
+using Microsoft.Data.Sqlite;
 
 namespace Keypuncher.PicturesTool;
 
@@ -49,7 +50,12 @@ public static class DryRun
             {
                 if (options.NoDownload)
                 {
-                    var search = await finder.FindAsync(item.Name, item.Category, []);
+                    // The finder alone, under the same time limit a fetch gets: the client's timeout covers only the
+                    // headers, so an answer that stalls mid-body would otherwise hang the run.
+                    using var cts = new CancellationTokenSource(PhotoFetcher.Limit);
+                    PhotoSearch search;
+                    try { search = await finder.FindAsync(item.Name, item.Category, [], cts.Token); }
+                    catch (OperationCanceledException) { log.WriteLine("took too long; stopping"); rows.Add((item, "offline", "took too long")); break; }
                     if (search.Offline) { log.WriteLine("offline; stopping"); rows.Add((item, "offline", search.Reason ?? "")); break; }
                     outcome = search.Photo is not null ? "photo found" : "nothing";
                     detail = search.Photo is { } p ? $"{p.Provenance.FileTitle}, {p.Provenance.How}" + (p.Doubt is { } d ? $" (doubt: {d})" : "") : search.Reason ?? "";
@@ -107,17 +113,27 @@ public static class DryRun
         var db = Path.Combine(options.Data, "world.db");
         if (File.Exists(db))
         {
-            // A copy, so the toy's own file is never opened for writing by anyone but the toy.
+            // A snapshot, so the toy's own file is never opened for writing by anyone but the toy. Taken through
+            // SQLite rather than by copying the file: while the toy runs, its latest saves sit in world.db-wal, and a
+            // plain copy would be behind, or torn by a checkpoint.
             var copy = Path.Combine(Path.GetTempPath(), $"keypuncher-dryrun-{Environment.ProcessId}.db");
-            File.Copy(db, copy, overwrite: true);
+            TryDelete(copy);
             try
             {
+                using (var source = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString()))
+                using (var snapshot = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = copy, Pooling = false }.ToString()))
+                {
+                    source.Open();
+                    snapshot.Open();
+                    source.BackupDatabase(snapshot);
+                }
                 var world = new World();
                 using (var store = new WorldStore(copy)) store.Load(world);
                 foreach (var (_, recipe, _) in world.Families.Restyled())
                 {
                     Add(recipe.Name, CategoryOf(recipe), "world, key family");
-                    Add(recipe.GrowsInto, RealCategory.Animal, "world, grows into");
+                    // A grown form is an animal unless its family is a plant, as the director asks for it.
+                    Add(recipe.GrowsInto, recipe.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal, "world, grows into");
                 }
                 foreach (var e in world.Live.Concat(world.Baked))
                     if (e.Recipe is { } recipe) Add(recipe.Name, CategoryOf(recipe), "world, thing on screen");

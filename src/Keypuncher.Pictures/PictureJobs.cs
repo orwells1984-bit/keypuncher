@@ -68,10 +68,19 @@ public sealed class PictureJobs : IDisposable
     public bool Enqueue(string name, RealCategory category, bool categoryGuessed = false, bool again = false)
     {
         var slug = Slugs.For(name);
-        if (_folder.Wanted.Get(slug) is null)
+        try
         {
-            if (_folder.HasPicture(slug) || _folder.IsHidden(slug)) return false;
-            _folder.Wanted.Add(name, category, _clock(), categoryGuessed);
+            if (_folder.Wanted.Get(slug) is null)
+            {
+                if (_folder.HasPicture(slug) || _folder.IsHidden(slug)) return false;
+                _folder.Wanted.Add(name, category, _clock(), categoryGuessed);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // The wanted list could not be written (the folder read-only, the file held): noted, never fatal to play.
+            _note?.Invoke($"could not note {name} as wanted: {e.Message}");
+            return false;
         }
         if (!_enabled()) return false;
         lock (_lock)
@@ -146,13 +155,18 @@ public sealed class PictureJobs : IDisposable
         }
     }
 
-    /// <summary>Stops the worker; a fetch under way is cancelled and the queue dropped. The wanted list keeps the rest.</summary>
-    public void Dispose()
+    /// <summary>Stops the worker; a fetch under way is cancelled and the queue dropped. The wanted list keeps the rest.
+    /// Waits two seconds at most, and returns whether the worker stopped in that time: when it did not, a fetch that
+    /// would not be cancelled is still running on it, and what it uses must be left to it.</summary>
+    public bool Dispose()
     {
         _stop.Cancel();
         _signal.Release();
-        if (Thread.CurrentThread != _worker) _worker.Join(TimeSpan.FromSeconds(2));
+        var stopped = Thread.CurrentThread == _worker || _worker.Join(TimeSpan.FromSeconds(2));
         _stop.Dispose();
         _signal.Dispose();
+        return stopped;
     }
+
+    void IDisposable.Dispose() => Dispose();
 }

@@ -131,6 +131,33 @@ internal static class TestPhotos
         return data.ToArray();
     }
 
+    /// <summary>A "photo" stored on its side the way a camera does: the left half red and the right half blue as
+    /// stored, with an EXIF tag that says which way is up (6 = turn a quarter clockwise, 8 = anticlockwise).</summary>
+    public static byte[] JpegStoredSideways(int orientation, int width = 40, int height = 20)
+    {
+        using var photo = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var c = new SKCanvas(photo))
+        {
+            c.Clear(SKColors.Blue);
+            c.DrawRect(0, 0, width / 2f, height, new SKPaint { Color = SKColors.Red });
+        }
+        using var data = photo.Encode(SKEncodedImageFormat.Jpeg, 100);
+        var jpeg = data.ToArray();
+        // An APP1 segment right after the start-of-image marker: "Exif\0\0", a little-endian TIFF header, one IFD
+        // with the one Orientation (0x0112) entry, and no next IFD.
+        byte[] tiff =
+        [
+            (byte)'I', (byte)'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+            0x01, 0x00,
+            0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, (byte)orientation, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+        var payload = "Exif\0\0"u8.ToArray().Concat(tiff).ToArray();
+        var length = payload.Length + 2;
+        byte[] app1 = [0xFF, 0xE1, (byte)(length >> 8), (byte)(length & 0xFF), .. payload];
+        return [.. jpeg[..2], .. app1, .. jpeg[2..]];
+    }
+
     /// <summary>A small transparent cut-out, as a PNG file at the path.</summary>
     public static void WritePng(string path)
     {

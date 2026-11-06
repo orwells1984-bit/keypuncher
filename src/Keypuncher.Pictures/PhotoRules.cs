@@ -64,8 +64,9 @@ public static class PhotoRules
     private static readonly string[] ArtWords = ["painting", "paintings", "drawing", "drawings", "illustration", "illustrations", "engraving", "engravings", "lithograph", "lithographs", "artwork", "artworks"];
 
     /// <summary>Null when the file will do; otherwise how firmly it is turned down and why.</summary>
-    /// <param name="name">The thing's own name, whose words are never held against a file: a seal is not a stamp,
-    /// a horn is not a part of something.</param>
+    /// <param name="name">The thing's own name, which is never held against a file where it is spelt out whole: a
+    /// seal is not a stamp, a hornbill horn is not a part of something. A name word on its own elsewhere in the
+    /// file name still counts, so a map turtle's range map is still a map.</param>
     public static (Rejection Kind, string Why)? Vet(FileFacts facts, RealCategory category, string? name = null)
     {
         if (!Mimes.Contains(facts.Mime)) return (Rejection.Hard, $"{facts.Mime} is not a photo");
@@ -75,8 +76,7 @@ public static class PhotoRules
         if (facts.Height > 0 && (facts.Width / (double)facts.Height < MinAspect || facts.Width / (double)facts.Height > MaxAspect)) return (Rejection.Hard, $"shape {facts.Width}x{facts.Height}");
         if (string.IsNullOrWhiteSpace(facts.LicenseShortName) && facts.Copyrighted.Equals("True", StringComparison.OrdinalIgnoreCase)) return (Rejection.Hard, "no licence tag");
 
-        var own = name is null ? [] : Words(name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var words = Words(facts.FileTitle).Where(w => !own.Contains(w)).ToList();
+        var words = WithoutPhrase(Words(facts.FileTitle).ToList(), name is null ? [] : Words(name).ToList());
         var categories = facts.Categories.Select(c => c.StartsWith("Category:") ? c[9..] : c).Select(c => c.ToLowerInvariant()).ToList();
 
         if (category == RealCategory.ExtinctAnimal)
@@ -100,6 +100,20 @@ public static class PhotoRules
     /// <summary>Whether, for an extinct animal, a file is the kind we hope for: a life restoration.</summary>
     public static bool IsRestoration(FileFacts facts) =>
         Words(facts.FileTitle).Any(w => ExtinctGoodWords.Contains(w)) || facts.Categories.Any(c => c.Contains("restoration", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The words less every run of them that spells the phrase, in order; a word of the phrase on its own stays.</summary>
+    private static List<string> WithoutPhrase(List<string> words, List<string> phrase)
+    {
+        if (phrase.Count == 0 || phrase.Count > words.Count) return words;
+        var kept = new List<string>(words.Count);
+        for (var i = 0; i < words.Count;)
+        {
+            var at = i + phrase.Count <= words.Count && Enumerable.Range(0, phrase.Count).All(k => words[i + k].Equals(phrase[k], StringComparison.OrdinalIgnoreCase));
+            if (at) i += phrase.Count;
+            else kept.Add(words[i++]);
+        }
+        return kept;
+    }
 
     /// <summary>The words of a file name, lower case, split on the separators Commons names use.</summary>
     public static IEnumerable<string> Words(string fileTitle)

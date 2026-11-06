@@ -229,12 +229,29 @@ public static class CutOutPost
         var longSide = Math.Max(picture.Width, picture.Height);
         if (longSide <= ICutOut.MaxSide) return picture;
         var k = ICutOut.MaxSide / (float)longSide;
-        var small = new SKBitmap(new SKImageInfo(Math.Max(1, (int)Math.Round(picture.Width * k)), Math.Max(1, (int)Math.Round(picture.Height * k)), SKColorType.Rgba8888, SKAlphaType.Unpremul));
         using (picture)
-        {
-            if (picture.ScalePixels(small, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear))) return small;
-        }
-        small.Dispose();
+            return Scale(picture, Math.Max(1, (int)Math.Round(picture.Width * k)), Math.Max(1, (int)Math.Round(picture.Height * k)));
+    }
+
+    /// <summary>
+    /// Scales an unpremultiplied RGBA picture to a size, as a new unpremultiplied bitmap. The work is done on
+    /// premultiplied pixels: scaled as they are, the colour channels would be blended on their own, and the photo's
+    /// background, still there under every transparent pixel, would tint the thing's edge.
+    /// </summary>
+    public static SKBitmap Scale(SKBitmap unpremul, int width, int height)
+    {
+        ArgumentNullException.ThrowIfNull(unpremul);
+        var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var premul = new SKBitmap(new SKImageInfo(unpremul.Width, unpremul.Height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var small = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul));
+        var result = new SKBitmap(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        using var from = unpremul.PeekPixels();
+        using var scaled = small.PeekPixels();
+        if (from is not null && from.ReadPixels(premul.Info, premul.GetPixels(), premul.RowBytes)
+            && premul.ScalePixels(small, sampling)
+            && scaled is not null && scaled.ReadPixels(result.Info, result.GetPixels(), result.RowBytes))
+            return result;
+        result.Dispose();
         throw new InvalidOperationException("The cut-out could not be scaled.");
     }
 }

@@ -10,7 +10,8 @@ namespace Keypuncher.Pictures;
 /// Looks for a photo of a real thing the way a careful person would: the English Wikipedia article first (a
 /// disambiguation page sends us to a search for the article whose description fits the category), then the
 /// pictures Wikidata says show the thing, the article's lead picture, an iNaturalist photo for animals and plants,
-/// and the next two pictures in the article. For an extinct animal, Commons is searched for files that depict it,
+/// and the next two pictures in the article. An article about something of another kind (the aircraft when a bird
+/// called kite is wanted) is passed over for a search hit whose description fits. For an extinct animal, Commons is searched for files that depict it,
 /// with life restorations before skeletons. Every Commons file is looked up and vetted by <see cref="PhotoRules"/>:
 /// a hard no moves on, a soft no (a painting) is kept in case nothing better turns up. Only reads: nothing here
 /// writes to disk.
@@ -75,7 +76,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
                 return PhotoSearch.Found(inat, notes);
 
             if (article.Title is { } page)
-                foreach (var title in (await ArticleImagesAsync(page, ct)).Where(t => !NormalTitle(t).Equals(NormalTitle(article.LeadFileTitle ?? ""), StringComparison.OrdinalIgnoreCase)).Take(2))
+                foreach (var title in (await ArticleImagesAsync(article.Canonical ?? page.Replace(' ', '_'), ct)).Where(t => !NormalTitle(t).Equals(NormalTitle(article.LeadFileTitle ?? ""), StringComparison.OrdinalIgnoreCase)).Take(2))
                     if (await Consider(title, "a picture in the article") is { } found) return PhotoSearch.Found(found, notes);
 
             if (soft is not null) return PhotoSearch.Found(soft, notes);
@@ -93,25 +94,32 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         }
     }
 
-    /// <summary>The article for the name: its summary, or, when that is a disambiguation page, the first search hit
-    /// that is an article whose description fits the category.</summary>
+    /// <summary>The article for the name: its summary, or, when that is a disambiguation page or an article whose
+    /// description does not fit the category (the name's primary topic is something else), the first search hit
+    /// that is an article whose description fits.</summary>
     private async Task<Article> ArticleAsync(string name, RealCategory category, List<string> notes, CancellationToken ct)
     {
-        string? disambiguation = null;
+        string? skip = null;
         using var summary = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/api/rest_v1/page/summary/{Uri.EscapeDataString(TitleFor(name))}", ct);
         if (summary is null) { notes.Add("no article"); }
         else if (summary.RootElement.TryGetProperty("type", out var type) && type.GetString() == "disambiguation")
         {
-            disambiguation = summary.RootElement.TryGetProperty("title", out var dt) ? dt.GetString() : null;
+            skip = summary.RootElement.TryGetProperty("title", out var dt) ? dt.GetString() : null;
             notes.Add("a disambiguation page; searching");
         }
-        else return Read(summary.RootElement);
+        else
+        {
+            var described = Text(summary.RootElement, "description");
+            if (Fits(described, category)) return Read(summary.RootElement);
+            skip = summary.RootElement.TryGetProperty("title", out var st) ? st.GetString() : null;
+            notes.Add($"{skip ?? name} ({described ?? "no description"}) is not {Describe(category)}; searching");
+        }
 
         using var search = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/w/api.php?action=query&format=json&formatversion=2&list=search&srsearch={Uri.EscapeDataString(name)}&srlimit=5", ct);
         if (search is null || !search.RootElement.TryGetProperty("query", out var query) || !query.TryGetProperty("search", out var hits)) return Article.None;
         foreach (var hit in hits.EnumerateArray())
         {
-            if (!hit.TryGetProperty("title", out var t) || t.GetString() is not { } title || title == disambiguation) continue;
+            if (!hit.TryGetProperty("title", out var t) || t.GetString() is not { } title || title == skip) continue;
             using var page = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/api/rest_v1/page/summary/{Uri.EscapeDataString(title.Replace(' ', '_'))}", ct);
             if (page is null) continue;
             var root = page.RootElement;
@@ -175,34 +183,43 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         return [.. titles.OrderBy(t => t.Restoration ? 0 : 1).ThenBy(t => t.Index).Select(t => t.Title)];
     }
 
-    /// <summary>The bitmap files the article shows, in page order.</summary>
-    private async Task<IReadOnlyList<string>> ArticleImagesAsync(string title, CancellationToken ct)
+    /// <summary>The bitmap pictures the article shows, in page order, less its lead picture and the icons templates
+    /// bring in: the REST media list. (The Action API's <c>prop=images</c> lists every file the page transcludes in
+    /// title order, which says nothing about which picture comes next.)</summary>
+    private async Task<IReadOnlyList<string>> ArticleImagesAsync(string canonicalTitle, CancellationToken ct)
     {
-        using var doc = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/w/api.php?action=query&format=json&formatversion=2&prop=images&imlimit=20&titles={Uri.EscapeDataString(title)}", ct);
-        if (doc is null || !doc.RootElement.TryGetProperty("query", out var query) || !query.TryGetProperty("pages", out var pages)) return [];
+        using var doc = await PictureHttp.GetJsonAsync(http, $"{Wikipedia}/api/rest_v1/page/media-list/{Uri.EscapeDataString(canonicalTitle)}", ct);
+        if (doc is null || !doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) return [];
         var titles = new List<string>();
-        foreach (var page in pages.EnumerateArray())
+        foreach (var item in items.EnumerateArray())
         {
-            if (!page.TryGetProperty("images", out var images)) continue;
-            foreach (var image in images.EnumerateArray())
-                if (image.TryGetProperty("title", out var t) && t.GetString() is { } file && IsBitmapName(file)) titles.Add(file);
+            if (Text(item, "type") != "image") continue;
+            if (item.TryGetProperty("leadImage", out var lead) && lead.ValueKind == JsonValueKind.True) continue;
+            if (!item.TryGetProperty("showInGallery", out var shown) || shown.ValueKind != JsonValueKind.True) continue;
+            if (Text(item, "title") is { } file && IsBitmapName(file)) titles.Add(file);
         }
         return titles;
     }
 
-    /// <summary>An iNaturalist taxon's default photo, when a taxon matches the name. Any licence is accepted and recorded.</summary>
+    /// <summary>An iNaturalist taxon's default photo, when a taxon is named as the thing is: its common name, its
+    /// scientific name or the term the search matched, a plural allowed. The search itself is fuzzy and ranked by
+    /// observations, so its first hit is not taken on trust. The photo is the 1024 px "large" copy, which the taxa
+    /// answer does not list but which sits beside the medium one; a photo smaller or narrower than
+    /// <see cref="PhotoRules"/> allow is passed over. Any licence is accepted and recorded.</summary>
     private async Task<FoundPhoto?> INaturalistAsync(string name, IReadOnlyCollection<string> exclude, List<string> notes, CancellationToken ct)
     {
         using var doc = await PictureHttp.GetJsonAsync(http, $"{INaturalist}/v1/taxa?q={Uri.EscapeDataString(name)}&per_page=3", ct);
         if (doc is null || !doc.RootElement.TryGetProperty("results", out var results)) return null;
         var taxa = results.EnumerateArray().ToList();
         bool Matches(JsonElement taxon) =>
-            (taxon.TryGetProperty("preferred_common_name", out var common) && common.ValueKind == JsonValueKind.String && Same(common.GetString(), name))
-            || (taxon.TryGetProperty("name", out var latin) && latin.ValueKind == JsonValueKind.String && Same(latin.GetString(), name));
-        foreach (var taxon in taxa.Where(Matches).Concat(taxa.Where(t => !Matches(t))))
+            Same(Text(taxon, "preferred_common_name"), name) || Same(Text(taxon, "name"), name) || Same(Text(taxon, "matched_term"), name);
+        var named = taxa.Where(Matches).ToList();
+        if (named.Count == 0) { notes.Add($"iNaturalist: no taxon named {name}"); return null; }
+        foreach (var taxon in named)
         {
             if (!taxon.TryGetProperty("default_photo", out var photo) || photo.ValueKind != JsonValueKind.Object) continue;
-            var url = Text(photo, "large_url") ?? Text(photo, "medium_url");
+            var medium = Text(photo, "medium_url");
+            var url = Text(photo, "large_url") ?? (medium?.Contains("/medium.", StringComparison.Ordinal) == true ? medium.Replace("/medium.", "/large.") : medium);
             if (url is null) continue;
             var id = photo.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.Number ? i.GetInt64().ToString(CultureInfo.InvariantCulture) : url;
             var fileTitle = $"inaturalist:{id}";
@@ -216,6 +233,8 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
                 width = dims.TryGetProperty("width", out var w) && w.ValueKind == JsonValueKind.Number ? w.GetInt32() : 0;
                 height = dims.TryGetProperty("height", out var h) && h.ValueKind == JsonValueKind.Number ? h.GetInt32() : 0;
             }
+            if (Math.Max(width, height) < PhotoRules.MinLongSide) { notes.Add($"{fileTitle}: only {width}x{height}"); continue; }
+            if (width / (double)height is < PhotoRules.MinAspect or > PhotoRules.MaxAspect) { notes.Add($"{fileTitle}: shape {width}x{height}"); continue; }
             var provenance = new PhotoProvenance(
                 PageTitle: taxonName, PageUrl: $"https://www.inaturalist.org/taxa/{taxonId}", FileTitle: fileTitle, FileUrl: url,
                 DescriptionUrl: $"https://www.inaturalist.org/photos/{id}", Artist: Text(photo, "attribution"), Credit: null,
@@ -349,7 +368,16 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
 
     private static bool IsBitmapName(string title) => BitmapExtensions.Any(e => title.EndsWith(e, StringComparison.OrdinalIgnoreCase));
 
-    private static bool Same(string? a, string b) => a is not null && a.Trim().Equals(b.Trim(), StringComparison.OrdinalIgnoreCase);
+    /// <summary>Whether two names are the same, give or take a plural s.</summary>
+    private static bool Same(string? a, string b)
+    {
+        if (a is null) return false;
+        a = a.Trim();
+        b = b.Trim();
+        if (a.Equals(b, StringComparison.OrdinalIgnoreCase)) return true;
+        return a.Length > 1 && a.EndsWith('s') && a[..^1].Equals(b, StringComparison.OrdinalIgnoreCase)
+            || b.Length > 1 && b.EndsWith('s') && b[..^1].Equals(a, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string? Text(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

@@ -10,6 +10,8 @@
   <ItemGroup>
     <!-- Lets the cut-out run on Linux too, for a dry run from a cloud machine. -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.153.1" />
+    <!-- The dry run snapshots world.db through SQLite's backup API. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
   </ItemGroup>
 
   <PropertyGroup>

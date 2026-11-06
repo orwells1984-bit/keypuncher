@@ -89,7 +89,9 @@ public sealed class ToyHost : IDisposable
         foreach (var (_, recipe, _) in World.Families.Restyled())
         {
             PictureJobs.Enqueue(recipe.Name, CategoryOf(recipe), categoryGuessed: true);
-            if (recipe.GrowsInto is { } grown) PictureJobs.Enqueue(grown, RealCategory.Animal, categoryGuessed: true);
+            // A grown form is an animal unless its family is a plant, as the director asks for it.
+            if (recipe.GrowsInto is { } grown)
+                PictureJobs.Enqueue(grown, recipe.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal, categoryGuessed: true);
         }
         PictureJobs.RetryWanted();
 
@@ -183,8 +185,9 @@ public sealed class ToyHost : IDisposable
         _lock.Dispose();
         _keepAwake.Dispose();
         Director.Dispose();
-        PictureJobs.Dispose();
-        foreach (var cutOut in _cutOuts) cutOut.Dispose();
+        // The cut-out models are closed only once the worker has stopped: a cut it is still running cannot be
+        // interrupted, so closing under it would hold the window; the process ending reclaims them instead.
+        if (PictureJobs.Dispose()) foreach (var cutOut in _cutOuts) cutOut.Dispose();
         SaveWorld();
         WorldStore.Dispose();
         Pictures.Dispose();

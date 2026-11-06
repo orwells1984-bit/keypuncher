@@ -8,8 +8,8 @@ public sealed class WikimediaPhotoFinderTests
 {
     private const string Summary = "rest_v1/page/summary/Sable_antelope";
     private const string Entity = "Special:EntityData/Q214062.json";
-    private const string ArticleImages = "prop=images&imlimit=20&titles=Sable antelope";
-    private const string INaturalist = "api.inaturalist.org/v1/taxa?q=sable antelope";
+    private const string ArticleImages = "rest_v1/page/media-list/Sable_antelope";
+    private const string INaturalist = "api.inaturalist.org/v1/taxa?q=sable antelope&";
 
     /// <summary>Everything the web knows about the sable antelope, as far as these tests go.</summary>
     private static FakeHandler Antelope(string summary = "summary-standard.json", string wikidata = "wikidata-p18.json") => new FakeHandler()
@@ -21,7 +21,7 @@ public sealed class WikimediaPhotoFinderTests
         .ImageInfo("Sable antelope range.svg", "imageinfo-svg.json")
         .ImageInfo("Sable antelope painting.jpg", "imageinfo-painting.json")
         .ImageInfo("Sable antelope poster art.jpg", "imageinfo-local.json")
-        .Json(ArticleImages, "article-images.json")
+        .Json(ArticleImages, "media-list.json")
         .Json(INaturalist, "inaturalist.json");
 
     private static async Task<PhotoSearch> Find(FakeHandler handler, string name = "sable antelope", RealCategory category = RealCategory.Animal, params string[] exclude)
@@ -114,6 +114,57 @@ public sealed class WikimediaPhotoFinderTests
     }
 
     [Fact]
+    public async Task The_inaturalist_photo_is_the_large_copy_beside_the_medium_one_the_taxa_answer_lists()
+    {
+        var web = Antelope(summary: "summary-no-image.json", wikidata: "wikidata-empty.json").Json(INaturalist, "inaturalist-live.json");
+        var search = await Find(web);
+
+        Assert.Equal("inaturalist:3108211", search.Photo!.Provenance.FileTitle);
+        Assert.Equal("https://inaturalist-open-data.s3.amazonaws.com/photos/3108211/large.jpg", search.Photo.DownloadUrl);
+        Assert.Equal((2048, 1365), (search.Photo.Provenance.Width, search.Photo.Provenance.Height));
+    }
+
+    [Theory]
+    [InlineData(500, 375, "only 500x375")]
+    [InlineData(2048, 600, "shape 2048x600")]
+    public async Task An_inaturalist_photo_too_small_or_the_wrong_shape_is_passed_over(int width, int height, string why)
+    {
+        var web = new FakeHandler()
+            .Json(Summary, "summary-no-image.json")
+            .Json(Entity, "wikidata-empty.json")
+            .Text(INaturalist, $$$"""{"results":[{"id":42054,"name":"Hippotragus niger","preferred_common_name":"Sable Antelope","matched_term":"Sable Antelope","default_photo":{"id":77,"license_code":"cc-by","attribution":"(c) Someone","original_dimensions":{"width":{{{width}}},"height":{{{height}}}},"medium_url":"https://inaturalist-open-data.s3.amazonaws.com/photos/77/medium.jpg"}}]}""")
+            .Text(ArticleImages, """{"items":[]}""");
+        var search = await Find(web);
+
+        Assert.Null(search.Photo);
+        Assert.Equal("no photo found", search.Reason);
+        Assert.Contains(search.Notes, n => n.Contains("inaturalist:77") && n.Contains(why));
+    }
+
+    [Fact]
+    public async Task An_inaturalist_hit_not_named_as_the_thing_is_refused()
+    {
+        var web = new FakeHandler().Json("api.inaturalist.org/v1/taxa?q=sable&", "inaturalist.json");
+        var search = await Find(web, "sable");
+
+        Assert.Null(search.Photo);
+        Assert.Equal("no article", search.Reason);
+        Assert.Contains(search.Notes, n => n.Contains("no taxon named sable"));
+    }
+
+    [Theory]
+    [InlineData("sable antelopes")]
+    [InlineData("Hippotragus niger")]
+    public async Task An_inaturalist_taxon_is_known_by_its_common_or_scientific_name_give_or_take_a_plural(string name)
+    {
+        var web = new FakeHandler().Json($"api.inaturalist.org/v1/taxa?q={name}&", "inaturalist.json");
+        var search = await Find(web, name);
+
+        Assert.Equal("inaturalist:3108211", search.Photo!.Provenance.FileTitle);
+        Assert.Equal("Sable Antelope", search.Photo.Provenance.PageTitle);
+    }
+
+    [Fact]
     public async Task An_object_takes_the_next_two_bitmap_pictures_in_the_article_skipping_the_lead_and_local_uploads()
     {
         var web = new FakeHandler()
@@ -121,15 +172,36 @@ public sealed class WikimediaPhotoFinderTests
             .Json(Entity, "wikidata-empty.json")
             .ImageInfo("Sable antelope female.jpg", "imageinfo-local.json")
             .ImageInfo("Sable antelope male.jpg", "imageinfo-good.json")
-            .Json(ArticleImages, "article-images.json");
+            .Json(ArticleImages, "media-list.json");
         var search = await Find(web, category: RealCategory.Object);
 
         Assert.Equal("File:Sable antelope male.jpg", search.Photo!.Provenance.FileTitle);
         Assert.Equal("a picture in the article", search.Photo.Provenance.How);
+        Assert.Contains(web.Requests, r => r.EndsWith("en.wikipedia.org/api/rest_v1/page/media-list/Sable_antelope"));
         Assert.DoesNotContain(web.Requests, r => r.Contains("poster art"));
         Assert.DoesNotContain(web.Requests, r => r.Contains("inaturalist"));
         Assert.DoesNotContain(web.Requests, r => r.Contains("skeleton"));
+        Assert.DoesNotContain(web.Requests, r => r.Contains("Commons-logo") || r.Contains("iucn") || r.Contains(".ogg") || r.Contains(".svg"));
         Assert.Contains(search.Notes, n => n.Contains("poster art") && n.Contains("local"));
+    }
+
+    [Fact]
+    public async Task An_article_about_something_of_another_kind_is_passed_over_for_the_search_hit_that_fits()
+    {
+        var web = new FakeHandler()
+            .Json("rest_v1/page/summary/Kite_(bird)", "summary-kite-bird.json")
+            .Json("rest_v1/page/summary/Kite", "summary-kite.json")
+            .Json("list=search&srsearch=kite&srlimit=5", "search-kite.json")
+            .ImageInfo("Red kite in flight.jpg", "imageinfo-kite.json");
+        var search = await Find(web, "kite");
+
+        Assert.Equal("File:Red kite in flight.jpg", search.Photo!.Provenance.FileTitle);
+        Assert.Equal("Kite (bird)", search.Photo.Provenance.PageTitle);
+        Assert.Contains("summary/Kite", web.Requests[0]);
+        Assert.Contains("list=search", web.Requests[1]);
+        Assert.Contains("summary/Kite_(bird)", web.Requests[2]);
+        Assert.DoesNotContain(web.Requests, r => r.Contains("Q42861") || r.Contains("Colourful"));
+        Assert.Contains(search.Notes, n => n.Contains("Kite (Tethered aircraft) is not an animal"));
     }
 
     [Fact]
@@ -141,7 +213,7 @@ public sealed class WikimediaPhotoFinderTests
             .ImageInfo("Sable antelope painting.jpg", "imageinfo-painting.json")
             .ImageInfo("Sable antelope female.jpg", "imageinfo-svg.json")
             .ImageInfo("Sable antelope male.jpg", "imageinfo-skeleton.json")
-            .Json(ArticleImages, "article-images.json");
+            .Json(ArticleImages, "media-list.json");
         var search = await Find(web, category: RealCategory.Object);
 
         Assert.Equal("File:Sable antelope painting.jpg", search.Photo!.Provenance.FileTitle);
@@ -225,7 +297,7 @@ public sealed class WikimediaPhotoFinderTests
             .Json(Summary, "summary-no-image.json")
             .Json(Entity, "wikidata-empty.json")
             .Json(INaturalist, "inaturalist-empty.json")
-            .Text(ArticleImages, """{"batchcomplete":true,"query":{"pages":[{"pageid":1030727,"ns":0,"title":"Sable antelope"}]}}""");
+            .Text(ArticleImages, """{"revision":"1254893321","items":[]}""");
         var search = await Find(web);
 
         Assert.Null(search.Photo);

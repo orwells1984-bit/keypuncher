@@ -85,6 +85,20 @@ public sealed class PhotoRulesTests
     public void The_things_own_name_does_not_excuse_other_bad_words() =>
         Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Seal skull.jpg"), RealCategory.Animal, "seal")!.Value.Kind);
 
+    [Theory]
+    [InlineData("File:Graptemys map.png", "map turtle", "map")]
+    [InlineData("File:Northern map turtle map.png", "map turtle", "map")]
+    [InlineData("File:Northern map turtle.jpg", "map turtle", null)]
+    [InlineData("File:Range Rover range.png", "Range Rover", "range")]
+    [InlineData("File:Fire engine engine.jpg", "fire engine", "engine")]
+    [InlineData("File:Fire engine in Leeds.jpg", "fire engine", null)]
+    public void The_things_own_name_is_excused_only_where_it_is_spelt_out_whole(string title, string name, string? bad)
+    {
+        var verdict = PhotoRules.Vet(Facts(title), RealCategory.Vehicle, name);
+        if (bad is null) Assert.Null(verdict);
+        else Assert.Equal((Rejection.Hard, $"file name says {bad}"), verdict!.Value);
+    }
+
     [Fact]
     public void A_category_of_paintings_is_a_soft_no() =>
         Assert.Equal(Rejection.Soft, PhotoRules.Vet(Facts("File:Hippotragus niger 1.jpg", categories: "Category:Paintings of antelopes"), RealCategory.Animal)!.Value.Kind);

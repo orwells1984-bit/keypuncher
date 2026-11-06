@@ -3,7 +3,8 @@ using SkiaSharp;
 namespace Keypuncher.Pictures;
 
 /// <summary>Tries each cut-out in turn and keeps the first matte that passes its gate: the quick model first, the
-/// slower one when it fails. Only the models on disk are asked.</summary>
+/// slower one when it fails. Only the models on disk are asked, and one closed while the chain runs (the toy is
+/// quitting) is passed over.</summary>
 public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
 {
     public string Name => string.Join("+", cutOuts.Where(c => c.IsAvailable).Select(c => c.Name)) is { Length: > 0 } names ? names : "none";
@@ -15,7 +16,9 @@ public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
         CutOutResult? last = null;
         foreach (var cutOut in cutOuts.Where(c => c.IsAvailable))
         {
-            var result = cutOut.Cut(photo);
+            CutOutResult result;
+            try { result = cutOut.Cut(photo); }
+            catch (ObjectDisposedException) { continue; }
             if (result.Succeeded) return result;
             last = result;
         }

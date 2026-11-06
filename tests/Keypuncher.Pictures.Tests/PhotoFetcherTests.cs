@@ -130,6 +130,75 @@ public sealed class PhotoFetcherTests : IDisposable
     }
 
     [Fact]
+    public async Task Try_another_leaves_the_old_pictures_photo_and_story_alone_until_a_new_cut_out_lands()
+    {
+        await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
+        var picture = File.ReadAllBytes(_folder.PicturePath("sable-antelope"));
+        var raw = File.ReadAllBytes(_folder.FindRaw("sable-antelope")!);
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope male.jpg");
+        const string second = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_female.png/1280px-Sable_antelope_female.png";
+        _web.Bytes(second, TestPhotos.Jpeg(300, 300), "image/png");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope female.png", second), []);
+        _cutOut.FailWith = "touches three edges";
+
+        Assert.Equal(FetchOutcome.RawOnly, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+        Assert.Equal(picture, File.ReadAllBytes(_folder.PicturePath("sable-antelope")));
+        Assert.Equal(_folder.RawPath("sable-antelope", ".jpg"), _folder.FindRaw("sable-antelope"));
+        Assert.Equal(raw, File.ReadAllBytes(_folder.FindRaw("sable-antelope")!));
+        var sidecar = _folder.ReadSidecar("sable-antelope")!;
+        Assert.Equal("File:Sable antelope male.jpg", sidecar.Photo!.FileTitle);
+        Assert.Equal("fake, covers 40% of the photo", sidecar.CutOut);
+        Assert.Equal(["File:Sable antelope male.jpg", "File:Sable antelope female.png"], _folder.Wanted.Get("sable-antelope")!.Exclude);
+
+        _cutOut.FailWith = null;
+        Assert.Equal(FetchOutcome.Pictured, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+        Assert.Equal(["File:Sable antelope male.jpg", "File:Sable antelope female.png"], _finder.Asked[^1].Exclude);
+    }
+
+    [Fact]
+    public async Task Try_another_twice_keeps_every_photo_turned_down_before_out_of_the_running()
+    {
+        await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
+
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope male.jpg");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope female.jpg", Download), []);
+        Assert.Equal(FetchOutcome.Pictured, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+        Assert.Equal(["File:Sable antelope male.jpg"], _finder.Asked[^1].Exclude);
+
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope female.jpg");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope calf.jpg", Download), []);
+        Assert.Equal(FetchOutcome.Pictured, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+        Assert.Equal(["File:Sable antelope female.jpg", "File:Sable antelope male.jpg"], _finder.Asked[^1].Exclude.Order());
+        Assert.Equal(["File:Sable antelope female.jpg", "File:Sable antelope male.jpg"], _folder.ReadSidecar("sable-antelope")!.Alternatives.Order());
+    }
+
+    [Theory]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void A_photo_stored_on_its_side_is_decoded_the_right_way_up(int orientation)
+    {
+        using var photo = PhotoFetcher.Decode(TestPhotos.JpegStoredSideways(orientation))!;
+
+        Assert.Equal((20, 40), (photo.Width, photo.Height));
+        // Turned clockwise the stored left half (red) is at the top; turned anticlockwise it is at the bottom.
+        var top = photo.GetPixel(10, 5);
+        var bottom = photo.GetPixel(10, 35);
+        var (red, blue) = orientation == 6 ? (top, bottom) : (bottom, top);
+        Assert.True(red.Red > 200 && red.Blue < 60, $"expected red, got {red}");
+        Assert.True(blue.Blue > 200 && blue.Red < 60, $"expected blue, got {blue}");
+    }
+
+    [Fact]
+    public void A_photo_stored_upright_is_left_as_it_is()
+    {
+        using var photo = PhotoFetcher.Decode(TestPhotos.Jpeg())!;
+        Assert.Equal((480, 360), (photo.Width, photo.Height));
+    }
+
+    [Fact]
     public async Task Nothing_found_counts_a_try_and_offline_does_not()
     {
         _finder.Answer = PhotoSearch.Nothing("no article", ["no article"]);

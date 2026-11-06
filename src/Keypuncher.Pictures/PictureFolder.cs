@@ -88,7 +88,8 @@ public sealed class PictureFolder
         }
     }
 
-    /// <summary>Keeps the image a cut-out was (or will be) made from.</summary>
+    /// <summary>Keeps the image a cut-out was (or will be) made from, in place of any earlier one of another type,
+    /// so that <see cref="FindRaw"/> finds the newest and never a stale photo of the thing.</summary>
     public string WriteRaw(string slug, string extension, byte[] bytes)
     {
         lock (_lock)
@@ -97,6 +98,8 @@ public sealed class PictureFolder
             var path = RawPath(slug, extension);
             File.WriteAllBytes(path + ".part", bytes);
             File.Move(path + ".part", path, overwrite: true);
+            foreach (var stale in RawExtensions.Where(e => !e.Equals(extension, StringComparison.OrdinalIgnoreCase)).Select(e => RawPath(slug, e)).Where(File.Exists))
+                File.Delete(stale);
             return path;
         }
     }
@@ -143,9 +146,8 @@ public sealed class PictureFolder
     public static SKBitmap Thumbnail(SKBitmap cutOut)
     {
         var k = Math.Min(1f, ThumbSide / (float)Math.Max(cutOut.Width, cutOut.Height));
-        var thumb = new SKBitmap(new SKImageInfo(Math.Max(1, (int)(cutOut.Width * k)), Math.Max(1, (int)(cutOut.Height * k)), SKColorType.Rgba8888, SKAlphaType.Unpremul));
-        cutOut.ScalePixels(thumb, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
-        return thumb;
+        // Scaled in premultiplied space, so the edge keeps the thing's colour rather than the photo's background.
+        return CutOutPost.Scale(cutOut, Math.Max(1, (int)(cutOut.Width * k)), Math.Max(1, (int)(cutOut.Height * k)));
     }
 
     private static void WriteAtomically(string path, string text)
@@ -163,13 +165,21 @@ public sealed class PictureFolder
     }
 }
 
-/// <summary>The real things with no picture yet, each with why and what was already turned down; <c>wanted.json</c>.</summary>
+/// <summary>The real things with no picture yet, each with why and what was already turned down; <c>wanted.json</c>.
+/// The file is the truth: the toy and the console tool each hold their own list over the same file, so every look
+/// reads it again when it has changed since this list last read or wrote it, and every change is made to what the
+/// file says now.</summary>
 public sealed class WantedList
 {
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+    /// <summary>How often, and how long apart, a save is tried again when another process has the file open.</summary>
+    private const int SaveTries = 3;
+    private static readonly TimeSpan SaveRetryPause = TimeSpan.FromMilliseconds(50);
     private readonly string _path;
     private readonly Lock _lock;
     private Dictionary<string, WantedEntry>? _entries;
+    /// <summary>The file's last-write time and length as last read or written, to tell when another process changed it.</summary>
+    private (DateTime WrittenAt, long Length)? _read;
 
     internal WantedList(string path, Lock sharedLock)
     {
@@ -226,28 +236,46 @@ public sealed class WantedList
         }
     }
 
+    /// <summary>What the file says now: read again whenever it has changed under us.</summary>
     private Dictionary<string, WantedEntry> Entries()
     {
-        if (_entries is not null) return _entries;
+        var stamp = Stamp();
+        if (_entries is not null && stamp == _read) return _entries;
         try
         {
-            _entries = File.Exists(_path)
+            _entries = stamp is not null
                 ? JsonSerializer.Deserialize<Dictionary<string, WantedEntry>>(File.ReadAllText(_path), Json) ?? []
                 : [];
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { _entries = []; }
+        _read = stamp;
         return _entries;
     }
 
+    /// <summary>The file's last-write time and length; null when there is no file.</summary>
+    private (DateTime WrittenAt, long Length)? Stamp()
+    {
+        var file = new FileInfo(_path);
+        return file.Exists ? (file.LastWriteTimeUtc, file.Length) : null;
+    }
+
+    /// <summary>Writes the list whole, under a temporary name first. Another process reading the file at that
+    /// moment makes the rename fail on Windows, so it is tried <see cref="SaveTries"/> times before the failure is
+    /// let through to the caller: a change that is lost must not be lost quietly.</summary>
     private void Save()
     {
-        try
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        File.WriteAllText(_path + ".tmp", JsonSerializer.Serialize(_entries, Json));
+        for (var attempt = 1; ; attempt++)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.WriteAllText(_path + ".tmp", JsonSerializer.Serialize(_entries, Json));
-            File.Move(_path + ".tmp", _path, overwrite: true);
+            try
+            {
+                File.Move(_path + ".tmp", _path, overwrite: true);
+                _read = Stamp();
+                return;
+            }
+            catch (IOException) when (attempt < SaveTries) { Thread.Sleep(SaveRetryPause); }
+            catch (UnauthorizedAccessException) when (attempt < SaveTries) { Thread.Sleep(SaveRetryPause); }
         }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
     }
 }

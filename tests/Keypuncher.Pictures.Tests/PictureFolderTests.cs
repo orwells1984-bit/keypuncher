@@ -103,6 +103,18 @@ public sealed class PictureFolderTests : IDisposable
     }
 
     [Fact]
+    public void A_new_raw_photo_of_another_type_takes_the_place_of_the_old_one()
+    {
+        _folder.WriteRaw("puffin", ".jpg", [1, 2, 3]);
+        _folder.WriteRaw("puffin", ".png", [4, 5, 6]);
+
+        Assert.Equal(_folder.RawPath("puffin", ".png"), _folder.FindRaw("puffin"));
+        Assert.False(File.Exists(_folder.RawPath("puffin", ".jpg")));
+        Assert.Equal([4, 5, 6], File.ReadAllBytes(_folder.FindRaw("puffin")!));
+        Assert.Single(Directory.GetFiles(_folder.RawFolder));
+    }
+
+    [Fact]
     public void The_wanted_list_is_kept_in_wanted_json_and_read_back()
     {
         var added = _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now, categoryGuessed: true);
@@ -121,6 +133,26 @@ public sealed class PictureFolderTests : IDisposable
         _folder.Wanted.Remove("sable-antelope");
         Assert.Empty(_folder.Wanted.All());
         Assert.Empty(new PictureFolder(_folder.Root).Wanted.All());
+    }
+
+    [Fact]
+    public void Two_lists_over_one_file_see_each_others_changes_as_the_toy_and_the_console_tool_do()
+    {
+        var toy = _folder.Wanted;
+        var tool = new PictureFolder(_folder.Root).Wanted;
+        toy.Add("zebra", RealCategory.Animal, _now);
+        toy.Add("giraffe", RealCategory.Animal, _now.AddMinutes(1));
+
+        tool.Remove("zebra");
+        toy.Bump("giraffe", "no photo found", _now.AddMinutes(2));
+        Assert.Equal(["giraffe"], new PictureFolder(_folder.Root).Wanted.All().Select(w => w.Name));
+        Assert.Null(toy.Get("zebra"));
+
+        toy.Add("okapi", RealCategory.Animal, _now.AddMinutes(3));
+        tool.Bump("giraffe", "offline", _now.AddMinutes(4), countTry: false);
+        Assert.Equal(["giraffe", "okapi"], new PictureFolder(_folder.Root).Wanted.All().Select(w => w.Name));
+        Assert.Equal("offline", toy.Get("giraffe")!.Reason);
+        Assert.Equal(1, tool.Get("giraffe")!.Tries);
     }
 
     [Fact]

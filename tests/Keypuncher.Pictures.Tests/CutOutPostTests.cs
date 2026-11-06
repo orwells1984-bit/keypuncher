@@ -36,6 +36,56 @@ public sealed class CutOutPostTests
     }
 
     [Fact]
+    public void Shrinking_does_not_tint_the_edge_with_the_photos_background()
+    {
+        // A red thing on a green field: the background sits under every transparent pixel of the composed picture,
+        // and scaling the channels on their own would blend it into the thing's soft edge as a green halo.
+        using var photo = new SKBitmap(new SKImageInfo(1400, 1000, SKColorType.Rgba8888, SKAlphaType.Premul));
+        photo.Erase(SKColors.Lime);
+        var matte = new byte[1400 * 1000];
+        using (var c = new SKCanvas(photo))
+        using (var red = new SKPaint { Color = SKColors.Red })
+            c.DrawRect(new SKRect(300, 200, 1100, 800), red);
+        Fill(matte, 1400, 300, 200, 1100, 800, 255);
+
+        using var picture = CutOutPost.Finish(photo, matte, out _, out var reason);
+
+        Assert.NotNull(picture);
+        Assert.Null(reason);
+        Assert.Equal(ICutOut.MaxSide, picture.Width);
+        var edgePixels = 0;
+        for (var y = 0; y < picture.Height; y++)
+            for (var x = 0; x < picture.Width; x++)
+            {
+                var p = picture.GetPixel(x, y);
+                if (p.Alpha == 0) continue;
+                if (p.Alpha < 255) edgePixels++;
+                Assert.True(p.Red >= 250 && p.Green <= 5, $"({x}, {y}) is {p}, not the thing's red");
+            }
+        Assert.True(edgePixels > 0, "the scaled edge has part-transparent pixels");
+    }
+
+    [Fact]
+    public void Scale_keeps_the_colour_of_a_part_transparent_pixel()
+    {
+        // Two green columns at alpha 0, then red at full alpha, halved: the boundary pixel is half-transparent red.
+        using var unpremul = new SKBitmap(new SKImageInfo(8, 2, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        for (var y = 0; y < 2; y++)
+            for (var x = 0; x < 8; x++)
+                unpremul.SetPixel(x, y, x < 3 ? new SKColor(0, 255, 0, 0) : new SKColor(255, 0, 0, 255));
+
+        using var scaled = CutOutPost.Scale(unpremul, 4, 1);
+
+        Assert.Equal(SKAlphaType.Unpremul, scaled.AlphaType);
+        Assert.Equal((4, 1), (scaled.Width, scaled.Height));
+        Assert.Equal(0, scaled.GetPixel(0, 0).Alpha);
+        Assert.Equal(255, scaled.GetPixel(3, 0).Alpha);
+        var edge = scaled.GetPixel(1, 0);
+        Assert.InRange(edge.Alpha, 1, 254);
+        Assert.Equal((255, 0, 0), (edge.Red, edge.Green, edge.Blue));
+    }
+
+    [Fact]
     public void The_soft_edge_keeps_its_alpha_and_the_faint_fringe_and_specks_go()
     {
         using var photo = Photo(300, 200);
@@ -191,6 +241,21 @@ public sealed class CutOutPostTests
     }
 
     [Fact]
+    public void The_chain_passes_over_a_cut_out_closed_under_it()
+    {
+        using var photo = Photo(30, 20);
+        var closed = new FakeCutOut("closed", available: true, succeeds: true, closed: true);
+        var strong = new FakeCutOut("strong", available: true, succeeds: true);
+
+        var result = new CutOutChain(closed, strong).Cut(photo);
+        using var picture = result.Picture;
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("strong", result.Model);
+        Assert.Equal("model missing", new CutOutChain(closed).Cut(photo).Reason);
+    }
+
+    [Fact]
     public void The_chain_reports_the_last_failure_or_a_missing_model()
     {
         using var photo = Photo(30, 20);
@@ -227,7 +292,9 @@ public sealed class CutOutPostTests
         return n;
     }
 
-    private sealed class FakeCutOut(string name, bool available, bool succeeds) : ICutOut
+    /// <summary>A cut-out that is <paramref name="closed"/> still looks available (its file is on disk) but throws, as
+    /// one disposed between the chain's check and its cut would.</summary>
+    private sealed class FakeCutOut(string name, bool available, bool succeeds, bool closed = false) : ICutOut
     {
         public int Calls { get; private set; }
         public string Name => name;
@@ -235,6 +302,7 @@ public sealed class CutOutPostTests
 
         public CutOutResult Cut(SKBitmap photo)
         {
+            ObjectDisposedException.ThrowIf(closed, this);
             Calls++;
             return succeeds
                 ? new CutOutResult(new SKBitmap(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Unpremul)), name, 0.5, null)

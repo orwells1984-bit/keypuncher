@@ -170,13 +170,10 @@ public sealed class ParentPage : ContentPage
             ? new Image { Source = ImageSource.FromFile(thumb), WidthRequest = 64, HeightRequest = 64, Aspect = Aspect.AspectFit }
             : new BoxView { WidthRequest = 64, HeightRequest = 64, Color = Colors.Transparent });
         var meetings = host.Pictures.Meetings(picture.Name);
-        var lines = $"{picture.Name} ({picture.Category}){(picture.Hidden ? ", hidden" : "")}: met {meetings} times, drawn as {PictureLibrary.StageFor(meetings).ToString().ToLowerInvariant()}
-"
+        var lines = $"{picture.Name} ({picture.Category}){(picture.Hidden ? ", hidden" : "")}: met {meetings} times, drawn as {PictureLibrary.StageFor(meetings).ToString().ToLowerInvariant()}\n"
             + picture.CreditLine
-            + (picture.Photo?.DescriptionUrl is { } url ? $"
-{url}" : "")
-            + (picture.Check is { } check ? $"
-Checked by {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}, it saw {check.Saw}" : "");
+            + (picture.Photo?.DescriptionUrl is { } url ? $"\n{url}" : "")
+            + (picture.Check is { } check ? $"\nChecked by {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}, it saw {check.Saw}" : "");
         row.Add(new Label { Text = lines, FontSize = 13, WidthRequest = 420, VerticalOptions = LayoutOptions.Center });
         row.Add(Button(picture.Hidden ? "Show" : "Hide", () =>
         {
@@ -188,8 +185,16 @@ Checked by {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}, it s
         row.Add(Button("Try another", () =>
         {
             var now = DateTime.Now;
-            host.PictureFolder.Wanted.Add(picture.Name, picture.Category, now);
-            host.PictureFolder.Wanted.Bump(picture.Slug, "another was asked for", now, countTry: false, exclude: picture.Photo?.FileTitle);
+            try
+            {
+                host.PictureFolder.Wanted.Add(picture.Name, picture.Category, now);
+                host.PictureFolder.Wanted.Bump(picture.Slug, "another was asked for", now, countTry: false, exclude: picture.Photo?.FileTitle);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _pictureStatus.Text = $"Could not write the wanted list: {e.Message}";
+                return;
+            }
             host.PictureJobs.Enqueue(picture.Name, picture.Category, again: true);
             RefreshPictures();
         }));

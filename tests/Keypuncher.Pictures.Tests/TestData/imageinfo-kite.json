@@ -1,0 +1,56 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": [
+      {
+        "pageid": 61234,
+        "ns": 6,
+        "title": "File:Red kite in flight.jpg",
+        "imagerepository": "local",
+        "imageinfo": [
+          {
+            "size": 1249212,
+            "width": 2000,
+            "height": 1333,
+            "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Red_kite_in_flight.jpg/1280px-Red_kite_in_flight.jpg",
+            "thumbwidth": 1280,
+            "thumbheight": 853,
+            "url": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Red_kite_in_flight.jpg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Red_kite_in_flight.jpg",
+            "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=61234",
+            "sha1": "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d",
+            "mime": "image/jpeg",
+            "mediatype": "BITMAP",
+            "extmetadata": {
+              "LicenseShortName": {
+                "value": "CC BY 2.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "LicenseUrl": {
+                "value": "https://creativecommons.org/licenses/by/2.0",
+                "source": "commons-desc-page",
+                "hidden": ""
+              },
+              "Artist": {
+                "value": "Tony Hisgett",
+                "source": "commons-desc-page"
+              },
+              "Copyrighted": {
+                "value": "True",
+                "source": "commons-desc-page",
+                "hidden": ""
+              }
+            }
+          }
+        ],
+        "categories": [
+          {
+            "ns": 14,
+            "title": "Category:Milvus milvus in flight"
+          }
+        ]
+      }
+    ]
+  }
+}

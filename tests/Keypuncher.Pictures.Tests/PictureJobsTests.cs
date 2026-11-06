@@ -176,8 +176,25 @@ public sealed class PictureJobsTests : IDisposable
         for (var i = 0; i < 200 && jobs.Status.Fetching is null; i++) Thread.Sleep(10);
 
         var started = DateTime.UtcNow;
-        jobs.Dispose();
+        Assert.True(jobs.Dispose());
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(5));
         Assert.Equal(0, _fetcher.CallsFor("owl"));
+    }
+
+    [Fact]
+    public void Disposing_says_when_a_fetch_would_not_stop_and_leaves_it_running()
+    {
+        // A fetch that takes no notice of being cancelled (a model run cannot be interrupted): Dispose gives up on
+        // it after its two seconds and says so, rather than holding the caller until the fetch is done.
+        using var hold = new ManualResetEventSlim();
+        _fetcher.OnFetch = _ => hold.Wait();
+        var jobs = Jobs();
+        jobs.Enqueue("puffin", RealCategory.Animal);
+        for (var i = 0; i < 200 && jobs.Status.Fetching is null; i++) Thread.Sleep(10);
+
+        var started = DateTime.UtcNow;
+        Assert.False(jobs.Dispose());
+        Assert.InRange(DateTime.UtcNow - started, TimeSpan.FromSeconds(1.5), TimeSpan.FromSeconds(5));
+        hold.Set();
     }
 }

@@ -1,0 +1,39 @@
+{
+  "type": "standard",
+  "title": "Kite (bird)",
+  "displaytitle": "<span class=\"mw-page-title-main\">Kite (bird)</span>",
+  "namespace": {
+    "id": 0,
+    "text": ""
+  },
+  "titles": {
+    "canonical": "Kite_(bird)",
+    "normalized": "Kite (bird)",
+    "display": "Kite (bird)"
+  },
+  "pageid": 417533,
+  "lang": "en",
+  "dir": "ltr",
+  "revision": "1254893321",
+  "tid": "7f4b3b2a-9c1d-11ef-8f1a-1f9f7e3c2b11",
+  "timestamp": "2026-10-29T14:21:07Z",
+  "description": "Group of birds of prey",
+  "description_source": "local",
+  "content_urls": {
+    "desktop": {
+      "page": "https://en.wikipedia.org/wiki/Kite_(bird)"
+    }
+  },
+  "extract": "Kite is the common name for certain birds of prey.",
+  "extract_html": "<p>Kite is the common name for certain birds of prey.</p>",
+  "thumbnail": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Red_kite_in_flight.jpg/320px-Red_kite_in_flight.jpg",
+    "width": 320,
+    "height": 213
+  },
+  "originalimage": {
+    "source": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Red_kite_in_flight.jpg",
+    "width": 2000,
+    "height": 1333
+  }
+}

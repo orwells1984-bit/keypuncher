@@ -4,14 +4,27 @@ using SkiaSharp;
 namespace Keypuncher.Pictures.Tests;
 
 /// <summary>The real models are 400 MB and not in the repo: the test that runs one only does so when the
-/// <c>KEYPUNCHER_CUTOUT_MODELS</c> variable names a folder that has them.</summary>
+/// <c>KEYPUNCHER_CUTOUT_MODELS</c> variable names a folder that has them, and is reported as skipped otherwise.</summary>
 public sealed class OnnxCutOutTests
 {
-    [Fact]
+    /// <summary>A fact that needs the quick model on disk: skipped, rather than passed without running, when the
+    /// variable does not name a folder that has it.</summary>
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class ModelFactAttribute : FactAttribute
+    {
+        public static string? Folder => Environment.GetEnvironmentVariable("KEYPUNCHER_CUTOUT_MODELS");
+
+        public ModelFactAttribute()
+        {
+            if (string.IsNullOrEmpty(Folder) || !File.Exists(Path.Combine(Folder, OnnxCutOut.ISNet.FileName)))
+                Skip = $"KEYPUNCHER_CUTOUT_MODELS does not name a folder with {OnnxCutOut.ISNet.FileName}";
+        }
+    }
+
+    [ModelFact]
     public void The_quick_model_cuts_the_sample_animal_out_of_a_white_photo()
     {
-        var folder = Environment.GetEnvironmentVariable("KEYPUNCHER_CUTOUT_MODELS");
-        if (string.IsNullOrEmpty(folder) || !File.Exists(Path.Combine(folder, OnnxCutOut.ISNet.FileName))) return;
+        var folder = ModelFactAttribute.Folder!;
 
         using var photo = SampleOnWhite();
         using var cutOut = new OnnxCutOut(OnnxCutOut.ISNet, folder);
@@ -44,6 +57,28 @@ public sealed class OnnxCutOutTests
             Assert.False(result.Succeeded);
             Assert.Equal("birefnet-lite", result.Model);
             Assert.Equal("model missing", result.Reason);
+        }
+        finally { Directory.Delete(folder, recursive: true); }
+    }
+
+    [Fact]
+    public void Closed_it_is_no_longer_available_and_refuses_a_cut_without_waiting()
+    {
+        var folder = Directory.CreateTempSubdirectory("keypuncher-cutout-tests").FullName;
+        try
+        {
+            using var photo = SampleOnWhite();
+            var cutOut = new OnnxCutOut(OnnxCutOut.ISNet, folder);
+            File.WriteAllBytes(cutOut.ModelPath, [0]);
+            Assert.True(cutOut.IsAvailable);
+
+            var started = DateTime.UtcNow;
+            cutOut.Dispose();
+            cutOut.Dispose();
+            Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(1));
+
+            Assert.False(cutOut.IsAvailable);
+            Assert.Throws<ObjectDisposedException>(() => cutOut.Cut(photo));
         }
         finally { Directory.Delete(folder, recursive: true); }
     }

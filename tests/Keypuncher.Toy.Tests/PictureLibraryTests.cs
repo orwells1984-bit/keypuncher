@@ -267,6 +267,35 @@ public sealed class PictureLibraryTests : IDisposable
         Assert.InRange(library.CompositeDraws, 1, 6);
     }
 
+    [Fact]
+    public void A_picture_replaced_while_its_drawing_is_on_its_way_is_dropped_and_the_new_one_drawn()
+    {
+        WritePicture("sable-antelope");
+        using var library = Library();
+        using var bitmap = new SKBitmap(new SKImageInfo(64, 64, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        var recipe = Thing("sable antelope");
+        bool Paint() => library.Paint(canvas, recipe, PictureStage.Photo, 24, ArtStyle.Toddler, 64);
+        // "Try another" lands during play: a drawing of the old picture is queued on the pool, the picture is let go
+        // before the drawing starts, and the drawing is then thrown away rather than made from freed pixels or
+        // kept by a picture nothing shows.
+        for (var i = 0; i < 25; i++)
+        {
+            Paint();
+            library.WaitIdle(TimeSpan.FromSeconds(10));
+            Assert.False(Paint(), "the drawing is queued, not done");
+            library.Invalidate("sable antelope");
+            library.WaitIdle(TimeSpan.FromSeconds(10));
+            Assert.False(library.Busy);
+        }
+        Paint();
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        Paint();
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        Assert.True(Paint(), "the picture read after the last replacement is drawn");
+        Assert.True(Count(bitmap, p => Near(p, Magenta, 48)) > 50);
+    }
+
     private PictureLibrary Library() => new(_dir, () => _now);
 
     private static Recipe Thing(string name) => BuiltInRecipes.Animals.Cat with { Name = name };

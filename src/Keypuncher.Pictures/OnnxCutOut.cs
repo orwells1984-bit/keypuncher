@@ -36,7 +36,7 @@ public sealed class OnnxCutOut : ICutOut, IDisposable
     private readonly Lock _lock = new();
     private InferenceSession? _session;
     private float[]? _input;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     public OnnxCutOut(ModelSpec spec, string modelsFolder)
     {
@@ -49,7 +49,8 @@ public sealed class OnnxCutOut : ICutOut, IDisposable
     /// <summary>Where the model file is looked for.</summary>
     public string ModelPath { get; }
 
-    public bool IsAvailable => File.Exists(ModelPath);
+    /// <summary>False while the model file is not on disk, and once this has been closed.</summary>
+    public bool IsAvailable => !_disposed && File.Exists(ModelPath);
 
     /// <summary>Threads for one run: half the machine less one, so the toy and the language model keep breathing.</summary>
     public static int Threads => Math.Max(1, (Environment.ProcessorCount / 2) - 1);
@@ -64,32 +65,42 @@ public sealed class OnnxCutOut : ICutOut, IDisposable
         var matte = new byte[photo.Width * photo.Height];
         lock (_lock)
         {
-            // Dispose waits for a cut under way; a cut that arrives after it must not open the model again.
+            // Dispose never waits for a cut under way: a cut that arrives after it must not open the model again, and
+            // the cut it found running closes the model itself when it is done.
             ObjectDisposedException.ThrowIf(_disposed, this);
-            _session ??= Open();
-            var input = _input ??= new float[3 * Side * Side];
-            var (left, top, width, height) = Letterbox(photo, input);
-            var shape = new long[] { 1, 3, Side, Side };
-            using var tensor = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, input.AsMemory(), shape);
-            using var run = new RunOptions();
-            using var outputs = _session.Run(run, new Dictionary<string, OrtValue> { [_spec.InputName] = tensor }, [_session.OutputNames[0]]);
-            var output = outputs[0].GetTensorDataAsSpan<float>();
-            ReadMatte(output, left, top, width, height, photo.Width, photo.Height, matte);
+            try
+            {
+                _session ??= Open();
+                var input = _input ??= new float[3 * Side * Side];
+                var (left, top, width, height) = Letterbox(photo, input);
+                var shape = new long[] { 1, 3, Side, Side };
+                using var tensor = OrtValue.CreateTensorValueFromMemory(OrtMemoryInfo.DefaultInstance, input.AsMemory(), shape);
+                using var run = new RunOptions();
+                using var outputs = _session.Run(run, new Dictionary<string, OrtValue> { [InputName(_session)] = tensor }, [_session.OutputNames[0]]);
+                var output = outputs[0].GetTensorDataAsSpan<float>();
+                ReadMatte(output, left, top, width, height, photo.Width, photo.Height, matte);
+            }
+            finally { if (_disposed) Close(); }
         }
         var picture = CutOutPost.Finish(photo, matte, out var coverage, out var reason);
         return new CutOutResult(picture, Name, coverage, reason);
     }
 
+    /// <summary>Closes the model without waiting: a cut under way closes it as it finishes instead, so the toy's exit
+    /// never hangs on a model run.</summary>
     public void Dispose()
     {
-        lock (_lock)
-        {
-            if (_disposed) return;
-            _disposed = true;
-            _session?.Dispose();
-            _session = null;
-            _input = null;
-        }
+        _disposed = true;
+        if (!_lock.TryEnter()) return;
+        try { Close(); }
+        finally { _lock.Exit(); }
+    }
+
+    private void Close()
+    {
+        _session?.Dispose();
+        _session = null;
+        _input = null;
     }
 
     private InferenceSession Open()
@@ -97,6 +108,11 @@ public sealed class OnnxCutOut : ICutOut, IDisposable
         using var options = new SessionOptions { IntraOpNumThreads = Threads, GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL };
         return new InferenceSession(ModelPath, options);
     }
+
+    /// <summary>The spec's input name when the graph has it, else the graph's first input, so an export under another
+    /// name still runs.</summary>
+    private string InputName(InferenceSession session) =>
+        session.InputNames.Contains(_spec.InputName) ? _spec.InputName : session.InputNames[0];
 
     /// <summary>Draws the photo scaled to fit, centred on grey, and writes it into the input planes; returns where the
     /// photo landed on the square.</summary>
