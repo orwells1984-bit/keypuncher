@@ -3,7 +3,7 @@
 #
 #   pwsh -File tools/Keypuncher.Sandbox/Run-Bench.ps1 -Step baseline     # qwen3:4b and qwen3:1.7b, all sets, 3 runs (~2 h)
 #   pwsh -File tools/Keypuncher.Sandbox/Run-Bench.ps1 -Step prompts      # A1, A2, A4, A8, best on qwen3:4b (~4 h)
-#   pwsh -File tools/Keypuncher.Sandbox/Run-Bench.ps1 -Step models       # the best prompt on every pulled candidate (overnight)
+#   pwsh -File tools/Keypuncher.Sandbox/Run-Bench.ps1 -Step models       # baseline and A2 on every pulled candidate, picks judged by qwen3:4b (overnight)
 #   pwsh -File tools/Keypuncher.Sandbox/Run-Bench.ps1 -Step think        # checker with thinking on, two models (~1 h)
 #
 # Models that are not pulled are skipped with a note; pull them first:
@@ -29,8 +29,8 @@ try {
         'smoke'    { & $bench @('--models', 'qwen3:4b', '--variants', 'baseline', '--sets', 'checker', '--runs', '1') }
         'baseline' { & $bench @('--models', 'qwen3:4b,qwen3:1.7b', '--variants', 'baseline', '--runs', '3') }
         'prompts'  { & $bench @('--models', 'qwen3:4b', '--variants', 'A1,A2,A4,A8,best', '--runs', '3') }
-        'models'   { & $bench @('--models', 'gemma3:4b,llama3.1:8b,qwen3:8b,llama3.2:3b,phi4-mini,gemma3:1b', '--variants', 'baseline,best', '--runs', '2') }
-        'think'    { & $bench @('--models', 'qwen3:4b,qwen3:8b', '--variants', 'best', '--sets', 'checker,habitat', '--runs', '2', '--think') }
+        'models'   { & $bench @('--models', 'gemma3:4b,llama3.1:8b,qwen3:8b,llama3.2:3b,phi4-mini,gemma3:1b', '--variants', 'baseline,A2', '--runs', '2', '--judge', 'qwen3:4b') }
+        'think'    { & $bench @('--models', 'qwen3:4b,qwen3:8b', '--variants', 'A2', '--sets', 'checker,habitat', '--runs', '2', '--think') }
     }
 }
 finally { Pop-Location }

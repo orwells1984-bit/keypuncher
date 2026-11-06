@@ -1,7 +1,11 @@
 // The reliability bench: the same labelled requests, every model and prompt variant, one CSV row a call.
 //
 //   dotnet run --project tools/Keypuncher.Sandbox -- bench --models qwen3:4b,gemma3:4b --variants baseline,A1,A4
-//       --sets author,checker,habitat,scene --runs 3 --temperature 0.8 --think --out bench-results --until 04:15
+//       --sets author,checker,habitat,scene --runs 3 --temperature 0.8 --think --out bench-results --until 04:15 --judge qwen3:4b
+//
+// --judge names one model that judges every model's author picks, so that "checker agrees" compares authors and not
+// each model's own checking; without it each model checks its own picks, as it would in the toy. The judge runs
+// after each author pass, so the two models swap once a pass rather than twice a call.
 //
 // It refuses to start while another job's model is loaded (the nightly tournament), and --until HH:mm stops it
 // cleanly, summary written, before the tournament's hour: a run that starts at noon has until about 04:30.
@@ -44,7 +48,7 @@ public static class Bench
         bool ValidJson, bool Passed, bool? Agrees, double TotalMs, double LoadMs, int PromptTokens, int OutputTokens, string Raw);
 
     public sealed record Options(Uri Host, IReadOnlyList<string> Models, IReadOnlyList<PromptVariant> Variants, IReadOnlyList<string> Sets,
-        int Runs, float Temperature, bool Think, string OutDir, string SetsDir, DateTime? Until, bool Force, IReadOnlyList<string> OtherJobs)
+        int Runs, float Temperature, bool Think, string OutDir, string SetsDir, DateTime? Until, bool Force, IReadOnlyList<string> OtherJobs, string? Judge)
     {
         /// <summary>The clock time to stop by, "HH:mm": today if still ahead, else tomorrow.</summary>
         public static DateTime? ParseUntil(string? text, DateTime now)
@@ -76,7 +80,8 @@ public static class Bench
                 Get("sets-dir", sets),
                 ParseUntil(Get("until", ""), DateTime.Now),
                 args.Contains("--force"),
-                Get("other-jobs", "laguna,qwen3-coder").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                Get("other-jobs", "laguna,qwen3-coder").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                Get("judge", "") is { Length: > 0 } judge ? judge : null);
         }
 
         /// <summary>The variant's name in the CSV, with the model settings that are not the toy's own.</summary>
@@ -113,6 +118,7 @@ public static class Bench
         var rows = new List<Row>();
         var loads = new List<(string Model, double ColdLoadS, long Size, long SizeVram)>();
         var stopped = false;
+        var judge = opts.Judge is { } j ? new FactChecker(new OllamaLanguageModel(opts.Host, j, temperature: 0, think: opts.Think)) : null;
 
         foreach (var model in opts.Models)
         {
@@ -143,7 +149,16 @@ public static class Bench
                 for (var run = 1; run <= opts.Runs && !stopped; run++)
                 {
                     if (opts.Sets.Contains("author"))
-                        foreach (var c in authorSet) { if (OutOfTime()) break; Keep(await AuthorAsync(author, checker, variant, c, model, label, run)); }
+                    {
+                        var pending = new List<(Row Row, RealThingPick Pick)>();
+                        foreach (var c in authorSet)
+                        {
+                            if (OutOfTime()) break;
+                            var (row, pick) = await AuthorAsync(author, judge is null ? checker : null, variant, c, model, label, run);
+                            if (pick is null) Keep(row); else pending.Add((row, pick));
+                        }
+                        foreach (var (row, pick) in pending) Keep(await JudgeAsync(judge!, row, pick));
+                    }
                     // The checker runs cold (temperature 0), so its answers do not change between runs: once is enough.
                     if (opts.Sets.Contains("checker") && run == 1)
                         foreach (var c in checkerSet) { if (OutOfTime()) break; Keep(await CheckerAsync(checker, c, model, label, run)); }
@@ -204,11 +219,15 @@ public static class Bench
     /// a name that carries the place fails too, since the checker always turns those away. Agrees is then the
     /// checker's word on whether it is real and the kind asked for: the schema holds the category to the one asked,
     /// so a "gazelle" offered as a vehicle passes the rules and only the checker catches it. The timing is the
-    /// author's call alone.</summary>
-    private static async Task<Row> AuthorAsync(OllamaLanguageModel author, FactChecker checker, PromptVariant variant, AuthorCase c, string model, string label, int run)
+    /// author's call alone. With no <paramref name="checker"/> the pick comes back for a judge to look at later.
+    /// An extinct-animal request carries the well-known names the toy offers on every try.</summary>
+    private static async Task<(Row Row, RealThingPick? Pending)> AuthorAsync(OllamaLanguageModel author, FactChecker? checker, PromptVariant variant, AuthorCase c, string model, string label, int run)
     {
         var request = c.Request;
-        var (system, user, schema) = DirectorPrompts.Author(request, [], null, variant);
+        var suggestions = request.Category == RealCategory.ExtinctAnimal && request.GrowInto is null && request.MustBe is null
+            ? RealThingPick.WellKnownExtinct.Where(n => !request.Existing.Any(e => RealThingRules.SameThing(e, n))).OrderBy(_ => new Random(c.Id.GetHashCode() + run).Next()).Take(5).ToList()
+            : null;
+        var (system, user, schema) = DirectorPrompts.Author(request, [], suggestions, variant);
         var clock = Stopwatch.StartNew();
         var result = await author.GenerateJsonAsync(system, user, schema);
         clock.Stop();
@@ -216,15 +235,23 @@ public static class Bench
         var subject = pick?.Subject ?? "?";
         var outcome = ok ? "ok" : error ?? "?";
         if (ok && subject.Split(' ', '-').Any(w => PlaceWords.Contains(w))) { ok = false; outcome = "place in the name"; }
-        bool? agrees = null;
-        if (ok)
-        {
-            var check = await checker.CheckAsync(pick!.Subject, pick.GrowsInto, pick.Category);
-            agrees = check.Passes(pick.Category);
-            if (!agrees.Value) outcome = check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}";
-        }
-        return new Row(model, label, "author", c.Id, run, 1, subject, outcome, result.Json is not null, ok, agrees,
+        var row = new Row(model, label, "author", c.Id, run, 1, subject, outcome, result.Json is not null, ok, null,
             Ms(result, clock), result.Timing.Load.TotalMilliseconds, result.Timing.PromptTokens, result.Timing.OutputTokens, result.RawText);
+        if (!ok) return (row, null);
+        if (checker is null) return (row, pick);
+        return (await JudgeAsync(checker, row, pick!), null);
+    }
+
+    /// <summary>The checker's word on a pick that passed the rules: Agrees, and why not in Outcome.</summary>
+    private static async Task<Row> JudgeAsync(FactChecker checker, Row row, RealThingPick pick)
+    {
+        var check = await checker.CheckAsync(pick.Subject, pick.GrowsInto, pick.Category);
+        var agrees = check.Passes(pick.Category);
+        return row with
+        {
+            Agrees = agrees,
+            Outcome = agrees ? row.Outcome : check.Verdict == "real" ? $"checker: {check.Kind}, not {pick.Category}" : $"checker: {check.Verdict}",
+        };
     }
 
     /// <summary>The checker on one name, against its label. The model is called through the checker, so the row's
@@ -301,7 +328,8 @@ public static class Bench
             sb.AppendLine();
         }
         sb.AppendLine($"Models {string.Join(", ", opts.Models)}; variants {string.Join(", ", opts.Variants.Select(opts.Label))}; {opts.Runs} run(s) a case "
-            + "(the checker and habitat sets once: at temperature 0 the answers do not change).");
+            + "(the checker and habitat sets once: at temperature 0 the answers do not change)."
+            + (opts.Judge is { } judge ? $" Author picks judged by {judge}." : " Each model judges its own author picks."));
         sb.AppendLine();
         if (loads.Count > 0)
         {
