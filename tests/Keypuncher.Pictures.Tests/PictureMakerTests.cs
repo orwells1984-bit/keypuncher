@@ -268,7 +268,11 @@ public sealed class OllamaVisionTests
     [InlineData("A stack of coconuts in a crate", "coconut palm", RealCategory.Plant, "stack")]
     [InlineData("a collection of baby carrots in a radial pattern", "carrot", RealCategory.Plant, "collection")]
     [InlineData("a very faded, partial drawing of a ticket", "paddle boat", RealCategory.Vehicle, "partial")]
-    [InlineData("A lot of colorful fireworks", "balloon", RealCategory.Object, "a lot")]
+    [InlineData("five cut-out pieces of thylacines", "thylacine", RealCategory.ExtinctAnimal, "five")]
+    [InlineData("several other sheep partially visible behind it", "sheep", RealCategory.Animal, "several")]
+    [InlineData("a complete, three-dimensional skull of a harbour seal", "harbour seal", RealCategory.Animal, "skull")]
+    [InlineData("a megalodon shark's mouth, a complete representation of its jaws", "megalodon", RealCategory.ExtinctAnimal, "jaws")]
+    [InlineData("a lot of small fish swimming together", "fish", RealCategory.Animal, "a lot")]
     [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
@@ -287,11 +291,40 @@ public sealed class OllamaVisionTests
     [InlineData("a cluster of purple hydrangea flowers", "hydrangea", RealCategory.Plant)]
     [InlineData("a squirrel sitting on a branch", "squirrel", RealCategory.Animal)]
     [InlineData("a pair of scissors", "pair of scissors", RealCategory.Object)]
+    [InlineData("a single whole strawberry, not a slice, drawing or diagram", "strawberry", RealCategory.Plant)]
+    [InlineData("a realistic, three-dimensional hot-air balloon", "hot-air balloon", RealCategory.Object)]
+    [InlineData("an elephant standing on four legs", "elephant", RealCategory.Animal)]
+    [InlineData("an octopus with eight arms spread out", "octopus", RealCategory.Animal)]
+    [InlineData("a birch tree with many branches and leaves", "birch tree", RealCategory.Plant)]
+    [InlineData("a cactus covered in many spines", "cactus", RealCategory.Plant)]
+    [InlineData("a bicycle with two wheels", "bicycle", RealCategory.Vehicle)]
+    [InlineData("a realistic cut-out illustration of a polar bear for a children's book", "polar bear", RealCategory.Animal)]
+    [InlineData("a ferry with the words BASTO VIII on its side", "ferry", RealCategory.Vehicle)]
+    [InlineData("a red cabbage, whole, rather than a drawing", "red cabbage", RealCategory.Plant)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
         Assert.Null(OllamaVision.Fault(saw, 1, true, true, name, category));
     }
+
+    [Theory]
+    [InlineData("Here's a description of the image:\n\nOne whole zebra.", "One whole zebra.")]
+    [InlineData("Here's a description for a young child's picture book:\n\n**A single mouse.**", "A single mouse.")]
+    [InlineData("  One whole zebra standing.  ", "One whole zebra standing.")]
+    [InlineData("A zebra: black and white.", "A zebra: black and white.")]
+    public void A_preface_line_is_dropped_from_the_description(string answer, string sentence) =>
+        Assert.Equal(sentence, OllamaVision.Sentence(answer));
+
+    [Theory]
+    [InlineData("mice", "mouse")]
+    [InlineData("horses", "horse")]
+    [InlineData("puppies", "puppy")]
+    [InlineData("foxes", "fox")]
+    [InlineData("branches", "branch")]
+    [InlineData("fish", "fish")]
+    [InlineData("grass", "grass")]
+    public void A_rough_singular_is_enough_to_match_the_name(string plural, string singular) =>
+        Assert.Equal(singular, OllamaVision.Singular(plural));
 
     [Fact]
     public async Task A_server_error_is_no_verdict()
@@ -319,6 +352,8 @@ public sealed class OllamaVisionTests
         Assert.Contains("exactly one whole arctic thyme (a plant)", question);
         Assert.Contains("how many", question);
         Assert.DoesNotContain("toy", question);
+        Assert.DoesNotContain("picture book", question);
+        Assert.DoesNotContain("drawing", question);
     }
 
     /// <summary>Answers every POST with the given body (null for a 500) and keeps what was sent.</summary>

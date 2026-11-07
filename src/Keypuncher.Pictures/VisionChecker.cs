@@ -66,12 +66,14 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return doc.RootElement.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var c) ? c.GetString() : null;
     }
 
-    /// <summary>The first question: what is in the picture, in one sentence, with the things that matter named so
-    /// the sentence mentions them. It avoids the word "toy", which the model echoed back as what it saw.</summary>
+    /// <summary>The first question: what is in the picture, in a sentence or two. It names what matters (one, whole,
+    /// alive) without listing the faults, since the model echoed a list of faults back in a negation ("not a slice,
+    /// drawing or diagram") and the word "picture book" came back as "an illustration for a children's book"; and it
+    /// avoids "toy", which came back as what was seen.</summary>
     public static string Question(string name, RealCategory category) =>
-        $"This is a cut-out picture for a young child's picture book. It should show exactly one whole {name} ({Describe(category)}), " +
-        $"complete and alive, with nothing else. Describe what you actually see in one or two sentences: what it is, how many " +
-        $"there are, and whether it is the whole thing or a part, a slice, a skeleton, a drawing or a diagram.";
+        $"This cut-out picture should show exactly one whole {name} ({Describe(category)}), complete and alive, with nothing else. " +
+        $"Describe what you actually see in one or two sentences: what it is, how many there are, and whether it is the whole thing. " +
+        $"Answer with the description only.";
 
     /// <summary>The second question, asked after the description, answered in the shape of <see cref="Schema"/>.</summary>
     public static string Verdict(string name) =>
@@ -122,9 +124,20 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
             }
             catch (JsonException) { }
         }
+        saw = Sentence(saw);
         var kept = saw.Length > 300 ? saw[..300] : saw;
         var why = answered ? Fault(saw, count, isThing, whole, name, category) : "no verdict";
         return new VisionCheck(model, why is null, why is null ? 1 : 0, why is null ? kept : $"{kept} [{why}]", at);
+    }
+
+    /// <summary>The description without a preface line such as "Here's a description of the image:" (one answer in six
+    /// began that way), and without the quotes or stars the model sometimes wraps it in.</summary>
+    public static string Sentence(string saw)
+    {
+        var text = saw.Trim();
+        var newline = text.IndexOf('\n');
+        if (newline > 0 && text[..newline].TrimEnd().EndsWith(':')) text = text[(newline + 1)..].Trim();
+        return text.Trim('*', '"', ' ', '\n', '\r');
     }
 
     /// <summary>Why the answer fails, or null when it passes. The count is trusted only for animals.</summary>
@@ -137,46 +150,82 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return null;
     }
 
-    /// <summary>A word in the description that gives a bad picture away, whatever the verdict said: a number above
-    /// one or a group word (several things), a skeleton or fossil (not alive), a half or slice (not whole), a dish or
-    /// container (food, not the thing), a drawing or diagram, and for a plant a branch or sprig (a part). Words the
-    /// model is likely to use about a good picture ("cut-out", "can see", "both ears", "stem") are kept off the
-    /// lists. Null when the description is clean.</summary>
+    /// <summary>A word in the description that gives a bad picture away, whatever the verdict said. A number above one
+    /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
+    /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil or jaws (not
+    /// alive, not whole); a half or slice; a dish or container (food, not the thing); a drawing or diagram; and for a
+    /// plant "a branch" or "a sprig" (a part; trees have branches). Nothing after a negation in the same sentence
+    /// counts, since the model repeats the question back ("not a slice or a drawing"). Null when the description is
+    /// clean.</summary>
     public static string? GiveAway(string saw, string name, RealCategory category)
     {
-        var words = Words().Matches(saw.ToLowerInvariant()).Select(m => m.Value).ToList();
         var own = Words().Matches(name.ToLowerInvariant()).Select(m => m.Value).ToHashSet();
-        foreach (var word in words)
+        foreach (var sentence in saw.ToLowerInvariant().Split(['.', ';', '!', '?'], StringSplitOptions.RemoveEmptyEntries))
         {
-            if (own.Contains(word)) continue;
-            if (Many.Contains(word) || NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
-            if (category == RealCategory.Plant && PlantPart.Contains(word)) return word;
-        }
-        for (var i = 0; i + 1 < words.Count; i++)
-        {
-            var pair = $"{words[i]} {words[i + 1]}";
-            if (ManyPairs.Contains(pair) || NotWholePairs.Contains(pair)) return pair;
+            var words = Words().Matches(sentence).Select(m => m.Value).ToList();
+            for (var i = 0; i < words.Count; i++)
+            {
+                var word = words[i];
+                if (Negations.Contains(word)) break;
+                if (own.Contains(word)) continue;
+                if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
+                if (category == RealCategory.Plant && PlantPart.Contains(word) && i > 0 && words[i - 1] is "a" or "one" or "single") return word;
+                var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
+                if (pair is not null && NotWholePairs.Contains(pair)) return pair;
+                if (pair is "three dimensional" or "two dimensional") continue;
+                if (Many.Contains(word) && Followed(words, i + 1, own)) return word;
+                if (pair is not null && ManyPairs.Contains(pair) && Followed(words, i + 2, own)) return pair;
+            }
         }
         return null;
     }
 
+    /// <summary>Whether the thing itself (a word of its name, plural or not) or a generic word for things ("animals",
+    /// "things") is among the next three words.</summary>
+    private static bool Followed(List<string> words, int from, HashSet<string> own)
+    {
+        for (var i = from; i < words.Count && i < from + 3; i++)
+        {
+            var word = words[i];
+            if (Generic.Contains(word) || own.Contains(word) || own.Contains(Singular(word))) return true;
+        }
+        return false;
+    }
+
+    /// <summary>A rough singular: "mice" to "mouse", "horses" to "horse", "puppies" to "puppy", "foxes" to "fox".</summary>
+    public static string Singular(string word)
+    {
+        if (Irregular.TryGetValue(word, out var one)) return one;
+        if (word.EndsWith("ies") && word.Length > 4) return word[..^3] + "y";
+        if (word.EndsWith("ches") || word.EndsWith("shes") || word.EndsWith("xes") || word.EndsWith("sses")) return word[..^2];
+        if (word.EndsWith('s') && !word.EndsWith("ss") && word.Length > 3) return word[..^1];
+        return word;
+    }
+
+    private static readonly Dictionary<string, string> Irregular = new()
+    {
+        ["mice"] = "mouse", ["geese"] = "goose", ["oxen"] = "ox", ["wolves"] = "wolf", ["calves"] = "calf", ["leaves"] = "leaf",
+        ["lives"] = "life", ["hooves"] = "hoof", ["cacti"] = "cactus", ["fungi"] = "fungus", ["octopi"] = "octopus", ["deer"] = "deer",
+        ["sheep"] = "sheep", ["fish"] = "fish", ["moose"] = "moose", ["children"] = "child", ["people"] = "person",
+    };
+    private static readonly HashSet<string> Negations = ["not", "no", "nor", "rather", "instead", "without", "isn", "doesn", "aren", "never"];
+    private static readonly HashSet<string> Generic = ["animals", "creatures", "beasts", "things", "objects", "items", "specimens", "individuals", "figures", "pieces", "copies"];
     private static readonly HashSet<string> Many =
     [
         "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "dozen", "dozens",
         "several", "many", "multiple", "numerous", "pair", "couple", "group", "flock", "herd", "pack", "pod",
-        "school", "swarm", "litter", "family", "bunch", "stack", "pile", "heap", "collection", "pieces", "montage", "collage",
+        "school", "swarm", "litter", "family", "bunch", "stack", "pile", "heap", "collection", "montage", "collage",
     ];
     private static readonly HashSet<string> ManyPairs = ["a lot", "lots of", "a number", "a few", "a series", "a set", "a variety"];
-    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skull", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed"];
-    private static readonly HashSet<string> NotWhole = ["half", "halved", "halves", "slice", "sliced", "slices", "peeled", "partial", "fragment", "decaying", "rotten"];
+    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skull", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed", "statue"];
+    private static readonly HashSet<string> NotWhole = ["half", "halved", "halves", "slice", "sliced", "slices", "peeled", "partial", "fragment", "decaying", "rotten", "jaws"];
     private static readonly HashSet<string> NotWholePairs = ["cut in", "cut open", "cut up", "cross section", "close up"];
     private static readonly HashSet<string> NotTheThing =
     [
         "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "bowl", "crate", "basket", "dish",
-        "drawing", "drawn", "sketch", "painting", "cartoon", "illustration", "diagram", "logo", "ticket", "label", "text", "words",
-        "map", "chart", "poster",
+        "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster",
     ];
-    private static readonly HashSet<string> PlantPart = ["branch", "branches", "twig", "twigs", "sprig", "sprigs", "acorn", "acorns", "cone", "cones"];
+    private static readonly HashSet<string> PlantPart = ["branch", "twig", "sprig"];
 
     [GeneratedRegex("[a-z]+")]
     private static partial Regex Words();
