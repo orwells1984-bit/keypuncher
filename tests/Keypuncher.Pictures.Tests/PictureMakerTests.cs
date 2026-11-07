@@ -204,7 +204,7 @@ public sealed class OllamaVisionTests
     public async Task The_check_sends_the_picture_and_the_question_and_reads_the_verdict()
     {
         string? sent = null;
-        var handler = new RecordingHandler(request => { sent = request; return """{"model":"gemma3:4b","message":{"role":"assistant","content":"{\"shows\":\"a striped zebra standing\",\"is_the_thing\":true,\"one_whole_thing\":true,\"confidence\":0.92}"},"done":true}"""; });
+        var handler = new RecordingHandler(request => { sent = request; return """{"model":"gemma3:4b","message":{"role":"assistant","content":"{\"shows\":\"a striped zebra standing\",\"count\":1,\"is_the_thing\":true,\"whole\":true,\"confidence\":0.92}"},"done":true}"""; });
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
         var png = TestPhotos.Jpeg(64, 48);
 
@@ -225,16 +225,56 @@ public sealed class OllamaVisionTests
     }
 
     [Theory]
-    [InlineData("""{"shows":"two zebras","is_the_thing":true,"one_whole_thing":false,"confidence":0.9}""", false, "two zebras")]
-    [InlineData("""{"shows":"a horse","is_the_thing":false,"one_whole_thing":true,"confidence":0.9}""", false, "a horse")]
-    [InlineData("""{"shows":"a zebra","is_the_thing":true,"one_whole_thing":true,"confidence":0.5}""", false, "a zebra")]
-    [InlineData("""{"shows":"a zebra","is_the_thing":true,"one_whole_thing":true,"confidence":0.6}""", true, "a zebra")]
+    [InlineData("""{"shows":"two zebras","count":2,"is_the_thing":true,"whole":true,"confidence":0.9}""", false, "two zebras [counted 2]")]
+    [InlineData("""{"shows":"a horse","count":1,"is_the_thing":false,"whole":true,"confidence":0.9}""", false, "a horse [not the thing]")]
+    [InlineData("""{"shows":"half a zebra","count":1,"is_the_thing":true,"whole":false,"confidence":0.9}""", false, "half a zebra [not whole]")]
+    [InlineData("""{"shows":"a zebra","count":1,"is_the_thing":true,"whole":true,"confidence":0.5}""", false, "a zebra [not sure]")]
+    [InlineData("""{"shows":"a zebra","is_the_thing":true,"whole":true,"confidence":0.9}""", false, "a zebra [no count]")]
+    [InlineData("""{"shows":"a zebra","count":1,"is_the_thing":true,"whole":true,"confidence":0.6}""", true, "a zebra")]
     [InlineData("I think it is a zebra", false, "I think it is a zebra")]
     public void The_verdict_passes_only_when_the_thing_is_there_whole_alone_and_the_model_is_sure(string content, bool passed, string saw)
     {
-        var check = OllamaVision.Read(content, "gemma3:4b", DateTime.UnixEpoch);
+        var check = OllamaVision.Read(content, "gemma3:4b", DateTime.UnixEpoch, "zebra", RealCategory.Animal);
         Assert.Equal(passed, check.Passed);
         Assert.Equal(saw, check.Saw);
+    }
+
+    /// <summary>The desktop's first run: gemma3 said yes to pictures its own description gave away.</summary>
+    [Theory]
+    [InlineData("two white mice", "mouse", RealCategory.Animal, "two")]
+    [InlineData("A family of lions", "lion", RealCategory.Animal, "family")]
+    [InlineData("four Icelandic horses standing", "icelandic horse", RealCategory.Animal, "four")]
+    [InlineData("a skeleton of a parasaurolophus", "parasaurolophus", RealCategory.ExtinctAnimal, "skeleton")]
+    [InlineData("one complete ichthyosaur fossil with ammonites", "ichthyosaur", RealCategory.ExtinctAnimal, "fossil")]
+    [InlineData("one branch of an oak tree with leaves", "oak tree", RealCategory.Plant, "branch")]
+    [InlineData("a cut-out picture of a halved almond", "seed", RealCategory.Plant, "halved")]
+    [InlineData("a pumpkin pie next to a can of Libby's", "pumpkin", RealCategory.Plant, "pie")]
+    [InlineData("A stack of coconuts in a crate", "coconut palm", RealCategory.Plant, "stack")]
+    [InlineData("a collection of baby carrots in a radial pattern", "carrot", RealCategory.Plant, "collection")]
+    [InlineData("a very faded, partial drawing of a ticket", "paddle boat", RealCategory.Vehicle, "partial")]
+    [InlineData("A lot of colorful fireworks", "balloon", RealCategory.Object, "a lot")]
+    [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
+    [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
+    public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
+    {
+        Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
+        Assert.Equal($"says \"{word}\"", OllamaVision.Fault(saw, 1, true, true, 1.0, name, category));
+    }
+
+    /// <summary>Words a good picture is described with must not flag it: the thing's own name, "cut-out", "I can see",
+    /// "both ears", a tulip's stem, a cluster of flowers, a branch when the thing is not a plant.</summary>
+    [Theory]
+    [InlineData("a cut-out of one striped zebra, I can see both ears", "zebra", RealCategory.Animal)]
+    [InlineData("a red tulip with a green stem", "tulip", RealCategory.Plant)]
+    [InlineData("a box turtle on the ground", "box turtle", RealCategory.Animal)]
+    [InlineData("a fire salamander, black with yellow spots", "salamander", RealCategory.Animal)]
+    [InlineData("a cluster of purple hydrangea flowers", "hydrangea", RealCategory.Plant)]
+    [InlineData("a squirrel sitting on a branch", "squirrel", RealCategory.Animal)]
+    [InlineData("a pair of scissors", "pair of scissors", RealCategory.Object)]
+    public void A_clean_description_passes(string saw, string name, RealCategory category)
+    {
+        Assert.Null(OllamaVision.GiveAway(saw, name, category));
+        Assert.Null(OllamaVision.Fault(saw, 1, true, true, 0.9, name, category));
     }
 
     [Fact]
@@ -248,8 +288,10 @@ public sealed class OllamaVisionTests
     [Fact]
     public void The_question_names_the_thing_and_its_kind()
     {
-        Assert.Equal("This is a cut-out picture for a toddler's toy. Does it show exactly one whole arctic thyme (a plant) and nothing else? Say what you see.",
-            OllamaVision.Question("arctic thyme", RealCategory.Plant));
+        var question = OllamaVision.Question("arctic thyme", RealCategory.Plant);
+        Assert.Contains("exactly one whole arctic thyme (a plant)", question);
+        Assert.Contains("Count how many", question);
+        Assert.DoesNotContain("toy", question);
     }
 
     /// <summary>Answers every POST with the given body (null for a 500) and keeps what was sent.</summary>
