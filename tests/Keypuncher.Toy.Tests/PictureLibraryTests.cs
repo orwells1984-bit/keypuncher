@@ -117,6 +117,55 @@ public sealed class PictureLibraryTests : IDisposable
     [InlineData(CalmLevel.Baby)]
     [InlineData(CalmLevel.Toddler)]
     [InlineData(CalmLevel.BigToddler)]
+    public void A_name_that_does_not_climb_is_its_picture_from_the_first_meeting_at_every_level(CalmLevel level)
+    {
+        WritePicture("sable-antelope");
+        WritePicture("zebra");
+        using var library = Library();
+        library.Climbs = name => name != "sable antelope";
+        var style = ArtStyle.For(level);
+        library.Stage(Thing("sable antelope"), style);
+        library.Stage(Thing("zebra"), style);
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        library.Pump();
+        Assert.Equal(PictureStage.Photo, library.Stage(Thing("sable antelope"), style));
+        Assert.Equal(PictureStage.Photo, library.Cap("sable antelope", style));
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("zebra"), style));
+        Assert.Equal(style.MaxPictureStage, library.Cap("zebra", style));
+    }
+
+    [Fact]
+    public void A_director_pick_on_screen_turns_into_its_photo_when_the_photo_lands_even_in_Baby()
+    {
+        using var library = Library();
+        library.Climbs = BuiltInRecipes.IsBuiltIn;
+        using var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        var world = World(CalmLevel.Baby, "sable antelope");
+        using (var before = Render(renderer, world)) Assert.Equal(0, Count(before, p => Near(p, Magenta)));
+
+        WritePicture("sable-antelope");
+        _now += TimeSpan.FromSeconds(10);
+        using var after = Settled(renderer, library, world);
+        Assert.True(Count(after, p => Near(p, Magenta)) > 500, "the thing already on screen is now its photo");
+    }
+
+    [Fact]
+    public void The_toys_own_things_are_built_in_and_the_directors_picks_are_not()
+    {
+        Assert.True(BuiltInRecipes.IsBuiltIn("cat"));
+        Assert.True(BuiltInRecipes.IsBuiltIn("Longneck"));
+        Assert.True(BuiltInRecipes.IsBuiltIn("puffbird"));
+        Assert.True(BuiltInRecipes.IsBuiltIn("house"));
+        Assert.True(BuiltInRecipes.IsBuiltIn("ball"));
+        Assert.False(BuiltInRecipes.IsBuiltIn("sable antelope"));
+        Assert.False(BuiltInRecipes.IsBuiltIn("wild onion"));
+        Assert.False(BuiltInRecipes.IsBuiltIn("acacia tree"));
+    }
+
+    [Theory]
+    [InlineData(CalmLevel.Baby)]
+    [InlineData(CalmLevel.Toddler)]
+    [InlineData(CalmLevel.BigToddler)]
     public void Only_the_photo_stage_shows_the_picture_itself_and_the_level_caps_it(CalmLevel level)
     {
         WritePicture("sable-antelope");

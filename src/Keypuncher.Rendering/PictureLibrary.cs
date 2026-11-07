@@ -66,6 +66,15 @@ public sealed class PictureLibrary : IDisposable
     /// its meetings: for the Preview sheet and for trying pictures out.</summary>
     public PictureStage? Forced { get; set; }
 
+    /// <summary>Whether a name climbs the realism ladder. Any other name with a picture is drawn as that picture
+    /// at once, at every level: the toy says no for the director's picks, so a real thing it chose looks real the
+    /// first time it appears, and only the built-in things ease in over many plays. Every name climbs by default.</summary>
+    public Func<string, bool> Climbs { get; set; } = _ => true;
+
+    /// <summary>The most real a thing of this name may be drawn: the level's cap if it climbs the ladder, otherwise
+    /// the picture itself.</summary>
+    public PictureStage Cap(string name, ArtStyle style) => Climbs(name) ? style.MaxPictureStage : PictureStage.Photo;
+
     /// <summary>Whether <see cref="Save"/> has something to write.</summary>
     public bool Dirty { get; private set; }
 
@@ -122,7 +131,7 @@ public sealed class PictureLibrary : IDisposable
     public bool IsLoading(string name) => _entries.TryGetValue(Slug(name), out var e) && e.Loading;
 
     /// <summary>The stage this recipe would be drawn at now: Shape without a loaded picture, otherwise its
-    /// meetings' rung, capped by the level.</summary>
+    /// meetings' rung capped by the level, or the picture itself for a name that does not climb.</summary>
     public PictureStage Stage(Recipe recipe, ArtStyle style)
     {
         TryStage(recipe, style, out var stage);
@@ -136,8 +145,9 @@ public sealed class PictureLibrary : IDisposable
         var slug = Slug(recipe.Name);
         stage = PictureStage.Shape;
         if (Lookup(slug) is null) return !(_entries.TryGetValue(slug, out var e) && e.Loading);
-        var rung = Forced ?? StageFor(_meetings.TryGetValue(slug, out var m) ? m.N : 0);
-        stage = (PictureStage)Math.Min((int)rung, (int)style.MaxPictureStage);
+        var climbs = Climbs(recipe.Name);
+        var rung = Forced ?? (climbs ? StageFor(_meetings.TryGetValue(slug, out var m) ? m.N : 0) : PictureStage.Photo);
+        stage = (PictureStage)Math.Min((int)rung, (int)Cap(recipe.Name, style));
         return true;
     }
 
