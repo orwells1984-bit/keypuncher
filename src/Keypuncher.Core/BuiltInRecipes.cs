@@ -126,6 +126,14 @@ public static class BuiltInRecipes
     public static Recipe ForConcept(string conceptId) =>
         Concepts.TryGetValue(conceptId, out var r) ? r : Palette[(int)((uint)conceptId.GetHashCode(StringComparison.Ordinal) % Palette.Count)];
 
+    /// <summary>Whether a name is one of the toy's own things (the palette, the animals, the starter concepts and
+    /// the effects) rather than one the director picked. Compared by picture slug, so case and spacing do not matter.</summary>
+    public static bool IsBuiltIn(string name) => BuiltInSlugs.Value.Contains(Slugs.For(name));
+
+    private static readonly Lazy<HashSet<string>> BuiltInSlugs = new(() =>
+        Palette.Concat(Concepts.Values).Append(Burst).Append(Sparkle).Select(r => Slugs.For(r.Name))
+            .Concat(Concepts.Keys.Select(Slugs.For)).ToHashSet());
+
     private static Recipe Make(
         RecipeKind kind, string name, Shape shape, int lobes, int hue, double size, int eyes,
         MotionType motion, double speed, Waveform wave, double attack, double decay, string scale, string root) =>

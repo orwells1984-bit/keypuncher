@@ -46,7 +46,8 @@ public sealed class ToyHost : IDisposable
         Speech = new SpeechLibrary(Clips, new WindowsVoices());
         WorldStore = new WorldStore(Path.Combine(DataFolder, "world.db"));
         WorldStore.Load(World);
-        Pictures = new PictureLibrary(Path.Combine(DataFolder, PicturesName));
+        // The toy's own things ease in over many plays; a real thing the director picked shows its picture at once.
+        Pictures = new PictureLibrary(Path.Combine(DataFolder, PicturesName)) { Climbs = BuiltInRecipes.IsBuiltIn };
 
         try { Audio = new AudioOutput(Mixer); }
         catch (Exception e) { AudioError = e.Message; }
