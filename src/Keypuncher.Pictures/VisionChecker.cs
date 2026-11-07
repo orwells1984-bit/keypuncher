@@ -147,14 +147,26 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         if (!whole) return "not whole";
         if (category is RealCategory.Animal or RealCategory.ExtinctAnimal && count is > 1) return $"counted {count}";
         if (GiveAway(saw, name, category) is { } word) return $"says \"{word}\"";
+        if (!Named(saw, name)) return "does not name it";
         return null;
+    }
+
+    /// <summary>Whether the description uses any word of the name (three letters or more, singular or plural): the
+    /// "house" that was a peace lily and the "squirrel" that was a chipmunk did not. The model is asked about the real
+    /// name, so a nursery name never reaches here.</summary>
+    public static bool Named(string saw, string name)
+    {
+        var own = Words().Matches(name.ToLowerInvariant()).Select(m => m.Value).Where(w => w.Length >= 3).ToList();
+        if (own.Count == 0) return true;
+        var words = Words().Matches(saw.ToLowerInvariant()).Select(m => m.Value).ToHashSet();
+        return own.Any(w => words.Contains(w) || words.Contains(w + "s") || words.Contains(w + "es") || words.Any(x => Singular(x) == w));
     }
 
     /// <summary>A word in the description that gives a bad picture away, whatever the verdict said. A number above one
     /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
-    /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or "a skull"
-    /// (not alive, not whole; "its skull" is a living seal's); a half or slice; a dish or container (food, not the
-    /// thing); a drawing, diagram or manuscript; an animal word for a vehicle or object; and for a plant "a branch" or
+    /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or skull
+    /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container (food, not the
+    /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); an animal word for a vehicle or object; and for a plant "a branch" or
     /// "a sprig", or any single "branch" for a tree (a part; trees have branches). Nothing after a negation in the same sentence
     /// counts, since the model repeats the question back ("not a slice or a drawing"). Null when the description is
     /// clean.</summary>
@@ -169,8 +181,9 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 var word = words[i];
                 if (Negations.Contains(word)) break;
                 if (own.Contains(word)) continue;
+                if (category == RealCategory.ExtinctAnimal && Art.Contains(word)) continue;
                 if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
-                if (word is "skull" && (i > 0 && words[i - 1] is "a" or "the" or "one" or "single" or "complete" or "fossilized" or "fossilised" || i + 1 < words.Count && words[i + 1] is "of")) return word;
+                if (word is "skull" && !(i > 0 && words[i - 1] is "and")) return word;
                 if (category is RealCategory.Vehicle or RealCategory.Object && Living.Contains(word)) return word;
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
@@ -231,6 +244,9 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// <summary>Words that say a vehicle or an object is in fact a living thing (the "paddle boat" that was a duck).</summary>
     private static readonly HashSet<string> Living = ["animal", "creature", "bird", "mammal", "reptile", "insect", "fur", "feathers", "beak", "paws", "snout", "whiskers"];
     private static readonly HashSet<string> PlantPart = ["branch", "twig", "sprig"];
+    /// <summary>Art words that do not count against an extinct animal, which is shown by a life restoration by nature
+    /// (a Lodge drawing of a great auk, a palaeo-painting of a brachiosaurus).</summary>
+    private static readonly HashSet<string> Art = ["drawing", "drawn", "sketch", "cartoon", "painting", "illustration"];
 
     [GeneratedRegex("[a-z]+")]
     private static partial Regex Words();

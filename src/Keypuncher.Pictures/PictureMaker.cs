@@ -102,8 +102,9 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
     private async Task<VisionCheck?> CheckAsync(PictureSidecar sidecar, byte[] png, CancellationToken ct)
     {
         if (checker is null) return null;
+        var (real, realCategory) = ToyNames.LookUp(sidecar.Name, sidecar.Category);
         VisionCheck? check;
-        try { check = await checker.CheckAsync(png, sidecar.Name, sidecar.Category, ct); }
+        try { check = await checker.CheckAsync(png, real, realCategory, ct); }
         catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
         {
             Note($"{sidecar.Name}: the checker did not answer ({e.Message})");

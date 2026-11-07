@@ -278,6 +278,8 @@ public sealed class OllamaVisionTests
     [InlineData("depicted in a medieval illuminated manuscript", "steller's sea cow", RealCategory.ExtinctAnimal, "illuminated")]
     [InlineData("one whole paddle boat, a brown animal with a white belly", "paddle boat", RealCategory.Vehicle, "animal")]
     [InlineData("the skull of a cave bear", "cave bear", RealCategory.ExtinctAnimal, "skull")]
+    [InlineData("a single, complete, and alive harbor seal skull", "harbour seal", RealCategory.Animal, "skull")]
+    [InlineData("a detailed drawing of a paddle boat from an older document", "paddle boat", RealCategory.Vehicle, "drawing")]
     [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
@@ -310,10 +312,26 @@ public sealed class OllamaVisionTests
     [InlineData("one whole wooden spoon with a shallow bowl and a curved handle", "wooden spoon", RealCategory.Object)]
     [InlineData("a squirrel with a bushy tail sitting on a branch", "squirrel", RealCategory.Animal)]
     [InlineData("a wooden rowing boat with two oars", "rowing boat", RealCategory.Vehicle)]
+    [InlineData("a black and white drawing of a single, complete great auk", "great auk", RealCategory.ExtinctAnimal)]
+    [InlineData("a watercolor painting of one brachiosaurus dinosaur", "brachiosaurus", RealCategory.ExtinctAnimal)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
         Assert.Null(OllamaVision.Fault(saw, 1, true, true, name, category));
+    }
+
+    [Theory]
+    [InlineData("a single, pristine white peace lily plant with a yellow flower spike", "house", false)]
+    [InlineData("a single, live chipmunk on a rock", "squirrel", false)]
+    [InlineData("four whole, living Icelandic horses", "icelandic horse", true)]
+    [InlineData("a wels catfish resting on gravel", "wels catfish", true)]
+    [InlineData("two white mice", "mouse", true)]
+    [InlineData("one whole fox", "fox", true)]
+    [InlineData("a bright red balloon", "ball", false)]
+    public void The_description_must_name_the_thing(string saw, string name, bool named)
+    {
+        Assert.Equal(named, OllamaVision.Named(saw, name));
+        if (!named) Assert.Equal("does not name it", OllamaVision.Fault(saw, 1, true, true, name, RealCategory.Object));
     }
 
     [Theory]
