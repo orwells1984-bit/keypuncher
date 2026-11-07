@@ -116,9 +116,10 @@ The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo 
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
 background but mistakes rare species for a familiar relative, so it only ever draws what the photo sources gave up on.
 It takes the graphics card for half a minute a picture, so the toy never runs it: `tools/Keypuncher.Pictures` has
-`generate`, `check` (shows every picture to gemma3 through Ollama, which counts and describes what it sees; the verdict
-is made in code from the count, the match and the words it used, since the model's own yes/no passed "two white mice"
-and "a skeleton of a parasaurolophus"; a failed check is flagged on the grown-ups' page, never hidden) and `nightly`, which fetches, generates and checks in turn and
+`generate`, `check` (shows every picture to gemma3 through Ollama, which first describes what it sees in a sentence and
+then answers a short count/is-it/whole verdict; the pass is decided in code from both, since the model's own yes/no
+passed "two white mice" and "a skeleton of a parasaurolophus", and forcing JSON on the first answer ruined the
+description; a failed check is flagged on the grown-ups' page, never hidden) and `nightly`, which fetches, generates and checks in turn and
 is meant for a scheduled task that stops before anything else wants the card. They refuse to start while the toy runs
 and unload whatever Ollama holds first. `sd-cli.exe` and the three weight files (about 6.7 GB: the Z-Image-Turbo GGUF,
 the Qwen3-4B text encoder GGUF and FLUX's `ae.safetensors`) live under the folder `--sd DIR` or `KEYPUNCHER_SD` names,

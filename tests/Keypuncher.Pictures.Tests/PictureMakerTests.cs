@@ -200,43 +200,59 @@ public sealed class PictureMakerTests : IDisposable
 
 public sealed class OllamaVisionTests
 {
+    private static string Reply(string content) =>
+        JsonSerializer.Serialize(new { model = "gemma3:4b", message = new { role = "assistant", content }, done = true });
+
     [Fact]
-    public async Task The_check_sends_the_picture_and_the_question_and_reads_the_verdict()
+    public async Task The_check_asks_for_a_description_then_a_verdict_and_reads_both()
     {
-        string? sent = null;
-        var handler = new RecordingHandler(request => { sent = request; return """{"model":"gemma3:4b","message":{"role":"assistant","content":"{\"shows\":\"a striped zebra standing\",\"count\":1,\"is_the_thing\":true,\"whole\":true,\"confidence\":0.92}"},"done":true}"""; });
+        var sent = new List<string>();
+        var handler = new RecordingHandler(request =>
+        {
+            sent.Add(request);
+            return sent.Count == 1 ? Reply("I see one striped zebra standing on white, whole and alive.") : Reply("""{"count":1,"is_the_thing":true,"whole":true}""");
+        });
         using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
         var png = TestPhotos.Jpeg(64, 48);
 
         var check = await new OllamaVision(http).CheckAsync(png, "zebra", RealCategory.Animal);
 
         Assert.True(check!.Passed);
-        Assert.Equal(0.92, check.Confidence, 1e-9);
-        Assert.Equal("a striped zebra standing", check.Saw);
+        Assert.Equal("I see one striped zebra standing on white, whole and alive.", check.Saw);
         Assert.Equal("gemma3:4b", check.Model);
-        using var body = JsonDocument.Parse(sent!);
-        Assert.Equal("gemma3:4b", body.RootElement.GetProperty("model").GetString());
-        Assert.False(body.RootElement.GetProperty("stream").GetBoolean());
-        var message = body.RootElement.GetProperty("messages")[0];
+        Assert.Equal(2, sent.Count);
+        using var first = JsonDocument.Parse(sent[0]);
+        Assert.Equal("gemma3:4b", first.RootElement.GetProperty("model").GetString());
+        Assert.False(first.RootElement.GetProperty("stream").GetBoolean());
+        Assert.False(first.RootElement.TryGetProperty("format", out _));
+        var message = first.RootElement.GetProperty("messages")[0];
         Assert.Equal(OllamaVision.Question("zebra", RealCategory.Animal), message.GetProperty("content").GetString());
         Assert.Equal(Convert.ToBase64String(png), message.GetProperty("images")[0].GetString());
-        Assert.Equal("object", body.RootElement.GetProperty("format").GetProperty("type").GetString());
+        using var second = JsonDocument.Parse(sent[1]);
+        var messages = second.RootElement.GetProperty("messages");
+        Assert.Equal(3, messages.GetArrayLength());
+        Assert.Equal("assistant", messages[1].GetProperty("role").GetString());
+        Assert.Equal("I see one striped zebra standing on white, whole and alive.", messages[1].GetProperty("content").GetString());
+        Assert.Equal(OllamaVision.Verdict("zebra"), messages[2].GetProperty("content").GetString());
+        Assert.Equal("object", second.RootElement.GetProperty("format").GetProperty("type").GetString());
         Assert.Equal("http://localhost:11434/api/chat", handler.Url);
     }
 
     [Theory]
-    [InlineData("""{"shows":"two zebras","count":2,"is_the_thing":true,"whole":true,"confidence":0.9}""", false, "two zebras [counted 2]")]
-    [InlineData("""{"shows":"a horse","count":1,"is_the_thing":false,"whole":true,"confidence":0.9}""", false, "a horse [not the thing]")]
-    [InlineData("""{"shows":"half a zebra","count":1,"is_the_thing":true,"whole":false,"confidence":0.9}""", false, "half a zebra [not whole]")]
-    [InlineData("""{"shows":"a zebra","count":1,"is_the_thing":true,"whole":true,"confidence":0.5}""", false, "a zebra [not sure]")]
-    [InlineData("""{"shows":"a zebra","is_the_thing":true,"whole":true,"confidence":0.9}""", false, "a zebra [no count]")]
-    [InlineData("""{"shows":"a zebra","count":1,"is_the_thing":true,"whole":true,"confidence":0.6}""", true, "a zebra")]
-    [InlineData("I think it is a zebra", false, "I think it is a zebra")]
-    public void The_verdict_passes_only_when_the_thing_is_there_whole_alone_and_the_model_is_sure(string content, bool passed, string saw)
+    [InlineData("two zebras", """{"count":2,"is_the_thing":true,"whole":true}""", RealCategory.Animal, false, "two zebras [counted 2]")]
+    [InlineData("a horse", """{"count":1,"is_the_thing":false,"whole":true}""", RealCategory.Animal, false, "a horse [not the thing]")]
+    [InlineData("the front half of a zebra", """{"count":1,"is_the_thing":true,"whole":false}""", RealCategory.Animal, false, "the front half of a zebra [not whole]")]
+    [InlineData("a zebra", null, RealCategory.Animal, false, "a zebra [no verdict]")]
+    [InlineData("a zebra", "I think it is a zebra", RealCategory.Animal, false, "a zebra [no verdict]")]
+    [InlineData("a zebra", """{"count":1,"is_the_thing":true,"whole":true}""", RealCategory.Animal, true, "a zebra")]
+    [InlineData("a zebra", """{"is_the_thing":true,"whole":true}""", RealCategory.Animal, true, "a zebra")]
+    [InlineData("a whole fire engine", """{"count":13,"is_the_thing":true,"whole":true}""", RealCategory.Vehicle, true, "a whole fire engine")]
+    [InlineData("an oak tree in leaf", """{"count":7,"is_the_thing":true,"whole":true}""", RealCategory.Plant, true, "an oak tree in leaf")]
+    public void The_verdict_passes_only_when_the_thing_is_there_whole_and_alone(string saw, string? verdict, RealCategory category, bool passed, string kept)
     {
-        var check = OllamaVision.Read(content, "gemma3:4b", DateTime.UnixEpoch, "zebra", RealCategory.Animal);
+        var check = OllamaVision.Read(saw, verdict, "gemma3:4b", DateTime.UnixEpoch, category == RealCategory.Vehicle ? "fire engine" : category == RealCategory.Plant ? "oak tree" : "zebra", category);
         Assert.Equal(passed, check.Passed);
-        Assert.Equal(saw, check.Saw);
+        Assert.Equal(kept, check.Saw);
     }
 
     /// <summary>The desktop's first run: gemma3 said yes to pictures its own description gave away.</summary>
@@ -258,7 +274,7 @@ public sealed class OllamaVisionTests
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
     {
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
-        Assert.Equal($"says \"{word}\"", OllamaVision.Fault(saw, 1, true, true, 1.0, name, category));
+        Assert.Equal($"says \"{word}\"", OllamaVision.Fault(saw, 1, true, true, name, category));
     }
 
     /// <summary>Words a good picture is described with must not flag it: the thing's own name, "cut-out", "I can see",
@@ -274,7 +290,7 @@ public sealed class OllamaVisionTests
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
-        Assert.Null(OllamaVision.Fault(saw, 1, true, true, 0.9, name, category));
+        Assert.Null(OllamaVision.Fault(saw, 1, true, true, name, category));
     }
 
     [Fact]
@@ -286,11 +302,22 @@ public sealed class OllamaVisionTests
     }
 
     [Fact]
+    public async Task A_verdict_that_fails_to_come_keeps_the_description_and_flags()
+    {
+        var calls = 0;
+        var handler = new RecordingHandler(_ => ++calls == 1 ? Reply("one striped zebra") : null);
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
+        var check = await new OllamaVision(http).CheckAsync(TestPhotos.Jpeg(32, 32), "zebra", RealCategory.Animal);
+        Assert.False(check!.Passed);
+        Assert.Equal("one striped zebra [no verdict]", check.Saw);
+    }
+
+    [Fact]
     public void The_question_names_the_thing_and_its_kind()
     {
         var question = OllamaVision.Question("arctic thyme", RealCategory.Plant);
         Assert.Contains("exactly one whole arctic thyme (a plant)", question);
-        Assert.Contains("Count how many", question);
+        Assert.Contains("how many", question);
         Assert.DoesNotContain("toy", question);
     }
 
