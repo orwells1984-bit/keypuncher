@@ -110,8 +110,19 @@ stock shape, and the wanted list (`wanted.json`) remembers it. The two cut-out m
 The grown-ups' page lists every picture with its credit and a Hide button, has a "Try another" for a wrong one, and
 a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`, `fetch`, `recut`, `hide`, `show`,
 and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
-folder of its own and writes a report of what photos cover and which things are gaps (the image model, if it earns
-its place, is for those).
+folder of its own and writes a report of what photos cover and which things are gaps.
+
+The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
+model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
+background but mistakes rare species for a familiar relative, so it only ever draws what the photo sources gave up on.
+It takes the graphics card for half a minute a picture, so the toy never runs it: `tools/Keypuncher.Pictures` has
+`generate`, `check` (shows every picture to gemma3 through Ollama and records whether it looks like the thing; a failed
+check is flagged on the grown-ups' page, never hidden) and `nightly`, which fetches, generates and checks in turn and
+is meant for a scheduled task that stops before anything else wants the card. They refuse to start while the toy runs
+and unload whatever Ollama holds first. `sd-cli.exe` and the three weight files (about 6.7 GB: the Z-Image-Turbo GGUF,
+the Qwen3-4B text encoder GGUF and FLUX's `ae.safetensors`) live under the folder `--sd DIR` or `KEYPUNCHER_SD` names,
+`sd\` and `models\` inside it; the toy downloads none of them. A made picture's sidecar records the model, weights,
+prompt and seed, and its credit line on the grown-ups' page says so.
 
 ## Phase 2: the director
 
