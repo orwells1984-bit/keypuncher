@@ -11,11 +11,21 @@
 //   dotnet run --project tools/Keypuncher.Pictures -- model                     download the two cut-out models (about 400 MB) and check them
 //   dotnet run --project tools/Keypuncher.Pictures -- recut [slug]              cut out again from raw/ (a new model, or new rules)
 //   dotnet run --project tools/Keypuncher.Pictures -- hide <slug> | show <slug>  take a picture out of play, or put it back
+//   dotnet run --project tools/Keypuncher.Pictures -- generate [--until HH:mm] [--limit N] [--seed N] [--again]
+//                                                                               draw a picture with the image model for every thing the
+//                                                                               photo sources gave up on, cut it out, and have gemma3 check it
+//   dotnet run --project tools/Keypuncher.Pictures -- check [slug]              show pictures in play to gemma3 and record what it says (flags only)
+//   dotnet run --project tools/Keypuncher.Pictures -- nightly [--until HH:mm]   fetch, then generate, then check what is unchecked
 //
 // Every verb takes --data DIR for the toy's data folder (default KEYPUNCHER_DATA or %LOCALAPPDATA%\Keypuncher).
-// Nothing here needs Ollama or the graphics card; the batch that makes pictures with an image model comes later.
+// generate, check and nightly take the graphics card: they need stable-diffusion.cpp and the Z-Image-Turbo weights
+// under --sd DIR (default KEYPUNCHER_SD or <data>\sd; sd-cli.exe in it or sd\, the weights in it or models\), refuse
+// to start while the toy runs, and unload whatever Ollama holds first. The other verbs need neither Ollama nor the card.
 
+using System.Diagnostics;
 using System.Globalization;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Keypuncher.Core;
 using Keypuncher.Director;
 using Keypuncher.Pictures;
@@ -46,10 +56,99 @@ switch (verb)
     case "hide":
     case "show":
         return HideOrShow(verb == "hide", args.Length > 1 ? args[1] : null);
+    case "generate":
+        return await GenerateAsync();
+    case "check":
+        return await CheckAsync(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null);
+    case "nightly":
+        return await NightlyAsync();
     default:
-        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show");
+        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, generate, check, nightly");
         return 1;
 }
+
+async Task<int> GenerateAsync()
+{
+    if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
+    var setup = SdCliSetup.Find(options.Sd);
+    if (!setup.AllPresent) { Console.WriteLine($"Image model not all there under {options.Sd}: missing {string.Join(", ", setup.Missing())}."); return 1; }
+    if (!cutOut.IsAvailable) { Console.WriteLine($"No cut-out model in {models.Folder}: run 'model' first."); return 1; }
+    var maker = new PictureMaker(folder, new SdCli(setup, note: line => Console.WriteLine("  " + line)), cutOut, Checker(), note: line => Console.WriteLine("  " + line));
+    var gaps = folder.Wanted.All().Where(w => options.Again ? !ToyNames.IsInvented(w.Name) : PictureMaker.IsGap(w)).ToList();
+    if (options.Limit is { } limit) gaps = gaps.Take(limit).ToList();
+    Console.WriteLine($"{gaps.Count} to draw with {SdCliSetup.ModelName}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
+    var counts = new Dictionary<MakeOutcome, int>();
+    var failures = 0;
+    foreach (var w in gaps)
+    {
+        if (options.Until is { } until && DateTime.Now >= until) { Console.WriteLine("stopping: the time is up"); break; }
+        Console.WriteLine($"{w.Name} ({w.Category}):");
+        var outcome = await maker.MakeAsync(w.Name, w.Category, options.Seed);
+        counts[outcome] = counts.GetValueOrDefault(outcome) + 1;
+        if (outcome == MakeOutcome.ModelMissing) break;
+        if (outcome == MakeOutcome.Failed && ++failures >= 3) { Console.WriteLine("stopping: three failures in a row"); break; }
+        if (outcome != MakeOutcome.Failed) failures = 0;
+    }
+    Console.WriteLine(string.Join(", ", counts.Select(c => $"{c.Value} {c.Key}")));
+    return 0;
+}
+
+async Task<int> CheckAsync(string? slug)
+{
+    if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
+    var checker = Checker();
+    var maker = new PictureMaker(folder, new SdCli(SdCliSetup.Find(options.Sd)), cutOut, checker, note: line => Console.WriteLine("  " + line));
+    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || p.Check is null).Select(p => p.Slug).ToList();
+    Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
+    int passed = 0, flagged = 0, silent = 0;
+    foreach (var s in slugs)
+    {
+        if (options.Until is { } until && DateTime.Now >= until) { Console.WriteLine("stopping: the time is up"); break; }
+        Console.WriteLine($"{s}:");
+        var check = await maker.CheckAsync(s);
+        if (check is null) { if (++silent >= 3) { Console.WriteLine("stopping: the checker is not answering"); break; } }
+        else if (check.Passed) passed++;
+        else flagged++;
+    }
+    Console.WriteLine($"{passed} look right, {flagged} flagged, {silent} unanswered");
+    return 0;
+}
+
+async Task<int> NightlyAsync()
+{
+    // Photos first, over the network only; then the card for the gaps; then the checker over everything new.
+    var fetched = await FetchAsync();
+    if (options.Until is { } until && DateTime.Now >= until) return fetched;
+    var generated = await GenerateAsync();
+    if (generated == 2) return 2;
+    return await CheckAsync(null);
+}
+
+/// <summary>Why the card cannot be taken now: the toy is running, or Ollama holds a model we could not unload.</summary>
+async Task<string?> CardBusyAsync()
+{
+    if (Process.GetProcessesByName("Keypuncher").Length > 0) return "The toy is running; the card is its. Try again when it is closed.";
+    try
+    {
+        using var ollama = new HttpClient { BaseAddress = OllamaHost(), Timeout = TimeSpan.FromSeconds(30) };
+        using var ps = JsonDocument.Parse(await ollama.GetStringAsync("api/ps"));
+        if (!ps.RootElement.TryGetProperty("models", out var loaded)) return null;
+        foreach (var m in loaded.EnumerateArray())
+        {
+            var name = m.TryGetProperty("name", out var n) ? n.GetString() : null;
+            if (name is null) continue;
+            Console.WriteLine($"Ollama holds {name}; asking it to let go.");
+            using var _ = await ollama.PostAsJsonAsync("api/generate", new { model = name, keep_alive = 0 });
+        }
+        return null;
+    }
+    catch (HttpRequestException) { return null; } // No Ollama: the card is free.
+    catch (TaskCanceledException) { return "Ollama is not answering; is it busy with the tournament?"; }
+}
+
+IVisionChecker Checker() => new OllamaVision(new HttpClient { BaseAddress = OllamaHost(), Timeout = TimeSpan.FromMinutes(3) }, options.CheckModel);
+
+static Uri OllamaHost() => new(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } h ? (h.Contains("://") ? h : "http://" + h) : "http://localhost:11434");
 
 int Wanted()
 {
@@ -149,7 +248,8 @@ string Describe(FetchOutcome outcome, string name)
 namespace Keypuncher.PicturesTool
 {
     /// <summary>The command line, shared by the verbs.</summary>
-    public sealed record Options(string Data, string? Into, string? Out, string? Sets, string? Names, bool All, bool NoDownload, DateTime? Until, int? Limit, bool Again)
+    public sealed record Options(string Data, string? Into, string? Out, string? Sets, string? Names, bool All, bool NoDownload, DateTime? Until, int? Limit, bool Again,
+        string Sd, long? Seed, string CheckModel)
     {
         public static Options Parse(string[] args)
         {
@@ -160,8 +260,11 @@ namespace Keypuncher.PicturesTool
             }
             var data = Get("data") ?? Environment.GetEnvironmentVariable("KEYPUNCHER_DATA");
             if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Keypuncher");
+            var sd = Get("sd") ?? Environment.GetEnvironmentVariable("KEYPUNCHER_SD");
+            if (string.IsNullOrEmpty(sd)) sd = Path.Combine(data, "sd");
             return new Options(data, Get("into"), Get("out"), Get("sets"), Get("names"), args.Contains("--all"), args.Contains("--no-download"),
-                ParseUntil(Get("until"), DateTime.Now), Get("limit") is { } l ? int.Parse(l, CultureInfo.InvariantCulture) : null, args.Contains("--again"));
+                ParseUntil(Get("until"), DateTime.Now), Get("limit") is { } l ? int.Parse(l, CultureInfo.InvariantCulture) : null, args.Contains("--again"),
+                sd, Get("seed") is { } seed ? long.Parse(seed, CultureInfo.InvariantCulture) : null, Get("check-model") ?? OllamaVision.DefaultModel);
         }
 
         /// <summary>The clock time to stop by, "HH:mm": today if still ahead, else tomorrow.</summary>
