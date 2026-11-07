@@ -273,6 +273,11 @@ public sealed class OllamaVisionTests
     [InlineData("a complete, three-dimensional skull of a harbour seal", "harbour seal", RealCategory.Animal, "skull")]
     [InlineData("a megalodon shark's mouth, a complete representation of its jaws", "megalodon", RealCategory.ExtinctAnimal, "jaws")]
     [InlineData("a lot of small fish swimming together", "fish", RealCategory.Animal, "a lot")]
+    [InlineData("a single oak branch, representing the whole branch of an oak tree", "oak tree", RealCategory.Plant, "branch")]
+    [InlineData("a single acacia tree branch with yellow flowers", "acacia tree", RealCategory.Plant, "branch")]
+    [InlineData("depicted in a medieval illuminated manuscript", "steller's sea cow", RealCategory.ExtinctAnimal, "illuminated")]
+    [InlineData("one whole paddle boat, a brown animal with a white belly", "paddle boat", RealCategory.Vehicle, "animal")]
+    [InlineData("the skull of a cave bear", "cave bear", RealCategory.ExtinctAnimal, "skull")]
     [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
@@ -301,6 +306,10 @@ public sealed class OllamaVisionTests
     [InlineData("a realistic cut-out illustration of a polar bear for a children's book", "polar bear", RealCategory.Animal)]
     [InlineData("a ferry with the words BASTO VIII on its side", "ferry", RealCategory.Vehicle)]
     [InlineData("a red cabbage, whole, rather than a drawing", "red cabbage", RealCategory.Plant)]
+    [InlineData("one whole, living harbour seal, with its head and skull clearly visible", "harbour seal", RealCategory.Animal)]
+    [InlineData("one whole wooden spoon with a shallow bowl and a curved handle", "wooden spoon", RealCategory.Object)]
+    [InlineData("a squirrel with a bushy tail sitting on a branch", "squirrel", RealCategory.Animal)]
+    [InlineData("a wooden rowing boat with two oars", "rowing boat", RealCategory.Vehicle)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
@@ -353,7 +362,7 @@ public sealed class OllamaVisionTests
         Assert.Contains("how many", question);
         Assert.DoesNotContain("toy", question);
         Assert.DoesNotContain("picture book", question);
-        Assert.DoesNotContain("drawing", question);
+        Assert.Contains("a fossil or a drawing", question);
     }
 
     /// <summary>Answers every POST with the given body (null for a 500) and keeps what was sent.</summary>

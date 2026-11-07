@@ -72,8 +72,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// avoids "toy", which came back as what was seen.</summary>
     public static string Question(string name, RealCategory category) =>
         $"This cut-out picture should show exactly one whole {name} ({Describe(category)}), complete and alive, with nothing else. " +
-        $"Describe what you actually see in one or two sentences: what it is, how many there are, and whether it is the whole thing. " +
-        $"Answer with the description only.";
+        $"Describe what you actually see in one or two sentences: what it is, how many there are, whether anything else is in the picture, " +
+        $"and whether it is cut, cooked, a model, a fossil or a drawing. Answer with the description only.";
 
     /// <summary>The second question, asked after the description, answered in the shape of <see cref="Schema"/>.</summary>
     public static string Verdict(string name) =>
@@ -152,9 +152,10 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
 
     /// <summary>A word in the description that gives a bad picture away, whatever the verdict said. A number above one
     /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
-    /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil or jaws (not
-    /// alive, not whole); a half or slice; a dish or container (food, not the thing); a drawing or diagram; and for a
-    /// plant "a branch" or "a sprig" (a part; trees have branches). Nothing after a negation in the same sentence
+    /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or "a skull"
+    /// (not alive, not whole; "its skull" is a living seal's); a half or slice; a dish or container (food, not the
+    /// thing); a drawing, diagram or manuscript; an animal word for a vehicle or object; and for a plant "a branch" or
+    /// "a sprig", or any single "branch" for a tree (a part; trees have branches). Nothing after a negation in the same sentence
     /// counts, since the model repeats the question back ("not a slice or a drawing"). Null when the description is
     /// clean.</summary>
     public static string? GiveAway(string saw, string name, RealCategory category)
@@ -169,7 +170,9 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (Negations.Contains(word)) break;
                 if (own.Contains(word)) continue;
                 if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
-                if (category == RealCategory.Plant && PlantPart.Contains(word) && i > 0 && words[i - 1] is "a" or "one" or "single") return word;
+                if (word is "skull" && (i > 0 && words[i - 1] is "a" or "the" or "one" or "single" or "complete" or "fossilized" or "fossilised" || i + 1 < words.Count && words[i + 1] is "of")) return word;
+                if (category is RealCategory.Vehicle or RealCategory.Object && Living.Contains(word)) return word;
+                if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
                 if (pair is not null && NotWholePairs.Contains(pair)) return pair;
                 if (pair is "three dimensional" or "two dimensional") continue;
@@ -217,14 +220,16 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "school", "swarm", "litter", "family", "bunch", "stack", "pile", "heap", "collection", "montage", "collage",
     ];
     private static readonly HashSet<string> ManyPairs = ["a lot", "lots of", "a number", "a few", "a series", "a set", "a variety"];
-    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skull", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed", "statue"];
+    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed", "statue"];
     private static readonly HashSet<string> NotWhole = ["half", "halved", "halves", "slice", "sliced", "slices", "peeled", "partial", "fragment", "decaying", "rotten", "jaws"];
     private static readonly HashSet<string> NotWholePairs = ["cut in", "cut open", "cut up", "cross section", "close up"];
     private static readonly HashSet<string> NotTheThing =
     [
-        "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "bowl", "crate", "basket", "dish",
-        "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster",
+        "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "crate", "basket", "dish",
+        "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
     ];
+    /// <summary>Words that say a vehicle or an object is in fact a living thing (the "paddle boat" that was a duck).</summary>
+    private static readonly HashSet<string> Living = ["animal", "creature", "bird", "mammal", "reptile", "insect", "fur", "feathers", "beak", "paws", "snout", "whiskers"];
     private static readonly HashSet<string> PlantPart = ["branch", "twig", "sprig"];
 
     [GeneratedRegex("[a-z]+")]
