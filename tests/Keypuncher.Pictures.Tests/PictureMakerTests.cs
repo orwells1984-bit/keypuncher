@@ -111,7 +111,7 @@ public sealed class PictureMakerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_picture_in_play_can_be_checked_later_and_a_flag_does_not_hide_it()
+    public async Task A_picture_that_fails_its_check_is_hidden_and_drawn_again_with_another_seed()
     {
         await Maker().MakeAsync("ball", RealCategory.Object);
         _checker.Passed = false;
@@ -120,12 +120,29 @@ public sealed class PictureMakerTests : IDisposable
         var check = await Maker(_checker).CheckAsync("ball");
 
         Assert.False(check!.Passed);
-        Assert.True(_folder.HasPicture("ball"));
+        Assert.False(_folder.HasPicture("ball"));
+        Assert.True(_folder.IsHidden("ball"));
         var sidecar = _folder.ReadSidecar("ball")!;
         Assert.False(sidecar.Check!.Passed);
         Assert.Equal("a brown egg", sidecar.Check.Saw);
         Assert.Equal(PictureSource.Generated, sidecar.Source);
         Assert.Contains(_log, l => l.Contains("looks WRONG"));
+        Assert.Equal(PictureChecks.FailedCheck, _folder.Wanted.Get("ball")!.Reason);
+
+        _checker.Passed = true;
+        Assert.Equal(MakeOutcome.Made, await Maker(_checker).MakeAsync("ball", RealCategory.Object));
+        Assert.True(_folder.HasPicture("ball"));
+        Assert.False(_folder.IsHidden("ball"));
+        Assert.Equal([1L, 2L], _model.Asked.Select(a => a.Seed));
+    }
+
+    [Fact]
+    public async Task A_picture_a_grown_up_hid_is_not_drawn_again()
+    {
+        await Maker().MakeAsync("ball", RealCategory.Object);
+        _folder.Hide("ball");
+        Assert.Equal(MakeOutcome.AlreadyHave, await Maker().MakeAsync("ball", RealCategory.Object));
+        Assert.Single(_model.Asked);
     }
 
     [Fact]

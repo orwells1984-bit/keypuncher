@@ -121,6 +121,7 @@ public sealed class PictureFolder
         }
     }
 
+    /// <summary>Puts a hidden picture back in play and stops any search for another.</summary>
     public void Unhide(string slug)
     {
         lock (_lock)
@@ -129,6 +130,8 @@ public sealed class PictureFolder
             if (!File.Exists(hidden)) return;
             File.Move(hidden, PicturePath(slug), overwrite: true);
             if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false });
+            // A grown-up putting back a picture the checker turned down wants that one, not another.
+            Wanted.Remove(slug);
         }
     }
 

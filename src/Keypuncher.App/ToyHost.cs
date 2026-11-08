@@ -32,6 +32,9 @@ public sealed class ToyHost : IDisposable
     private readonly LockShortcut _lock;
     private readonly KeepAwake _keepAwake = new();
     private readonly OnnxCutOut[] _cutOuts;
+    private readonly OllamaLanguageModel _author;
+    private readonly CancellationTokenSource _stopChecks = new();
+    private Task? _checking;
     private volatile HostMode _mode = HostMode.Play;
 
     /// <summary>Where the toy keeps its data: KEYPUNCHER_DATA if set, otherwise %LOCALAPPDATA%\Keypuncher.</summary>
@@ -95,6 +98,7 @@ public sealed class ToyHost : IDisposable
         // play could pass without that key being pressed again.
         Director.Restyled += (_, recipe) => Engine.Show(recipe);
         Story($"started; model {model} at {ollama}");
+        _author = author;
         if (Engine.Settings.Director) Task.Run(() => WarmUpAsync(author)).LogFailures("ollama", "warming up the model");
         else Log.Info("director", "model changes are off in the settings; the model is not loaded");
 
@@ -172,6 +176,59 @@ public sealed class ToyHost : IDisposable
         _ => RealCategory.Object,
     };
 
+    /// <summary>
+    /// Shows the pictures play has just fetched to the vision model, while the toy sleeps after its goodnight and the
+    /// director has stopped choosing. One it fails (a school of fish, a mare and foal, a cloth for a coconut) is taken
+    /// out of play and another photo is fetched; see <see cref="PictureChecks"/>. Then the director's model is loaded
+    /// again, so a new play straight after does not wait for it. Quitting stops it at once; what was not
+    /// checked waits for the next goodnight, or the console tool's <c>check</c>.
+    /// </summary>
+    public void CheckNewPictures()
+    {
+        if (!Engine.Settings.Pictures || !Engine.Settings.Director || _stopChecks.IsCancellationRequested) return;
+        if (_checking is { IsCompleted: false }) return;
+        _checking = Task.Run(() => CheckNewPicturesAsync(_stopChecks.Token));
+        _checking.LogFailures("pictures", "checking new pictures");
+    }
+
+    private async Task CheckNewPicturesAsync(CancellationToken ct)
+    {
+        using var http = new HttpClient { BaseAddress = OllamaAddress, Timeout = TimeSpan.FromMinutes(3) };
+        var checks = new PictureChecks(PictureFolder, new OllamaVision(http), note: NotePicture);
+        var todo = checks.Unchecked();
+        if (todo.Count == 0) return;
+        Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
+        int passed = 0, failed = 0, silent = 0;
+        try
+        {
+            foreach (var picture in todo)
+            {
+                ct.ThrowIfCancellationRequested();
+                var check = await checks.CheckAsync(picture.Slug, ct).ConfigureAwait(false);
+                if (check is null)
+                {
+                    if (++silent >= 2) { Story($"the picture checker ({checks.Model}) is not answering; the rest wait for next time"); break; }
+                    continue;
+                }
+                if (check.Passed) { passed++; continue; }
+                failed++;
+                var name = picture.Name;
+                MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
+                PictureJobs.Enqueue(name, picture.Category, again: true);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Story($"picture check stopped: the toy is closing ({passed} looked right, {failed} taken out of play so far)");
+            return;
+        }
+        Story($"picture check done: {passed} looked right, {failed} taken out of play, {todo.Count - passed - failed} not checked");
+        if (ct.IsCancellationRequested) return;
+        try { await _author.WarmUpAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception e) { Log.Warn("ollama", "loading the director's model again after the picture check failed; the next pick loads it", e); }
+    }
+
     /// <summary>A line about a picture, stamped, in the director's log.</summary>
     private void NotePicture(string line) => Story(line);
 
@@ -216,6 +273,8 @@ public sealed class ToyHost : IDisposable
     public void Dispose()
     {
         Log.Info("app", "shutting down");
+        // A picture check under way stops at once; the process ending does not wait for it.
+        Log.Safely("pictures", "stopping the picture check", _stopChecks.Cancel);
         Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
         Log.Safely("app", "putting the accessibility shortcuts back", _shortcuts.Dispose);
         Log.Safely("app", "putting Win+L back", _lock.Dispose);

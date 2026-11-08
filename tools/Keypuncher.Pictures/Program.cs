@@ -14,8 +14,10 @@
 //   dotnet run --project tools/Keypuncher.Pictures -- generate [--until HH:mm] [--limit N] [--seed N] [--again]
 //                                                                               draw a picture with the image model for every thing the
 //                                                                               photo sources gave up on, cut it out, and have gemma3 check it
-//   dotnet run --project tools/Keypuncher.Pictures -- check [slug]              show pictures in play to gemma3 and record what it says (flags only)
-//   dotnet run --project tools/Keypuncher.Pictures -- nightly [--until HH:mm]   fetch, then generate, then check what is unchecked
+//   dotnet run --project tools/Keypuncher.Pictures -- check [slug] [--again]    show pictures to gemma3; one it fails is taken out of play and
+//                                                                               another photo is wanted (put it back with 'show <slug>')
+//   dotnet run --project tools/Keypuncher.Pictures -- nightly [--until HH:mm]   fetch, then generate, then check what is unchecked, then fetch
+//                                                                               replacements for what the check turned down
 //
 // Every verb takes --data DIR for the toy's data folder (default KEYPUNCHER_DATA or %LOCALAPPDATA%\Keypuncher).
 // generate, check and nightly take the graphics card: they need stable-diffusion.cpp and the Z-Image-Turbo weights
@@ -97,7 +99,7 @@ async Task<int> CheckAsync(string? slug)
 {
     if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
     var checker = Checker();
-    var maker = new PictureMaker(folder, new SdCli(SdCliSetup.Find(options.Sd)), cutOut, checker, note: line => Console.WriteLine("  " + line));
+    var checks = new PictureChecks(folder, checker, note: line => Console.WriteLine("  " + line));
     var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || p.Check is null).Select(p => p.Slug).ToList();
     Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
     int passed = 0, flagged = 0, silent = 0;
@@ -105,12 +107,12 @@ async Task<int> CheckAsync(string? slug)
     {
         if (options.Until is { } until && DateTime.Now >= until) { Console.WriteLine("stopping: the time is up"); break; }
         Console.WriteLine($"{s}:");
-        var check = await maker.CheckAsync(s);
+        var check = await checks.CheckAsync(s);
         if (check is null) { if (++silent >= 3) { Console.WriteLine("stopping: the checker is not answering"); break; } }
         else if (check.Passed) passed++;
         else flagged++;
     }
-    Console.WriteLine($"{passed} look right, {flagged} flagged, {silent} unanswered");
+    Console.WriteLine($"{passed} look right, {flagged} taken out of play (another photo is wanted for each), {silent} unanswered");
     return 0;
 }
 
@@ -121,7 +123,10 @@ async Task<int> NightlyAsync()
     if (options.Until is { } until && DateTime.Now >= until) return fetched;
     var generated = await GenerateAsync();
     if (generated == 2) return 2;
-    return await CheckAsync(null);
+    var checkedOk = await CheckAsync(null);
+    if (checkedOk != 0 || options.Until is { } stop && DateTime.Now >= stop) return checkedOk;
+    // A picture the checker turned down is wanted again with its photo excluded: fetch its replacement now.
+    return await FetchAsync();
 }
 
 /// <summary>Why the card cannot be taken now: the toy is running, or Ollama holds a model we could not unload.</summary>

@@ -1,0 +1,146 @@
+using Keypuncher.Director;
+using Keypuncher.Pictures;
+
+namespace Keypuncher.Pictures.Tests;
+
+/// <summary>What a vision check does to a picture: a pass leaves it be; a fail takes it out of play and asks for
+/// another photo, which the next fetch brings; a grown-up can put it back.</summary>
+public sealed class PictureChecksTests : IDisposable
+{
+    private const string Shoal = "https://upload.wikimedia.org/maldives-surgeonfish.jpg";
+    private const string Trout = "https://upload.wikimedia.org/brown-trout.jpg";
+    private readonly string _dir = Directory.CreateTempSubdirectory("keypuncher-checks-tests").FullName;
+    private readonly DateTime _now = new(2026, 11, 8, 16, 0, 0);
+    private readonly PictureFolder _folder;
+    private readonly FakeHandler _web = new FakeHandler().Bytes(Shoal, TestPhotos.Jpeg(), "image/jpeg").Bytes(Trout, TestPhotos.Jpeg(), "image/jpeg");
+    private readonly FakePhotoFinder _finder = new() { Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Maldives Surgeonfish.jpg", Shoal), []) };
+    private readonly FakeCutOut _cutOut = new();
+    private readonly Checker _checker = new();
+    private readonly List<string> _log = [];
+
+    public PictureChecksTests() => _folder = new PictureFolder(Path.Combine(_dir, "pictures"));
+
+    public void Dispose() => Directory.Delete(_dir, recursive: true);
+
+    private PhotoFetcher Fetcher() => new(_folder, _finder, _cutOut, new HttpClient(_web), () => _now, _log.Add);
+    private PictureChecks Checks() => new(_folder, _checker, () => _now, _log.Add);
+
+    [Fact]
+    public async Task A_picture_that_passes_stays_in_play_with_its_verdict()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.True(check!.Passed);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.True(_folder.ReadSidecar("fish")!.Check!.Passed);
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Empty(Checks().Unchecked());
+    }
+
+    [Fact]
+    public async Task A_picture_that_fails_is_taken_out_of_play_and_another_photo_is_wanted()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        _checker.Saw = "a school of about thirty blue surgeonfish [counted 30]";
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.False(check!.Passed);
+        Assert.False(_folder.HasPicture("fish"));
+        Assert.True(_folder.IsHidden("fish"));
+        var sidecar = _folder.ReadSidecar("fish")!;
+        Assert.True(sidecar.Hidden);
+        Assert.False(sidecar.Check!.Passed);
+        var wanted = _folder.Wanted.Get("fish")!;
+        Assert.Equal(PictureChecks.FailedCheck, wanted.Reason);
+        Assert.Equal(["File:Maldives Surgeonfish.jpg"], wanted.Exclude);
+        Assert.Contains(_log, l => l.Contains("looks WRONG") && l.Contains("taken out of play"));
+    }
+
+    [Fact]
+    public async Task The_next_fetch_puts_another_photo_in_play_and_it_waits_for_its_own_check()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+
+        var outcome = await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        Assert.Equal(FetchOutcome.Pictured, outcome);
+        Assert.Contains("File:Maldives Surgeonfish.jpg", _finder.Asked[^1].Exclude);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.IsHidden("fish"));
+        var sidecar = _folder.ReadSidecar("fish")!;
+        Assert.Equal("File:Brown trout.jpg", sidecar.Photo!.FileTitle);
+        Assert.Null(sidecar.Check);
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Equal("fish", Assert.Single(Checks().Unchecked()).Slug);
+    }
+
+    [Fact]
+    public async Task A_grown_up_putting_a_failed_picture_back_stops_the_search_for_another()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+
+        _folder.Unhide("fish");
+
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Equal(FetchOutcome.AlreadyHave, await Fetcher().FetchAsync("fish", RealCategory.Animal));
+        // Its verdict stays, so the toy does not check it again after the next goodnight.
+        Assert.Empty(Checks().Unchecked());
+    }
+
+    [Fact]
+    public async Task A_picture_a_grown_up_hid_is_left_hidden_by_the_fetcher()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _folder.Hide("fish");
+
+        Assert.Equal(FetchOutcome.AlreadyHave, await Fetcher().FetchAsync("fish", RealCategory.Animal));
+        Assert.True(_folder.IsHidden("fish"));
+        Assert.Empty(Checks().Unchecked());
+    }
+
+    [Fact]
+    public async Task A_checker_that_does_not_answer_changes_nothing()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Answer = false;
+
+        Assert.Null(await Checks().CheckAsync("fish"));
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.Null(_folder.ReadSidecar("fish")!.Check);
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Null(await Checks().CheckAsync("no-such-thing"));
+    }
+
+    [Fact]
+    public async Task The_checker_is_asked_about_the_real_name_of_a_nursery_name()
+    {
+        await Fetcher().FetchAsync("rex", RealCategory.Animal);
+        await Checks().CheckAsync("rex");
+        Assert.Equal(("Tyrannosaurus", RealCategory.ExtinctAnimal), _checker.Asked.Single());
+    }
+
+    private sealed class Checker : IVisionChecker
+    {
+        public string Model => "gemma3:4b";
+        public bool Passed { get; set; } = true;
+        public bool Answer { get; set; } = true;
+        public string Saw { get; set; } = "one blue fish";
+        public List<(string Name, RealCategory Category)> Asked { get; } = [];
+
+        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
+        {
+            Asked.Add((name, category));
+            return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 1 : 0, Saw, new DateTime(2026, 11, 8, 16, 1, 0)) : null);
+        }
+    }
+}
