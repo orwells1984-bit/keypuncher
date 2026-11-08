@@ -184,6 +184,67 @@ public static class RealThingRules
         ["pony"] = Shape.Horse, ["duckling"] = Shape.Duck, ["bunny"] = Shape.Rabbit, ["calf"] = Shape.Cow,
     };
 
+    /// <summary>Names of two words or more whose last word would mislead <see cref="NameShapes"/>.</summary>
+    private static readonly Dictionary<string, Shape> TwoWordShapes = new(StringComparer.Ordinal)
+    {
+        ["sea lion"] = Shape.Seal, ["prairie dog"] = Shape.Mouse, ["guinea pig"] = Shape.Mouse, ["sea horse"] = Shape.Seahorse,
+        ["sea star"] = Shape.Starfish,
+    };
+
+    /// <summary>A name's last word that says which drawing suits it, whatever shape the model chose: a fennec fox is
+    /// drawn as a dog, not as a striped fish, and a fire engine as a car. Used only where the category allows the
+    /// shape (an animal shape for a living thing, a car or boat for a vehicle, a ball or egg for an object).</summary>
+    private static readonly Dictionary<string, Shape> NameShapes = new(StringComparer.Ordinal)
+    {
+        ["fox"] = Shape.Dog, ["wolf"] = Shape.Dog, ["jackal"] = Shape.Dog, ["coyote"] = Shape.Dog, ["dingo"] = Shape.Dog,
+        ["lion"] = Shape.Cat, ["tiger"] = Shape.Cat, ["leopard"] = Shape.Cat, ["cheetah"] = Shape.Cat, ["lynx"] = Shape.Cat,
+        ["jaguar"] = Shape.Cat, ["puma"] = Shape.Cat, ["cougar"] = Shape.Cat, ["wildcat"] = Shape.Cat,
+        ["zebra"] = Shape.Horse, ["donkey"] = Shape.Horse, ["mule"] = Shape.Horse, ["antelope"] = Shape.Horse, ["deer"] = Shape.Horse,
+        ["gazelle"] = Shape.Horse, ["impala"] = Shape.Horse, ["moose"] = Shape.Horse, ["elk"] = Shape.Horse, ["reindeer"] = Shape.Horse,
+        ["camel"] = Shape.Horse, ["llama"] = Shape.Horse, ["alpaca"] = Shape.Horse, ["giraffe"] = Shape.Horse, ["okapi"] = Shape.Horse,
+        ["goat"] = Shape.Sheep, ["ibex"] = Shape.Sheep, ["ram"] = Shape.Sheep,
+        ["ox"] = Shape.Cow, ["bull"] = Shape.Cow, ["buffalo"] = Shape.Cow, ["bison"] = Shape.Cow, ["yak"] = Shape.Cow,
+        ["hen"] = Shape.Bird, ["chicken"] = Shape.Bird, ["owl"] = Shape.Bird, ["penguin"] = Shape.Bird, ["eagle"] = Shape.Bird,
+        ["parrot"] = Shape.Bird, ["robin"] = Shape.Bird, ["sparrow"] = Shape.Bird, ["flamingo"] = Shape.Bird, ["ostrich"] = Shape.Bird,
+        ["puffin"] = Shape.Bird, ["gull"] = Shape.Bird, ["seagull"] = Shape.Bird, ["crow"] = Shape.Bird, ["pigeon"] = Shape.Bird,
+        ["goose"] = Shape.Duck, ["swan"] = Shape.Duck,
+        ["hippo"] = Shape.Elephant, ["hippopotamus"] = Shape.Elephant, ["rhino"] = Shape.Elephant, ["rhinoceros"] = Shape.Elephant,
+        ["squirrel"] = Shape.Mouse, ["hamster"] = Shape.Mouse, ["rat"] = Shape.Mouse, ["vole"] = Shape.Mouse, ["shrew"] = Shape.Mouse,
+        ["gerbil"] = Shape.Mouse, ["lemming"] = Shape.Mouse,
+        ["hare"] = Shape.Rabbit, ["kangaroo"] = Shape.Rabbit, ["wallaby"] = Shape.Rabbit,
+        ["trout"] = Shape.Fish, ["salmon"] = Shape.Fish, ["cod"] = Shape.Fish, ["carp"] = Shape.Fish, ["pike"] = Shape.Fish,
+        ["perch"] = Shape.Fish, ["tuna"] = Shape.Fish, ["herring"] = Shape.Fish, ["goldfish"] = Shape.Fish, ["clownfish"] = Shape.Fish,
+        ["porpoise"] = Shape.Dolphin, ["walrus"] = Shape.Seal, ["moth"] = Shape.Butterfly, ["butterfly"] = Shape.Butterfly,
+        ["car"] = Shape.Car, ["bus"] = Shape.Car, ["truck"] = Shape.Car, ["lorry"] = Shape.Car, ["tractor"] = Shape.Car,
+        ["train"] = Shape.Car, ["van"] = Shape.Car, ["jeep"] = Shape.Car, ["engine"] = Shape.Car, ["taxi"] = Shape.Car,
+        ["boat"] = Shape.Boat, ["ship"] = Shape.Boat, ["ferry"] = Shape.Boat, ["sailboat"] = Shape.Boat, ["yacht"] = Shape.Boat,
+        ["canoe"] = Shape.Boat, ["kayak"] = Shape.Boat, ["ball"] = Shape.Ball, ["egg"] = Shape.Egg,
+    };
+
+    /// <summary>The drawing a pick's name settles, or null to keep the model's choice: a name with a shape of its own
+    /// first, then a name's last word, when the category allows that shape.</summary>
+    public static Shape? ShapeByName(string subject, RealCategory category)
+    {
+        if (OwnShapes.TryGetValue(subject, out var own)) return own;
+        var words = subject.Split(' ');
+        var shape = words.Length >= 2 && TwoWordShapes.TryGetValue(string.Join(' ', words[^2..]), out var two) ? two
+            : NameShapes.TryGetValue(words[^1], out var last) ? last
+            : BuiltInAnimal(words[^1]);
+        if (shape is not { } s) return null;
+        var fits = category switch
+        {
+            RealCategory.Animal or RealCategory.ExtinctAnimal => s.IsAnimal() && !IsDinosaurShape(s),
+            RealCategory.Vehicle => s is Shape.Car or Shape.Boat,
+            RealCategory.Object => s is Shape.Ball or Shape.Egg,
+            _ => false,
+        };
+        return fits ? s : null;
+    }
+
+    /// <summary>The shape of a built-in animal named by this one word ("bear" in "polar bear"), if any.</summary>
+    private static Shape? BuiltInAnimal(string word) =>
+        BuiltInRecipes.Animals.All.FirstOrDefault(a => a.Name == word && a.Name is not ("rex" or "longneck"))?.Body.Shape;
+
     static RealThingRules()
     {
         foreach (var animal in BuiltInRecipes.Animals.All.Where(a => a.Name is not ("rex" or "longneck")))
@@ -265,7 +326,7 @@ public static class RealThingRules
             return false;
         }
 
-        var shape = OwnShapes.TryGetValue(subject, out var own) ? own : parsed.Shape;
+        var shape = ShapeByName(subject, parsed.Category) ?? parsed.Shape;
         var living = parsed.Category is RealCategory.Animal or RealCategory.ExtinctAnimal;
         if (shape.IsAnimal() && !living) { error = "an animal shape for a thing that is not an animal"; return false; }
         if (IsDinosaurShape(shape) && parsed.Category != RealCategory.ExtinctAnimal) { error = "a dinosaur shape for an animal alive today"; return false; }

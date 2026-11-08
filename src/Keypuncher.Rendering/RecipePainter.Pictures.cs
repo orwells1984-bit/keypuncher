@@ -21,6 +21,10 @@ internal static partial class RecipePainter
             case Shape.Moon: Moon(k); break;
             case Shape.House: House(k); break;
             case Shape.Boat: Boat(k); break;
+            case Shape.Sun: Sun(k); break;
+            case Shape.Ball: Ball(k); break;
+            case Shape.Egg: Egg(k); break;
+            case Shape.Car: Car(k); break;
         }
     }
 
@@ -76,5 +80,84 @@ internal static partial class RecipePainter
         k.Ribbon(k.Dark, 0.08f, (0, 0.35f), (0, -0.98f));
         k.Rounded(k.Pale, 0.08f, (0.07f, -0.92f), (0.07f, 0.25f), (0.8f, 0.25f));
         k.Rounded(k.Body, 0.12f, (-1.0f, 0.35f), (1.0f, 0.35f), (0.7f, 0.9f), (-0.7f, 0.9f));
+    }
+
+    /// <summary>A disc ringed by short round-ended rays, standing apart from it: a star's points join its body, a
+    /// sun's rays do not, which is what tells the two apart at a glance.</summary>
+    private static void Sun(Kit k)
+    {
+        var rays = k.Fine ? 10 : 8;
+        for (var i = 0; i < rays; i++)
+        {
+            var a = (i * MathF.PI * 2 / rays);
+            var (cos, sin) = (MathF.Cos(a), MathF.Sin(a));
+            k.Ribbon(k.Body, 0.1f, (0.7f * cos, 0.7f * sin), (0.9f * cos, 0.9f * sin));
+        }
+        k.Circle(k.Body, 0, 0, 0.52f);
+    }
+
+    /// <summary>A round ball with a pale band round its middle and a second colour beside it, like a beach ball.</summary>
+    private static void Ball(Kit k)
+    {
+        using var ball = k.OvalPath(0, 0.05f, 0.85f, 0.85f);
+        k.Fill(k.Body, ball);
+        k.Inside(ball, () =>
+        {
+            using var band = new SKPathBuilder();
+            var r = k.R;
+            band.MoveTo(-0.3f * r, -0.9f * r);
+            band.CubicTo(0.05f * r, -0.4f * r, 0.05f * r, 0.5f * r, -0.3f * r, 1.0f * r);
+            band.LineTo(0.3f * r, 1.0f * r);
+            band.CubicTo(0.65f * r, 0.5f * r, 0.65f * r, -0.4f * r, 0.3f * r, -0.9f * r);
+            band.Close();
+            using var path = band.Detach();
+            k.Fill(k.Pale, path);
+            k.Line(path);
+            if (k.Fine)
+            {
+                using var side = new SKPathBuilder();
+                side.MoveTo(0.3f * r, -0.9f * r);
+                side.CubicTo(0.65f * r, -0.4f * r, 0.65f * r, 0.5f * r, 0.3f * r, 1.0f * r);
+                side.LineTo(1.0f * r, 1.0f * r);
+                side.LineTo(1.0f * r, -0.9f * r);
+                side.Close();
+                using var rest = side.Detach();
+                k.Fill(k.Second, rest);
+                k.Line(rest);
+            }
+        });
+        k.Line(ball);
+        k.Dot(k.Pale, -0.45f, -0.35f, 0.1f);
+    }
+
+    /// <summary>An egg: white whatever its hue, as eggs are, rounder at the bottom than the top.</summary>
+    private static void Egg(Kit k)
+    {
+        using var builder = new SKPathBuilder();
+        var r = k.R;
+        builder.MoveTo(0, -0.95f * r);
+        builder.CubicTo(0.45f * r, -0.95f * r, 0.72f * r, 0.0f * r, 0.72f * r, 0.35f * r);
+        builder.CubicTo(0.72f * r, 0.75f * r, 0.4f * r, 0.95f * r, 0, 0.95f * r);
+        builder.CubicTo(-0.4f * r, 0.95f * r, -0.72f * r, 0.75f * r, -0.72f * r, 0.35f * r);
+        builder.CubicTo(-0.72f * r, 0.0f * r, -0.45f * r, -0.95f * r, 0, -0.95f * r);
+        builder.Close();
+        using var egg = builder.Detach();
+        k.Fill(k.Pale, egg);
+        k.Line(egg);
+    }
+
+    /// <summary>A car from the side: a long low body, a cabin with pale windows, and two dark wheels with pale hubs.</summary>
+    private static void Car(Kit k)
+    {
+        k.Rounded(k.Body, 0.12f, (-0.55f, -0.1f), (-0.35f, -0.6f), (0.35f, -0.6f), (0.6f, -0.1f));
+        k.Rounded(k.Pale, 0.05f, (-0.38f, -0.15f), (-0.25f, -0.47f), (-0.04f, -0.47f), (-0.04f, -0.15f));
+        k.Rounded(k.Pale, 0.05f, (0.06f, -0.15f), (0.06f, -0.47f), (0.27f, -0.47f), (0.44f, -0.15f));
+        k.Rounded(k.Body, 0.16f, (-1.0f, -0.12f), (1.0f, -0.12f), (1.0f, 0.5f), (-1.0f, 0.5f));
+        if (k.Fine) k.Dot(k.Accent, 0.9f, 0.05f, 0.07f);
+        foreach (var x in new[] { -0.55f, 0.55f })
+        {
+            k.Circle(k.Dark, x, 0.58f, 0.3f);
+            k.Circle(k.Pale, x, 0.58f, 0.12f);
+        }
     }
 }

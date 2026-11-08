@@ -32,16 +32,20 @@ public enum Shape
     Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear, Mouse,
     Rex, LongNeck, Triceratops, Stegosaurus,
     Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish,
+    // Added after the review of how easily each drawing is recognised (Nov 2026): the sun, a ball, an egg and a car
+    // are pictures; the butterfly is an animal.
+    Sun, Ball, Egg, Car, Butterfly,
 }
 
 public static class Shapes
 {
     /// <summary>A real animal or dinosaur: always alive, so always a creature with a face.</summary>
-    public static bool IsAnimal(this Shape shape) => shape >= Shape.Cat;
+    public static bool IsAnimal(this Shape shape) => shape is (>= Shape.Cat and <= Shape.Jellyfish) or Shape.Butterfly;
 
-    /// <summary>A drawn picture of one particular thing (an apple, the moon, a house, a boat): never an animal,
+    /// <summary>A drawn picture of one particular thing (an apple, the moon, a house, a boat, the sun, a ball, an egg,
+    /// a car): never an animal,
     /// and not a shape the director may use for any thing it likes.</summary>
-    public static bool IsPicture(this Shape shape) => shape is >= Shape.Apple and < Shape.Cat;
+    public static bool IsPicture(this Shape shape) => shape is (>= Shape.Apple and < Shape.Cat) or Shape.Sun or Shape.Ball or Shape.Egg or Shape.Car;
 
     /// <summary>One of the abstract shapes the invented things and the director's things are built from.</summary>
     public static bool IsAbstract(this Shape shape) => shape < Shape.Apple;

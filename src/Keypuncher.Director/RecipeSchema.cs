@@ -25,7 +25,7 @@ public static class RecipeSchema
                 "shape": { "type": "string", "enum": ["Blob", "Petal", "Star", "Wave", "Cloud", "Stripe", "DotField",
                   "Cat", "Dog", "Fish", "Bird", "Cow", "Sheep", "Horse", "Duck", "Elephant", "Rabbit", "Bear", "Mouse",
                   "Rex", "LongNeck", "Triceratops", "Stegosaurus",
-                  "Whale", "Dolphin", "Shark", "Octopus", "Crab", "Turtle", "Seal", "Seahorse", "Starfish", "Jellyfish"] },
+                  "Whale", "Dolphin", "Shark", "Octopus", "Crab", "Turtle", "Seal", "Seahorse", "Starfish", "Jellyfish", "Butterfly"] },
                 "lobes": { "type": "integer", "minimum": 1, "maximum": 12 },
                 "hue": { "type": "integer", "minimum": 0, "maximum": 359 },
                 "size": { "type": "number", "minimum": 0.1, "maximum": 1.0 }

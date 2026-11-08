@@ -254,6 +254,23 @@ public sealed class PictureLibraryTests : IDisposable
     }
 
     [Fact]
+    public void A_picture_whose_silhouette_is_a_lump_keeps_its_shape_at_the_silhouette_rung()
+    {
+        WritePicture("sable-antelope");
+        WritePicture("octopus", lump: true);
+        using var library = Library();
+        library.Forced = PictureStage.Silhouette;
+        // Asking starts the reads on the pool.
+        _ = library.Has("sable antelope") | library.Has("octopus");
+        library.WaitIdle(TimeSpan.FromSeconds(5));
+        Assert.Equal(PictureStage.Silhouette, library.Stage(Thing("sable antelope"), ArtStyle.BigToddler));
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("octopus"), ArtStyle.BigToddler));
+        // The rungs either side are untouched: a lump's flat colours and photo still show.
+        library.Forced = PictureStage.Flat;
+        Assert.Equal(PictureStage.Flat, library.Stage(Thing("octopus"), ArtStyle.BigToddler));
+    }
+
+    [Fact]
     public void A_things_rung_is_settled_when_it_is_first_seen_and_a_promotion_shows_on_the_next_one_born()
     {
         WritePicture("sable-antelope");
@@ -361,14 +378,23 @@ public sealed class PictureLibraryTests : IDisposable
     private static SKColor PaletteFill(CalmLevel level) => Rgb(ArtStyle.For(level).Snap(Thing("x").Body.Hue).Fill);
 
     /// <summary>A magenta blob with a transparent margin, as a cut-out would be.</summary>
-    private void WritePicture(string slug, string extension = ".png")
+    /// <summary>Writes a magenta cut-out: by default an animal standing side-on (body, four legs, a neck and head), whose
+    /// silhouette is clear; a lump is a plain oval, which the silhouette rung skips.</summary>
+    private void WritePicture(string slug, string extension = ".png", bool lump = false)
     {
-        using var bitmap = new SKBitmap(new SKImageInfo(200, 120, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using var bitmap = new SKBitmap(new SKImageInfo(400, 240, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var c = new SKCanvas(bitmap))
         {
             c.Clear(SKColors.Transparent);
             using var paint = new SKPaint { IsAntialias = true, Color = Magenta };
-            c.DrawOval(new SKRect(20, 20, 180, 100), paint);
+            if (lump) c.DrawOval(new SKRect(40, 40, 360, 200), paint);
+            else
+            {
+                c.DrawOval(new SKRect(60, 70, 300, 160), paint);
+                foreach (var x in new[] { 80f, 120f, 230f, 270f }) c.DrawRect(new SKRect(x, 130, x + 22, 230), paint);
+                c.DrawRect(new SKRect(270, 30, 300, 110), paint);
+                c.DrawOval(new SKRect(270, 10, 360, 50), paint);
+            }
         }
         using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
         using var f = File.Create(Path.Combine(_dir, slug + extension));

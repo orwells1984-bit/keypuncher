@@ -51,18 +51,22 @@ public sealed record ArtStyle(
     PictureStage MaxPictureStage = PictureStage.Photo,
     bool PalettePictures = false)
 {
-    /// <summary>The five colour categories 4-month-olds already sort by, flat and fully saturated,
-    /// every one drawn in the same near-black ink: 9:1 or better against the ground.</summary>
+    /// <summary>The five colour categories 4-month-olds already sort by, flat and fully saturated, plus orange and
+    /// brown, every one drawn in the same near-black ink: 9:1 or better against the ground. Brown and orange came in
+    /// after the recognition review (Nov 2026): without them a dog, horse, bear and seal were red, and a bear photo's
+    /// flat colours turned red too, which made familiar animals hard to name.</summary>
     private static readonly ArtColor[] BabyColors =
     [
         new(0xE53935, 0x1E2240), // red
+        new(0xFF7A00, 0x1E2240), // orange
         new(0xFFC400, 0x1E2240), // yellow
         new(0x1FA34A, 0x1E2240), // green
         new(0x1E6FD9, 0x1E2240), // blue
         new(0x8E3FD0, 0x1E2240), // purple
+        new(0x8D5A3B, 0x1E2240), // brown
     ];
 
-    /// <summary>The five plus orange, pink, teal and brown, so there is more to tell apart.</summary>
+    /// <summary>The baby's seven plus pink and teal, so there is more to tell apart.</summary>
     private static readonly ArtColor[] ToddlerColors =
     [
         new(0xE53935, 0x262A4A), // red

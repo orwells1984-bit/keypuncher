@@ -150,7 +150,7 @@ public sealed class PictureLibrary : IDisposable
     {
         var slug = Slug(recipe.Name);
         stage = PictureStage.Shape;
-        if (Lookup(slug) is null)
+        if (Lookup(slug) is not { } picture)
         {
             if (_entries.TryGetValue(slug, out var e) && e.Loading) return false;
             Logged(slug, recipe.Name, PictureStage.Shape, "no picture of it yet");
@@ -161,9 +161,14 @@ public sealed class PictureLibrary : IDisposable
         var rung = Forced ?? (climbs ? StageFor(met) : PictureStage.Photo);
         var cap = Cap(recipe.Name, style);
         stage = (PictureStage)Math.Min((int)rung, (int)cap);
+        // A silhouette that is only a lump names nothing (an octopus's one curled arm read as a kidney), so that rung
+        // keeps the drawn shape a while longer.
+        var lump = stage == PictureStage.Silhouette && !picture.ClearOutline;
+        if (lump) stage = PictureStage.Shape;
         if (!_logged.TryGetValue(slug, out var was) || was != stage)
             Logged(slug, recipe.Name, stage, (Forced is { } f ? $"forced to {f}" : climbs ? $"a built-in thing climbing the ladder, met {met} times, rung {rung}" : "the director's pick, shown real at once")
-                + (stage < rung ? $", capped at {cap} by the calm level" : ""));
+                + (stage < rung && !lump ? $", capped at {cap} by the calm level" : "")
+                + (lump ? $", its silhouette is a lump ({picture.Width}×{picture.Height}, fills {picture.Solidity:0.00} of its hull) so the shape stays" : ""));
         return true;
     }
 
@@ -387,10 +392,18 @@ public sealed class PictureLibrary : IDisposable
         {
             _pixels = pixels;
             _photo = SKImage.FromBitmap(pixels);
+            Solidity = Outline.Solidity(pixels.GetPixelSpan(), pixels.Width, pixels.Height, pixels.RowBytes);
         }
 
         public int Width => _pixels.Width;
         public int Height => _pixels.Height;
+
+        /// <summary>The share of its convex hull the cut-out fills; see <see cref="Outline"/>.</summary>
+        public double Solidity { get; }
+
+        /// <summary>Whether its silhouette names the thing: big enough and not a lump. When not, the silhouette rung
+        /// draws the stock shape instead.</summary>
+        public bool ClearOutline => Outline.IsClear(Width, Height, Solidity);
 
         /// <summary>True once the pixels are gone: a drawing of it still on its way is then dropped.</summary>
         public bool IsDisposed => _disposed;

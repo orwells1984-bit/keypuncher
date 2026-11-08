@@ -81,7 +81,8 @@ public static class RealThingSchema
             "shape": { "type": "string", "enum": ["Blob", "Petal", "Star", "Wave", "Cloud", "Stripe", "DotField",
               "Cat", "Dog", "Fish", "Bird", "Cow", "Sheep", "Horse", "Duck", "Elephant", "Rabbit", "Bear", "Mouse",
               "Rex", "LongNeck", "Triceratops", "Stegosaurus",
-              "Whale", "Dolphin", "Shark", "Octopus", "Crab", "Turtle", "Seal", "Seahorse", "Starfish", "Jellyfish"] },
+              "Whale", "Dolphin", "Shark", "Octopus", "Crab", "Turtle", "Seal", "Seahorse", "Starfish", "Jellyfish",
+              "Sun", "Ball", "Egg", "Car", "Butterfly"] },
             "lobes": { "type": "integer", "minimum": 1, "maximum": 12 },
             "hue": { "type": "integer", "minimum": 0, "maximum": 359 },
             "size": { "type": "number", "minimum": 0.1, "maximum": 1.0 },
@@ -152,9 +153,10 @@ public static class RealThingSchema
         {
             RealCategory.ExtinctAnimal => !s.IsPicture(),
             RealCategory.Animal => !s.IsPicture() && (anyAnimal || s is not (Shape.Rex or Shape.LongNeck or Shape.Triceratops or Shape.Stegosaurus)),
-            // A fruit may be drawn as the apple, a vehicle as the boat; the moon and the house suit nothing else.
+            // A fruit may be drawn as the apple, a vehicle as the boat or the car, an object as the ball or the egg;
+            // the moon, the sun and the house suit nothing else.
             RealCategory.Plant => s.IsAbstract() || s == Shape.Apple,
-            RealCategory.Vehicle => s.IsAbstract() || s == Shape.Boat,
-            _ => s.IsAbstract(),
+            RealCategory.Vehicle => s.IsAbstract() || s is Shape.Boat or Shape.Car,
+            _ => s.IsAbstract() || s is Shape.Ball or Shape.Egg,
         });
 }
