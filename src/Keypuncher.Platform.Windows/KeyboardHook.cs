@@ -59,23 +59,52 @@ public sealed class KeyboardHook : IDisposable
 
     private void Run()
     {
-        _threadId = GetCurrentThreadId();
-        _layout = LoadKeyboardLayout(IcelandicLayout, 0);
-        UsingIcelandicLayout = _layout != IntPtr.Zero;
-        if (!UsingIcelandicLayout) _layout = GetKeyboardLayout(0);
-        _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
-        _started.Set();
-        if (_hook == IntPtr.Zero) return;
-
-        while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+        // Nothing may escape this thread: an exception here would end the whole toy.
+        try
         {
-            TranslateMessage(ref msg);
-            DispatchMessage(ref msg);
+            _threadId = GetCurrentThreadId();
+            _layout = LoadKeyboardLayout(IcelandicLayout, 0);
+            UsingIcelandicLayout = _layout != IntPtr.Zero;
+            if (!UsingIcelandicLayout)
+            {
+                _layout = GetKeyboardLayout(0);
+                Log.Warn("keyboard", "the Icelandic layout could not be loaded; using this account's layout");
+            }
+            _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+            _started.Set();
+            if (_hook == IntPtr.Zero)
+            {
+                Log.Error("keyboard", "the keyboard hook could not be installed: keys reach Windows and the toy sees none");
+                return;
+            }
+
+            while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                TranslateMessage(ref msg);
+                DispatchMessage(ref msg);
+            }
+            UnhookWindowsHookEx(_hook);
+            Log.Info("keyboard", "keyboard hook removed");
         }
-        UnhookWindowsHookEx(_hook);
+        catch (Exception e)
+        {
+            Log.Error("keyboard", "the keyboard hook's thread failed; keys reach Windows from now on", e);
+            _started.Set();
+        }
     }
 
     private IntPtr Callback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        // An exception must never travel back into Windows from here.
+        try { return Handle(nCode, wParam, lParam); }
+        catch (Exception e)
+        {
+            Log.Error("keyboard", "the keyboard hook failed on a key; it goes to Windows", e);
+            return CallNextHookEx(_hook, nCode, wParam, lParam);
+        }
+    }
+
+    private IntPtr Handle(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode < 0) return CallNextHookEx(_hook, nCode, wParam, lParam);
 
@@ -104,9 +133,11 @@ public sealed class KeyboardHook : IDisposable
             _onKey(press);
             swallow = ShouldSwallow(press);
         }
-        catch (Exception)
+        catch (Exception e)
         {
-            // Never let a handler bug take the keyboard down with it.
+            // Never let a handler bug take the keyboard down with it. The log writes on its own thread, so this
+            // does not hold up the hook.
+            Log.Error("keyboard", $"handling key {press.ScanCode:X} ({(down ? "down" : "up")}) failed", e);
         }
         return swallow ? 1 : CallNextHookEx(_hook, nCode, wParam, lParam);
     }

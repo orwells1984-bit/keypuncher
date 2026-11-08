@@ -88,7 +88,11 @@ public sealed class PhotoFetcher : IPictureFetcher
         cts.CancelAfter(Limit);
         PhotoSearch search;
         try { search = await _finder.FindAsync(name, category, exclude, cts.Token); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return Offline(slug, name, "took too long", now); }
+        catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
+        {
+            Log.Warn("pictures", $"looking for a photo of {name} took longer than {Limit.TotalSeconds:0} s", e);
+            return Offline(slug, name, "took too long", now);
+        }
         foreach (var line in search.Notes) Note($"{name}: {line}");
         if (search.Offline) return Offline(slug, name, search.Reason ?? "no network", now);
         if (search.Photo is not { } photo)
@@ -101,7 +105,11 @@ public sealed class PhotoFetcher : IPictureFetcher
 
         (byte[] Bytes, string? Mime)? download;
         try { download = await PictureHttp.DownloadAsync(_http, photo.DownloadUrl, cts.Token); }
-        catch (Exception e) when (PictureHttp.IsNetworkTrouble(e, ct)) { return Offline(slug, name, e.Message, now); }
+        catch (Exception e) when (PictureHttp.IsNetworkTrouble(e, ct))
+        {
+            Log.Warn("pictures", $"downloading the photo of {name} from {photo.DownloadUrl} failed", e);
+            return Offline(slug, name, e.Message, now);
+        }
         if (download is not { } got) return TurnedDown(slug, name, photo.Provenance.FileTitle, "could not be downloaded", now);
         using var bitmap = Decode(got.Bytes);
         if (bitmap is null) return TurnedDown(slug, name, photo.Provenance.FileTitle, "is not a picture we can read", now);

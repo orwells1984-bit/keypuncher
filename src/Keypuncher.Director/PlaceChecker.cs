@@ -108,8 +108,9 @@ public sealed class PlaceChecker(ILanguageModel model)
         {
             return result.Json.RootElement.Deserialize<PlaceCheck>(Options) ?? PlaceCheck.Failed("checker gave nothing");
         }
-        catch (JsonException)
+        catch (JsonException e)
         {
+            Log.Warn("director", $"the place checker's answer on {place} did not fit the schema: {Log.Short(result.RawText)}", e);
             return PlaceCheck.Failed("checker gave bad JSON");
         }
     }

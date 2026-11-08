@@ -63,6 +63,7 @@ public sealed class SpeechLibrary(ClipStore clips, ISpeech? fallbackVoice)
         catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
         {
             // A damaged or locked file behaves like a missing one.
+            Log.Warn("speech", $"the recording {id} could not be read; it stays silent", e);
         }
         _cache[id.ToString()] = samples;
     }
@@ -86,6 +87,7 @@ public sealed class SpeechLibrary(ClipStore clips, ISpeech? fallbackVoice)
             catch (Exception e) when (e is not OutOfMemoryException)
             {
                 // No voice for this language, or the voice failed: stay silent rather than retry every press.
+                Log.Warn("speech", $"the {language} voice could not say \"{text}\"; it stays silent", e);
             }
             finally
             {

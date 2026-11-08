@@ -22,7 +22,12 @@ public static class RecipeValidator
 
         Recipe? parsed;
         try { parsed = json.RootElement.Deserialize<Recipe>(Options); }
-        catch (JsonException e) { error = e.Message; return false; }
+        catch (JsonException e)
+        {
+            Log.Warn("director", $"the recipe did not fit the schema: {Log.Short(json.RootElement.GetRawText())}", e);
+            error = e.Message;
+            return false;
+        }
         if (parsed is null) { error = "empty"; return false; }
 
         if (parsed.Name.Length < 2) { error = "name length"; return false; }

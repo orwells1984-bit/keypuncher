@@ -64,7 +64,11 @@ public sealed class PictureFolder
                 var path = SidecarPath(slug);
                 return File.Exists(path) ? JsonSerializer.Deserialize<PictureSidecar>(File.ReadAllText(path), Json) : null;
             }
-            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return null; }
+            catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+            {
+                Log.Warn("pictures", $"the notes for picture {slug} could not be read", e);
+                return null;
+            }
         }
     }
 
@@ -247,7 +251,11 @@ public sealed class WantedList
                 ? JsonSerializer.Deserialize<Dictionary<string, WantedEntry>>(File.ReadAllText(_path), Json) ?? []
                 : [];
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { _entries = []; }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"the wanted list {_path} could not be read; starting it afresh", e);
+            _entries = [];
+        }
         _read = stamp;
         return _entries;
     }
@@ -274,8 +282,11 @@ public sealed class WantedList
                 _read = Stamp();
                 return;
             }
-            catch (IOException) when (attempt < SaveTries) { Thread.Sleep(SaveRetryPause); }
-            catch (UnauthorizedAccessException) when (attempt < SaveTries) { Thread.Sleep(SaveRetryPause); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && attempt < SaveTries)
+            {
+                Log.Debug("pictures", $"the wanted list could not be renamed into place (try {attempt} of {SaveTries}); trying again", e);
+                Thread.Sleep(SaveRetryPause);
+            }
         }
     }
 }

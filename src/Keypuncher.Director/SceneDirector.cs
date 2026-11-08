@@ -204,7 +204,12 @@ public static class SceneRules
         error = null;
         if (json is null) { error = "not JSON"; return false; }
         try { pick = json.RootElement.Deserialize<ScenePick>(Options); }
-        catch (JsonException e) { error = "bad JSON: " + e.Message; return false; }
+        catch (JsonException e)
+        {
+            Log.Warn("director", $"the scene answer did not fit the schema: {Log.Short(json.RootElement.GetRawText())}", e);
+            error = "bad JSON: " + e.Message;
+            return false;
+        }
         if (pick is null) { error = "empty"; return false; }
 
         var now = request.Current;

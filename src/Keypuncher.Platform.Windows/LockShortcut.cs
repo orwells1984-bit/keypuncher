@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using Keypuncher.Core;
 
 namespace Keypuncher.Platform.Windows;
 
@@ -37,6 +38,7 @@ public sealed class LockShortcut : IDisposable
         catch (Exception e) when (e is UnauthorizedAccessException or System.Security.SecurityException or IOException)
         {
             // A locked-down account keeps Win+L; the toy still plays.
+            Log.Warn("windows", "could not turn off Win+L; the child can still lock the computer", e);
         }
     }
 
@@ -49,7 +51,10 @@ public sealed class LockShortcut : IDisposable
         if (!_changed) return;
         _changed = false;
         try { RestoreFromNote(); }
-        catch (Exception e) when (e is UnauthorizedAccessException or System.Security.SecurityException or IOException) { }
+        catch (Exception e) when (e is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        {
+            Log.Warn("windows", "could not put Win+L back as it was; the next start tries again", e);
+        }
     }
 
     /// <summary>Puts back the value a previous run replaced, if it noted one, and removes the note.</summary>

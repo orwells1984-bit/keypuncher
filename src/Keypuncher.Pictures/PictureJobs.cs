@@ -80,14 +80,20 @@ public sealed class PictureJobs : IDisposable
         {
             // The wanted list could not be written (the folder read-only, the file held): noted, never fatal to play.
             _note?.Invoke($"could not note {name} as wanted: {e.Message}");
+            Log.Warn("pictures", $"could not note {name} as wanted", e);
             return false;
         }
-        if (!_enabled()) return false;
+        if (!_enabled())
+        {
+            Log.Debug("pictures", $"{name} not queued: fetching pictures is switched off");
+            return false;
+        }
         lock (_lock)
         {
             if (again) _tried.Remove(slug);
             if (_tried.Contains(slug) || _queue.Any(q => Slugs.For(q.Name) == slug) || _fetching == name) return false;
             _queue.Enqueue((name, category));
+            Log.Debug("pictures", $"{name} queued as {category}{(categoryGuessed ? " (category guessed)" : "")}; {_queue.Count} waiting");
         }
         _signal.Release();
         return true;
@@ -111,10 +117,22 @@ public sealed class PictureJobs : IDisposable
 
     private void Run()
     {
+        // Nothing may escape this thread: an exception here would end the whole toy.
+        try { Work(); }
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException && _stop.IsCancellationRequested) { }
+        catch (Exception e) { Log.Error("pictures", "the picture worker stopped; no more pictures are fetched this run", e); }
+    }
+
+    private void Work()
+    {
         while (!_stop.IsCancellationRequested)
         {
             try { _signal.Wait(_stop.Token); }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException)
+            {
+                Log.Debug("pictures", "the picture worker stopped: the toy is closing");
+                return;
+            }
             (string Name, RealCategory Category) job;
             lock (_lock)
             {
@@ -122,6 +140,7 @@ public sealed class PictureJobs : IDisposable
                 _fetching = job.Name;
             }
             var outcome = "skipped: fetching is switched off";
+            var started = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 if (_enabled())
@@ -136,11 +155,16 @@ public sealed class PictureJobs : IDisposable
                     }
                 }
             }
-            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { return; }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested)
+            {
+                Log.Debug("pictures", $"fetching {job.Name} was stopped: the toy is closing");
+                return;
+            }
             catch (Exception e)
             {
                 outcome = $"failed: {e.Message}";
                 _note?.Invoke($"picture of {job.Name} failed: {e}");
+                Log.Error("pictures", $"picture of {job.Name} failed", e);
             }
             finally
             {
@@ -152,6 +176,7 @@ public sealed class PictureJobs : IDisposable
                 }
             }
             _note?.Invoke($"picture of {job.Name}: {outcome}");
+            Log.Info("pictures", $"picture of {job.Name} ({job.Category}): {outcome} after {started.Elapsed.TotalSeconds:0.0} s");
         }
     }
 

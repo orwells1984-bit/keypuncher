@@ -230,7 +230,12 @@ public static class RealThingRules
 
         RealThingPick? parsed;
         try { parsed = json.RootElement.Deserialize<RealThingPick>(Options); }
-        catch (JsonException e) { error = "bad JSON: " + e.Message; return false; }
+        catch (JsonException e)
+        {
+            Log.Warn("director", $"the pick did not fit the schema: {Log.Short(json.RootElement.GetRawText())}", e);
+            error = "bad JSON: " + e.Message;
+            return false;
+        }
         if (parsed is null) { error = "empty"; return false; }
 
         var subject = Tidy(parsed.Subject);

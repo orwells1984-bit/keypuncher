@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Keypuncher.Director;
+using Keypuncher.Core;
 
 namespace Keypuncher.Pictures;
 
@@ -86,11 +87,13 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         catch (Exception e) when (PictureHttp.IsNetworkTrouble(e, ct))
         {
             notes.Add($"no network: {e.Message}");
+            Log.Warn("pictures", $"no network while looking for a photo of {name}", e);
             return PhotoSearch.NoNetwork(e.Message, notes);
         }
         catch (JsonException e)
         {
             notes.Add($"an answer could not be read: {e.Message}");
+            Log.Warn("pictures", $"an answer about {name} from Wikipedia, Wikidata or iNaturalist could not be read", e);
             return PhotoSearch.Nothing("an answer could not be read", notes);
         }
     }

@@ -56,7 +56,11 @@ public sealed class SettingsStore(string path)
             if (File.Exists(path) && JsonSerializer.Deserialize<ToySettings>(File.ReadAllText(path), Options) is { } s)
                 return s;
         }
-        catch (JsonException) { /* a damaged file falls back to defaults */ }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+        {
+            // A damaged or unreadable file falls back to defaults.
+            Log.Warn("settings", $"could not read {path}; using the default settings", e);
+        }
         return ToySettings.Default;
     }
 

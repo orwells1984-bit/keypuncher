@@ -99,7 +99,11 @@ public sealed class WorldStore : IDisposable
                 if (cmd.ExecuteScalar() is string s && JsonSerializer.Deserialize<List<SavedFamily>>(s) is { } saved)
                     families.AddRange(saved.Where(f => f.Recipe is not null).Select(f => (f.Slot, f.Recipe, f.At)));
             }
-            catch (JsonException) { /* a damaged list leaves the built-in families */ }
+            catch (JsonException e)
+            {
+                // A damaged list leaves the built-in families.
+                Log.Warn("world", "the saved key families could not be read; keeping the built-in ones", e);
+            }
         }
 
         Scene? scene = null;
@@ -110,7 +114,11 @@ public sealed class WorldStore : IDisposable
             {
                 if (cmd.ExecuteScalar() is string s) scene = JsonSerializer.Deserialize<Scene>(s);
             }
-            catch (JsonException) { /* a damaged scene leaves the starting meadow */ }
+            catch (JsonException e)
+            {
+                // A damaged scene leaves the starting meadow.
+                Log.Warn("world", "the saved scene could not be read; starting in the meadow", e);
+            }
         }
 
         var live = new List<Entity>();
@@ -123,7 +131,11 @@ public sealed class WorldStore : IDisposable
             {
                 Recipe? recipe;
                 try { recipe = JsonSerializer.Deserialize<Recipe>(r.GetString(2)); }
-                catch (JsonException) { continue; }
+                catch (JsonException e)
+                {
+                    Log.Warn("world", $"thing {r.GetInt64(0)} could not be read and was left out", e);
+                    continue;
+                }
                 if (recipe is null) continue;
 
                 var e = new Entity

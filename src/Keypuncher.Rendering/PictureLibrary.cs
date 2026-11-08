@@ -49,6 +49,8 @@ public sealed class PictureLibrary : IDisposable
     private readonly ConcurrentQueue<(string Slug, Picture? Picture)> _loaded = new();
     private readonly ConcurrentQueue<(Picture Picture, CompositeKey Key, SKImage? Image)> _composed = new();
     private readonly Dictionary<string, Meeting> _meetings;
+    /// <summary>The stage each name was last drawn at, so the log says when it changes and why.</summary>
+    private readonly Dictionary<string, PictureStage> _logged = [];
     private DateTime _folderStamp;
     private long _uses;
     private int _pending;
@@ -105,6 +107,7 @@ public sealed class PictureLibrary : IDisposable
         if (had.Last is { } last && now - last < MeetingGap) return false;
         _meetings[slug] = new Meeting(had.N + 1, now);
         Dirty = true;
+        Log.Debug("pictures", $"met {name}: {had.N + 1} meetings{(Climbs(name) ? $", ladder rung {StageFor(had.N + 1)}" : "")}");
         return true;
     }
 
@@ -120,8 +123,11 @@ public sealed class PictureLibrary : IDisposable
             File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(_meetings, JsonOptions));
             File.Move(path + ".tmp", path, overwrite: true);
         }
-        catch (IOException) { Dirty = true; }
-        catch (UnauthorizedAccessException) { Dirty = true; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"could not save {MeetingsFile}; trying again at the next save", e);
+            Dirty = true;
+        }
     }
 
     /// <summary>Whether this name's picture is loaded and ready to draw.</summary>
@@ -144,11 +150,29 @@ public sealed class PictureLibrary : IDisposable
     {
         var slug = Slug(recipe.Name);
         stage = PictureStage.Shape;
-        if (Lookup(slug) is null) return !(_entries.TryGetValue(slug, out var e) && e.Loading);
+        if (Lookup(slug) is null)
+        {
+            if (_entries.TryGetValue(slug, out var e) && e.Loading) return false;
+            Logged(slug, recipe.Name, PictureStage.Shape, "no picture of it yet");
+            return true;
+        }
         var climbs = Climbs(recipe.Name);
-        var rung = Forced ?? (climbs ? StageFor(_meetings.TryGetValue(slug, out var m) ? m.N : 0) : PictureStage.Photo);
-        stage = (PictureStage)Math.Min((int)rung, (int)Cap(recipe.Name, style));
+        var met = _meetings.TryGetValue(slug, out var m) ? m.N : 0;
+        var rung = Forced ?? (climbs ? StageFor(met) : PictureStage.Photo);
+        var cap = Cap(recipe.Name, style);
+        stage = (PictureStage)Math.Min((int)rung, (int)cap);
+        if (!_logged.TryGetValue(slug, out var was) || was != stage)
+            Logged(slug, recipe.Name, stage, (Forced is { } f ? $"forced to {f}" : climbs ? $"a built-in thing climbing the ladder, met {met} times, rung {rung}" : "the director's pick, shown real at once")
+                + (stage < rung ? $", capped at {cap} by the calm level" : ""));
         return true;
+    }
+
+    /// <summary>Notes in the log the stage a name is drawn at, when it differs from last time.</summary>
+    private void Logged(string slug, string name, PictureStage stage, string why)
+    {
+        if (_logged.TryGetValue(slug, out var was) && was == stage) return;
+        _logged[slug] = stage;
+        Log.Info("pictures", $"{name} drawn as {stage}: {why}");
     }
 
     /// <summary>Forgets what is known about a name, so its file is read again: for when a picture is written,
@@ -173,6 +197,7 @@ public sealed class PictureLibrary : IDisposable
         while (_loaded.TryDequeue(out var l))
         {
             Interlocked.Decrement(ref _pending);
+            if (l.Picture is { } loaded) Log.Debug("pictures", $"picture {l.Slug} loaded ({loaded.Width}×{loaded.Height})");
             if (!_entries.TryGetValue(l.Slug, out var e) || !e.Loading) { l.Picture?.Dispose(); continue; }
             e.Loading = false;
             e.Picture = l.Picture;
@@ -231,7 +256,13 @@ public sealed class PictureLibrary : IDisposable
             {
                 Interlocked.Increment(ref _pending);
                 CompositeDraws++;
-                Task.Run(() => _composed.Enqueue((picture, key, picture.Draw(key))));
+                Task.Run(() =>
+                {
+                    SKImage? drawn = null;
+                    try { drawn = picture.Draw(key); }
+                    catch (Exception e) { Log.Error("pictures", $"drawing {recipe.Name} at {stage} failed; it keeps its stock shape", e); }
+                    _composed.Enqueue((picture, key, drawn));
+                });
             }
             // Until this width's drawing exists, the nearest width already drawn stands in, so a growing thing never
             // falls back to its stock shape between drawings.
@@ -266,8 +297,9 @@ public sealed class PictureLibrary : IDisposable
         Task.Run(() =>
         {
             Picture? picture = null;
+            // Anything at all is caught: an exception left in this task would leave the picture loading for ever.
             try { picture = Picture.FromFile(path); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException) { }
+            catch (Exception ex) { Log.Warn("pictures", $"the picture {path} could not be read; it keeps its stock shape", ex); }
             _loaded.Enqueue((slug, picture));
         });
         return null;
@@ -276,8 +308,11 @@ public sealed class PictureLibrary : IDisposable
     private DateTime FolderStamp()
     {
         try { return Directory.Exists(_folder) ? Directory.GetLastWriteTimeUtc(_folder) : DateTime.MinValue; }
-        catch (IOException) { return DateTime.MinValue; }
-        catch (UnauthorizedAccessException) { return DateTime.MinValue; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"could not look at the pictures folder {_folder}", e);
+            return DateTime.MinValue;
+        }
     }
 
     private static Dictionary<string, Meeting> LoadMeetings(string path, DateTime now)
@@ -299,7 +334,11 @@ public sealed class PictureLibrary : IDisposable
             }
             return result;
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return []; }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"could not read {path}; every thing starts its ladder again", e);
+            return [];
+        }
     }
 
     public void Dispose()

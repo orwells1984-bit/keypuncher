@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Keypuncher.Core;
 using Keypuncher.Rendering;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
@@ -41,13 +42,13 @@ public sealed class PlayPage : ContentPage
 
         _timer = Dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(15);
-        _timer.Tick += (_, _) => OnFrame();
+        _timer.Tick += (_, _) => Frame();
 
         _host.Engine.GrownUpRequested += OnGrownUp;
         _host.Engine.RestyledShown += (slot, recipe) =>
         {
             // Once per thing per play, so the log says what the child actually saw of the model's choices.
-            if (_shown.Add((slot, recipe.Name))) Log($"shown: {recipe.Name} (key family {slot})");
+            if (_shown.Add((slot, recipe.Name))) Story($"shown: {recipe.Name} (key family {slot})");
         };
     }
 
@@ -67,7 +68,7 @@ public sealed class PlayPage : ContentPage
         _session.Restart();
         if (s.RecordPlay || s.DirectorTest)
             _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.VideosName), s.DirectorTest ? "test" : "play");
-        Log($"play started: calm {s.Calm}, language {_host.Engine.SessionLanguage}, model changes {(s.Director ? "on" : "off")}"
+        Story($"play started: calm {s.Calm}, language {_host.Engine.SessionLanguage}, model changes {(s.Director ? "on" : "off")}"
             + $"{(s.DirectorTest ? ", test mode" : "")}, goodnight {(s.SessionLength is { } l ? $"after {l.TotalMinutes:0.#} min" : "never")}"
             + $"{(_recorder is null ? ", not recorded" : $", recording to {Path.Combine(_host.DataFolder, ToyHost.VideosName)}")}");
         _last = _lastDrawLog = _clock.Elapsed;
@@ -81,6 +82,14 @@ public sealed class PlayPage : ContentPage
         _host.SaveWorld();
         StopRecording();
         base.OnDisappearing();
+    }
+
+    /// <summary>One frame, with anything it throws logged (once every half minute at most, for the same error) and
+    /// play carrying on: a fault in one frame must not end the toy under the child.</summary>
+    private void Frame()
+    {
+        try { OnFrame(); }
+        catch (Exception e) { Log.Error("play", "a frame failed; play carries on", e); }
     }
 
     private void OnFrame()
@@ -97,7 +106,7 @@ public sealed class PlayPage : ContentPage
             _host.Engine.OnKey(key);
         }
         _host.Engine.Advance(elapsed);
-        if (_host.Engine.IsAsleep && !_wasAsleep) Log($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
+        if (_host.Engine.IsAsleep && !_wasAsleep) Story($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
         _wasAsleep = _host.Engine.IsAsleep;
         var settings = _host.Engine.Settings;
         _host.Director.Update(_host.World, settings.Limits, settings.Director && !_host.Engine.IsAsleep);
@@ -120,12 +129,18 @@ public sealed class PlayPage : ContentPage
         if (now - _lastDrawLog > DrawLogEvery)
         {
             _lastDrawLog = now;
-            Log($"drawing {FramesPerSecond:0} frames a second; {_renderer.Timings}; {_host.World.Live.Count} on screen");
+            Story($"drawing {FramesPerSecond:0} frames a second; {_renderer.Timings}; {_host.World.Live.Count} on screen");
             _renderer.Timings.Reset();
         }
     }
 
     private void OnPaint(object? sender, SKPaintSurfaceEventArgs e)
+    {
+        try { Paint(e); }
+        catch (Exception ex) { Log.Error("drawing", "drawing a frame failed; play carries on", ex); }
+    }
+
+    private void Paint(SKPaintSurfaceEventArgs e)
     {
         (_width, _height) = (e.Info.Width, e.Info.Height);
         var gate = _host.Engine.Gate;
@@ -156,10 +171,11 @@ public sealed class PlayPage : ContentPage
         var file = _recorder?.CurrentFile;
         _recorder?.Dispose();
         _recorder = null;
-        Log($"play ended after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps{(file is null ? "" : $"; video saved as {file}")}");
+        Story($"play ended after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps{(file is null ? "" : $"; video saved as {file}")}");
     }
 
-    private void Log(string line) => _host.WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
+    /// <summary>A line in the director's log (and the app's log).</summary>
+    private void Story(string line) => _host.Story(line);
 
     private static string Minutes(TimeSpan t) => t.TotalMinutes < 1 ? $"{t.TotalSeconds:0} s" : $"{t.TotalMinutes:0.#} min";
 
@@ -171,6 +187,13 @@ public sealed class PlayPage : ContentPage
     }
 
     private void OnTouch(object? sender, SKTouchEventArgs e)
+    {
+        try { Touch(e); }
+        catch (Exception ex) { Log.Error("play", $"handling a touch ({e.ActionType}) failed", ex); }
+        e.Handled = true;
+    }
+
+    private void Touch(SKTouchEventArgs e)
     {
         var (x, y, aspect) = (e.Location.X / _width, e.Location.Y / _height, (double)_width / _height);
         switch (e.ActionType)
@@ -188,11 +211,11 @@ public sealed class PlayPage : ContentPage
                 _host.Engine.OnFingerUp(e.Id);
                 break;
         }
-        e.Handled = true;
     }
 
     private void OnGrownUp()
     {
+        Story("a grown-up passed the gate; showing the grown-ups' page");
         _host.Engine.GrownUpRequested -= OnGrownUp;
         _timer.Stop();
         StopRecording();

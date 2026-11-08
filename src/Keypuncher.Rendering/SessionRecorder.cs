@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Keypuncher.Core;
 using SkiaSharp;
 
 namespace Keypuncher.Rendering;
@@ -92,11 +93,17 @@ public sealed class SessionRecorder : IDisposable
                     using (item.Frame)
                         if (!WriteFrame(item.Frame, item.Copies)) return;
         }
+        catch (Exception e)
+        {
+            // Nothing may escape this thread: an exception here would end the whole toy.
+            Log.Error("recording", "the play video stopped", e);
+        }
         finally
         {
             try { _writer?.Dispose(); }
-            catch (IOException) { }
+            catch (Exception e) { Log.Warn("recording", $"could not close {CurrentFile}", e); }
             _writer = null;
+            Log.Info("recording", $"video {CurrentFile ?? "(no frames)"} closed");
         }
     }
 
@@ -111,13 +118,15 @@ public sealed class SessionRecorder : IDisposable
                 _writer?.Dispose();
                 CurrentFile = Path.Combine(_folder, $"{_prefix}-{_clock():yyyy-MM-dd-HHmmss}.avi");
                 _writer = new MjpegAviWriter(CurrentFile, frame.Width, frame.Height, Fps);
+                Log.Info("recording", $"recording to {CurrentFile} ({frame.Width}×{frame.Height}, {Fps} frames a second)");
             }
             for (var i = 0; i < copies; i++) _writer.AddFrame(data.AsSpan());
             return true;
         }
-        catch (IOException)
+        catch (IOException e)
         {
             // A full disk or a locked file stops the recording, never play.
+            Log.Error("recording", $"writing {CurrentFile} failed; the recording stops", e);
             return false;
         }
     }
@@ -131,8 +140,12 @@ public sealed class SessionRecorder : IDisposable
         {
             if (total + MaxFileBytes <= MaxFolderBytes) break;
             total -= f.Length;
-            try { f.Delete(); }
-            catch (IOException) { }
+            try
+            {
+                f.Delete();
+                Log.Info("recording", $"deleted the old recording {f.Name} ({f.Length / 1e6:0} MB) to stay under {MaxFolderBytes / 1e9:0} GB");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Warn("recording", $"could not delete the old recording {f.Name}", e); }
         }
     }
 }

@@ -1,3 +1,4 @@
+using Keypuncher.Core;
 using NAudio.Wave;
 
 namespace Keypuncher.Platform.Windows;
@@ -21,6 +22,7 @@ public sealed class MicRecorder : IDisposable
         _wave = new WaveIn { WaveFormat = new WaveFormat(SampleRate, 16, 1), BufferMilliseconds = 50 };
         _wave.DataAvailable += OnData;
         _wave.StartRecording();
+        Log.Info("recording", "microphone opened");
     }
 
     /// <summary>Stops and returns everything recorded since <see cref="Start"/>.</summary>
@@ -37,6 +39,12 @@ public sealed class MicRecorder : IDisposable
     public void Dispose() => Stop();
 
     private void OnData(object? sender, WaveInEventArgs e)
+    {
+        try { Take(e); }
+        catch (Exception ex) { Log.Error("recording", "taking sound from the microphone failed", ex); }
+    }
+
+    private void Take(WaveInEventArgs e)
     {
         float peak = 0;
         lock (_samples)
