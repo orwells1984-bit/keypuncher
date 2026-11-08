@@ -42,7 +42,7 @@ public sealed class PlayPage : ContentPage
 
         _timer = Dispatcher.CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(15);
-        _timer.Tick += (_, _) => Frame();
+        _timer.Tick += (_, _) => SafeFrame();
 
         _host.Engine.GrownUpRequested += OnGrownUp;
         _host.Engine.RestyledShown += (slot, recipe) =>
@@ -86,7 +86,7 @@ public sealed class PlayPage : ContentPage
 
     /// <summary>One frame, with anything it throws logged (once every half minute at most, for the same error) and
     /// play carrying on: a fault in one frame must not end the toy under the child.</summary>
-    private void Frame()
+    private void SafeFrame()
     {
         try { OnFrame(); }
         catch (Exception e) { Log.Error("play", "a frame failed; play carries on", e); }
@@ -136,11 +136,11 @@ public sealed class PlayPage : ContentPage
 
     private void OnPaint(object? sender, SKPaintSurfaceEventArgs e)
     {
-        try { Paint(e); }
+        try { DrawFrame(e); }
         catch (Exception ex) { Log.Error("drawing", "drawing a frame failed; play carries on", ex); }
     }
 
-    private void Paint(SKPaintSurfaceEventArgs e)
+    private void DrawFrame(SKPaintSurfaceEventArgs e)
     {
         (_width, _height) = (e.Info.Width, e.Info.Height);
         var gate = _host.Engine.Gate;
@@ -188,12 +188,12 @@ public sealed class PlayPage : ContentPage
 
     private void OnTouch(object? sender, SKTouchEventArgs e)
     {
-        try { Touch(e); }
+        try { HandleTouch(e); }
         catch (Exception ex) { Log.Error("play", $"handling a touch ({e.ActionType}) failed", ex); }
         e.Handled = true;
     }
 
-    private void Touch(SKTouchEventArgs e)
+    private void HandleTouch(SKTouchEventArgs e)
     {
         var (x, y, aspect) = (e.Location.X / _width, e.Location.Y / _height, (double)_width / _height);
         switch (e.ActionType)
