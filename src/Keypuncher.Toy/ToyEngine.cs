@@ -22,6 +22,11 @@ public sealed class ToyEngine
     /// <summary>A word whose voice is still being made when it is due keeps trying this long, then stays silent.</summary>
     private const double WordVoiceWait = 1.5;
     private const double CountInterval = 0.55;
+    /// <summary>A press past the calm level's rate wakes a thing this close to its key's place (0..1 of the screen);
+    /// about two keys' width, so the answer stays where the child pressed.</summary>
+    private const double WakeRadius = 0.14;
+    /// <summary>How far a word's label sits from its picture, and the lowest the label may go.</summary>
+    private const double WordLabelGap = 0.27, MaxWordLabelY = 0.88;
     /// <summary>Letters no word begins with; these borrow a word that contains them (Ð: fiðrildi).
     /// Any other letter without a word just says its sound.</summary>
     private static readonly HashSet<char> NeverStartsAWord = ['Ð', 'Ъ', 'Ь'];
@@ -346,7 +351,7 @@ public sealed class ToyEngine
         {
             CancelWord();
             ShowGlyph(meaning.Display, ev.X);
-            Count(meaning, recipe, ev.X, midi);
+            Count(meaning, recipe, ev.X, ev.Y, midi);
             return;
         }
 
@@ -359,7 +364,7 @@ public sealed class ToyEngine
         if (!speak || meaning.Clip is null) return;
 
         Say(meaning.Clip, meaning.FallbackText, ev.X);
-        if (_settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X);
+        if (_settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X, ev.Y);
     }
 
     /// <summary>Now and then, an animal that has just appeared makes its noise, once speech is done. Only one
@@ -382,13 +387,13 @@ public sealed class ToyEngine
     }
 
     /// <summary>Digits: 0 says zero; 1 up to the calm level's limit make that many things, one at a time,
-    /// counting aloud; bigger numbers say the number and make one thing.</summary>
-    private void Count(KeyMeaning meaning, Recipe recipe, double x, int midi)
+    /// counting aloud; bigger numbers say the number and make one thing. All of it at the key's place.</summary>
+    private void Count(KeyMeaning meaning, Recipe recipe, double x, double y, int midi)
     {
         var n = meaning.Number!.Value;
         if (n > _settings.Limits.CountUpTo)
         {
-            SpawnThing(recipe, x, 0.45, 1.2);
+            SpawnThing(recipe, x, y, 1.2);
             foreach (var step in new[] { 0, 2, 4 })
                 PlayNote(recipe.Voice, Notes.Degree("pentatonic", midi, step), 0.5, x);
             if (meaning.Clip is not null) Say(meaning.Clip, meaning.FallbackText, x);
@@ -396,7 +401,7 @@ public sealed class ToyEngine
         }
         if (n == 0)
         {
-            SpawnEffect(BuiltInRecipes.Burst, x, 0.45, 0.5, 1.2);
+            SpawnEffect(BuiltInRecipes.Burst, x, PlaceY(recipe, y), 0.5, 1.2);
             PlayNote(recipe.Voice, midi, 0.6, x);
             if (meaning.Clip is not null) Say(meaning.Clip, meaning.FallbackText, x);
             return;
@@ -408,7 +413,7 @@ public sealed class ToyEngine
             var spot = Math.Clamp(x + ((count - ((n + 1) / 2.0)) * 0.06), 0.05, 0.95);
             Schedule((count - 1) * CountInterval, () =>
             {
-                SpawnThing(recipe, spot, 0.45 + (_random.NextDouble() * 0.1), 1);
+                SpawnThing(recipe, spot, y + (_random.NextDouble() * 0.1), 1);
                 PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi + 12, count - 1), 0.7, spot);
                 var said = KeyMeanings.For(meaning.Language, count.ToString())!;
                 Say(said.Clip!, said.FallbackText, spot);
@@ -416,7 +421,7 @@ public sealed class ToyEngine
         }
     }
 
-    private void ScheduleWord(string language, char letter, double x)
+    private void ScheduleWord(string language, char letter, double x, double y)
     {
         var candidates = StarterConcepts.StartingWith(language, letter).ToList();
         if (candidates.Count == 0 && NeverStartsAWord.Contains(letter))
@@ -435,11 +440,14 @@ public sealed class ToyEngine
         {
             var spot = Math.Clamp(x, 0.15, 0.85);
             var recipe = BuiltInRecipes.ForConcept(concept.Id);
-            SpawnThing(recipe, spot, 0.42, 1.8);
+            // The word's picture comes up where the letter's key is; its label sits under it, or over it when
+            // the picture is low (plants grow from the ground).
+            var picture = SpawnThing(recipe, spot, y, 1.8);
             _world.Add(new Entity
             {
                 Id = _world.NextId(), Role = EntityRole.Word, Text = KeyMeanings.ApplyCase(word, upperCase: false),
-                X = spot, Y = 0.62, Born = _world.Time, Lifetime = 3.5,
+                X = spot, Y = picture.Y + WordLabelGap <= MaxWordLabelY ? picture.Y + WordLabelGap : picture.Y - WordLabelGap,
+                Born = _world.Time, Lifetime = 3.5,
             });
             PlayNote(recipe.Voice, Notes.Parse(recipe.Voice.Root), 0.6, spot);
             // A voice made on the fly can take longer than the pause the first time; say it once it is ready.
@@ -480,17 +488,27 @@ public sealed class ToyEngine
 
         PlayNote(BuiltInRecipes.Palette[2].Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 8)), 0.3, x);
 
-    /// <summary>A new thing while the calm level's rate allows; otherwise the newest of that family wakes up,
-    /// so every press still gets a visible answer without adding to the crowd.</summary>
+    /// <summary>A new thing while the calm level's rate allows; otherwise the thing nearest the key's place wakes
+    /// up (one of the same family if there is one close by), or, with nothing close, a small sparkle shows there.
+    /// Either way every press gets a visible answer where the key is, without adding to the crowd.</summary>
     private void SpawnOrWake(Recipe recipe, double x, double y, double scale, DateTimeOffset at)
     {
         if (_limiter.TryTake(at))
         {
             SpawnThing(recipe, x, y, scale);
             if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
+            return;
         }
-        else if (_world.Newest(recipe) is { } existing) _world.Wake(existing);
+        var placeY = PlaceY(recipe, y);
+        if (_world.Nearest(x, placeY, WakeRadius, recipe) is { } existing) _world.Wake(existing);
+        else SpawnEffect(BuiltInRecipes.Sparkle, x, placeY, 0.6, 1.0);
     }
+
+    /// <summary>The height a thing of <paramref name="recipe"/> made at key height <paramref name="y"/> is placed at,
+    /// before its jitter: plants grow from the ground, creatures stay at the key's height, kept clear of the hills'
+    /// top edge.</summary>
+    private static double PlaceY(Recipe recipe, double y) =>
+        recipe.Kind == RecipeKind.Plant ? 0.74 + (y * 0.2) : Math.Clamp(0.1 + (y * 0.6), 0.08, 0.7);
 
     private static SpawnLimiter LimiterFor(CalmLimits limits) =>
         new(limits.NewThingsPerSecond, burst: limits.NewThingsPerSecond < 1 ? 1 : 2 * limits.NewThingsPerSecond);
@@ -513,8 +531,8 @@ public sealed class ToyEngine
         // Plants grow from the ground; creatures stay where the key is, kept clear of the hills' top edge.
         var jitter = (_random.NextDouble() - 0.5) * 0.04;
         var placeY = recipe.Kind == RecipeKind.Plant
-            ? 0.74 + (y * 0.2) + (jitter * 0.5)
-            : Math.Clamp(0.1 + (y * 0.6) + jitter, 0.08, 0.7);
+            ? PlaceY(recipe, y) + (jitter * 0.5)
+            : Math.Clamp(PlaceY(recipe, y) + jitter, 0.08, 0.7);
         return _world.Add(new Entity
         {
             Id = _world.NextId(), Role = recipe.Kind == RecipeKind.Effect ? EntityRole.Effect : EntityRole.Thing,

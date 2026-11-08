@@ -124,6 +124,25 @@ public sealed class World
         UpdateAwake();
     }
 
+    /// <summary>The thing nearest (<paramref name="x"/>, <paramref name="y"/>) within <paramref name="radius"/>,
+    /// preferring one made from <paramref name="prefer"/> anywhere in that radius; null when nothing is that close.</summary>
+    public Entity? Nearest(double x, double y, double radius, Recipe? prefer = null)
+    {
+        Entity? best = null, bestPreferred = null;
+        double bestD = double.MaxValue, bestPreferredD = double.MaxValue;
+        foreach (var e in _live)
+        {
+            if (!e.IsPersistent || e.IsRetiring) continue;
+            var dx = e.X - x;
+            var dy = e.Y - y;
+            var d = (dx * dx) + (dy * dy);
+            if (d > radius * radius) continue;
+            if (d < bestD) (best, bestD) = (e, d);
+            if (prefer is not null && e.Recipe == prefer && d < bestPreferredD) (bestPreferred, bestPreferredD) = (e, d);
+        }
+        return bestPreferred ?? best;
+    }
+
     /// <summary>The most recently born thing made from <paramref name="recipe"/>, or failing that the most
     /// recent thing of any kind; null in an empty world.</summary>
     public Entity? Newest(Recipe? recipe)
