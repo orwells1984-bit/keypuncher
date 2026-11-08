@@ -15,6 +15,8 @@ public sealed class ParentPage : ContentPage
     private readonly Dictionary<string, Slider> _weights = [];
     private readonly Switch _upper, _words, _noises, _director, _directorTest, _recordPlay, _pictures;
     private readonly Label _pictureStatus = new() { FontSize = 13 };
+    private readonly Label _lockStatus = new();
+    private readonly Button _lockButton;
     private readonly VerticalStackLayout _pictureRows = new() { Spacing = 8 };
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
@@ -35,6 +37,7 @@ public sealed class ParentPage : ContentPage
         var s = host.Engine.Settings;
         BackgroundColor = Color.FromArgb("#FFF8EC");
 
+        _lockButton = Button("Let Keypuncher turn off Win+L (asks for admin once)", AskToTurnOffLock);
         var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 720 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
 
@@ -109,6 +112,9 @@ public sealed class ParentPage : ContentPage
                  + $"Drawing: {PlayPage.FramesPerSecond:0} frames a second.  "
                  + $"Things: {host.World.Live.Count} live, {host.World.Baked.Count} in the background.",
         });
+        layout.Add(_lockStatus);
+        layout.Add(_lockButton);
+        RefreshLock();
         layout.Add(new Label { Text = $"Data folder: {host.DataFolder}", FontSize = 12 });
 
         layout.Add(Button("Start a fresh world", FreshWorld));
@@ -219,6 +225,35 @@ public sealed class ParentPage : ContentPage
             return;
         }
         RefreshPictures();
+    }
+
+    /// <summary>Says whether Win+L is off, and offers the one-time admin step when Windows refused it.</summary>
+    private void RefreshLock()
+    {
+        var winL = _host.WinL;
+        _lockStatus.Text = winL.Active ? "Win+L: turned off while Keypuncher runs, put back when it quits."
+            : winL.NeedsPermission ? "Win+L: NOT turned off. Windows does not let this account change the setting, so the child can lock the computer. The button below asks for an administrator's permission once (the usual Windows prompt); after that Keypuncher turns Win+L off and back on by itself."
+            : "Win+L: left as it was (already off, or this computer does not allow changing it; see keypuncher.log).";
+        _lockButton.IsVisible = winL.NeedsPermission;
+    }
+
+    private async void AskToTurnOffLock()
+    {
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        try
+        {
+            _lockButton.IsEnabled = false;
+            await _host.WinL.AskForPermissionAsync();
+        }
+        catch (Exception e)
+        {
+            Log.Error("windows", "asking for permission to turn off Win+L failed", e);
+            _lockStatus.Text = $"Win+L: the permission step failed: {e.GetBaseException().Message}";
+            _lockButton.IsEnabled = true;
+            return;
+        }
+        _lockButton.IsEnabled = true;
+        RefreshLock();
     }
 
     private async void FreshWorld()
