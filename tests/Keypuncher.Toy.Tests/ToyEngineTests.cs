@@ -345,6 +345,46 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_press_too_soon_far_from_everything_sparkles_at_its_key_and_wakes_nothing_far_away()
+    {
+        _engine.Settings = _engine.Settings with { Calm = CalmLevel.Baby, SayWords = false };
+        Press(0x10, "q");   // far left, top
+        var first = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing);
+        Step(CalmLimits.Baby.SettleSeconds + 1);
+        Press(0x10, "q");   // allowed: a second thing by Q
+        Press(0x32, "m");   // too soon, bottom right of the letters, nothing near it
+        Assert.Equal(0, first.Energy);
+        var sparkle = Assert.Single(_world.Live, e => e.Recipe == BuiltInRecipes.Sparkle);
+        Assert.InRange(sparkle.X, KeyboardGeometry.Position(0x32).X - 0.001, KeyboardGeometry.Position(0x32).X + 0.001);
+    }
+
+    [Fact]
+    public void Things_appear_at_their_keys_place_digits_and_number_pad_too()
+    {
+        _engine.Settings = _engine.Settings with { SayWords = false };
+        foreach (var (scan, ch) in new[] { (0x10, "q"), (0x32, "m"), (0x02, "1"), (0x4F, "1") })
+        {
+            var before = _world.Live.Where(e => e.Role == EntityRole.Thing).ToHashSet();
+            Press(scan, ch);
+            var made = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing && !before.Contains(e));
+            Assert.InRange(made.X, KeyboardGeometry.Position(scan).X - 0.03, KeyboardGeometry.Position(scan).X + 0.03);
+            Step(3);
+        }
+        var q = _world.Live.First(e => e.Role == EntityRole.Thing);
+        var digit = _world.Live.Where(e => e.Role == EntityRole.Thing).ElementAt(2);
+        if (q.Recipe!.Kind != RecipeKind.Plant && digit.Recipe!.Kind != RecipeKind.Plant) Assert.True(digit.Y < q.Y + 0.05);
+    }
+
+    [Fact]
+    public void A_words_picture_comes_up_above_its_letters_key()
+    {
+        Press(0x23, "h");          // hús, hundur
+        Step(1.2);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.InRange(word.X, KeyboardGeometry.Position(0x23).X - 0.001, KeyboardGeometry.Position(0x23).X + 0.001);
+    }
+
+    [Fact]
     public void A_burst_of_presses_stays_under_the_live_cap()
     {
         _engine.Settings = _engine.Settings with { Calm = CalmLevel.Baby };

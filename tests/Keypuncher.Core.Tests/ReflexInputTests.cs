@@ -86,6 +86,40 @@ public class ReflexInputTests
     }
 
     [Fact]
+    public void Every_key_of_a_full_size_iso_keyboard_has_its_place()
+    {
+        int[] keys =
+        [
+            0x01, .. Enumerable.Range(0x3B, 10), 0x57, 0x58, 0xE037, 0x46, 0x45,           // Esc, F1-F12, PrtSc, ScrLk, Pause
+            0x29, .. Enumerable.Range(0x02, 12), 0x0E, 0xE052, 0xE047, 0xE049, 0xE045, 0xE035, 0x37, 0x4A,
+            0x0F, .. Enumerable.Range(0x10, 12), 0x1C, 0xE053, 0xE04F, 0xE051, 0x47, 0x48, 0x49, 0x4E,
+            0x3A, .. Enumerable.Range(0x1E, 11), 0x2B, 0x4B, 0x4C, 0x4D,
+            0x2A, 0x56, .. Enumerable.Range(0x2C, 10), 0x36, 0xE048, 0x4F, 0x50, 0x51, 0xE01C,
+            0x1D, 0xE05B, 0x38, 0x39, 0xE038, 0xE05C, 0xE05D, 0xE01D, 0xE04B, 0xE050, 0xE04D, 0x52, 0x53,
+        ];
+        Assert.All(keys, k => Assert.True(KeyboardGeometry.IsKnown(k), $"{k:X}"));
+        Assert.All(keys, k => Assert.InRange(KeyboardGeometry.Position(k).X, 0.02, 0.98));
+        Assert.All(keys, k => Assert.InRange(KeyboardGeometry.Position(k).Y, 0.1, 0.9));
+    }
+
+    [Fact]
+    public void The_main_block_fills_the_width_and_the_number_pad_answers_on_the_right_at_its_rows()
+    {
+        Assert.True(KeyboardGeometry.Position(0x29).X < 0.06);     // key left of 1
+        Assert.True(KeyboardGeometry.Position(0x0E).X > 0.94);     // Backspace
+        Assert.Equal(KeyboardGeometry.Position(0x02).Y, KeyboardGeometry.Position(0xE045).Y); // Num Lock row = digit row
+        Assert.Equal(KeyboardGeometry.Position(0x10).Y, KeyboardGeometry.Position(0x47).Y);   // pad 7 row = Q row
+        Assert.Equal(KeyboardGeometry.Position(0x1E).Y, KeyboardGeometry.Position(0x4B).Y);   // pad 4 row = A row
+        Assert.Equal(KeyboardGeometry.Position(0x2C).Y, KeyboardGeometry.Position(0x4F).Y);   // pad 1 row = Z row
+        Assert.Equal(KeyboardGeometry.Position(0x39).Y, KeyboardGeometry.Position(0x52).Y);   // pad 0 row = space row
+        foreach (var pad in new[] { 0xE045, 0x47, 0x49, 0x4F, 0x51, 0x52, 0x53, 0xE04B, 0xE04D, 0xE048 })
+            Assert.True(KeyboardGeometry.Position(pad).X >= 0.7, $"{pad:X}");
+        Assert.True(KeyboardGeometry.Position(0x47).X < KeyboardGeometry.Position(0x49).X);   // 7 left of 9
+        Assert.True(KeyboardGeometry.Position(0xE04B).X < KeyboardGeometry.Position(0xE04D).X); // left arrow left of right
+        Assert.True(KeyboardGeometry.Column(0x10) < KeyboardGeometry.Column(0x49));           // the pad sounds high, like the right
+    }
+
+    [Fact]
     public void Spawn_limiter_allows_a_burst_then_the_steady_rate()
     {
         var limiter = new SpawnLimiter(perSecond: 8, burst: 4);
