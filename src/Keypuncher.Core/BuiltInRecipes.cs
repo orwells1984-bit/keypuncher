@@ -79,8 +79,9 @@ public static class BuiltInRecipes
         Make(RecipeKind.Effect, "sparkle", Shape.Star, 4, 55, 0.35, 0, MotionType.Burst, 0.6, Waveform.Triangle, 0.005, 0.4, "pentatonic", "E6");
 
     /// <summary>Pictures for the starter concept ids until the director draws them. Only living things get
-    /// eyes: a face on the sun or a house teaches that things are alive. The apple, moon, house, boat, sun, ball, egg
-    /// and butterfly have drawings of their own; the rest borrow an abstract shape in a fitting colour.</summary>
+    /// eyes: a face on the sun or a house teaches that things are alive. The apple, moon, house, boat, sun, ball, egg,
+    /// butterfly and star have drawings of their own; the rest borrow an abstract shape in a fitting colour. The star is
+    /// a small twinkling point of light as seen in the night sky (Montessori: the real thing, not a symbol).</summary>
     public static readonly IReadOnlyDictionary<string, Recipe> Concepts = new Dictionary<string, Recipe>
     {
         ["sun"] = Make(RecipeKind.Effect, "sun", Shape.Sun, 10, 45, 0.9, 0, MotionType.Spin, 0.1, Waveform.Sine, 0.05, 1.5, "major", "C4"),
@@ -94,7 +95,7 @@ public static class BuiltInRecipes
         ["ball"] = Make(RecipeKind.Creature, "ball", Shape.Ball, 1, 0, 0.45, 0, MotionType.Hop, 0.9, Waveform.Square, 0.005, 0.2, "major", "C5"),
         ["dog"] = Animals.Dog,
         ["egg"] = Make(RecipeKind.Creature, "egg", Shape.Egg, 1, 50, 0.4, 0, MotionType.Still, 0, Waveform.Sine, 0.02, 0.5, "pentatonic", "A4"),
-        ["star"] = Make(RecipeKind.Effect, "star", Shape.Star, 5, 50, 0.6, 2, MotionType.Spin, 0.2, Waveform.Sine, 0.01, 1.0, "lydian", "E5"),
+        ["star"] = Make(RecipeKind.Effect, "star", Shape.Starlight, 1, 50, 0.35, 0, MotionType.Still, 0, Waveform.Sine, 0.01, 1.0, "lydian", "E5"),
         ["apple"] = Make(RecipeKind.Plant, "apple", Shape.Apple, 2, 0, 0.5, 0, MotionType.Still, 0, Waveform.Triangle, 0.01, 0.5, "major", "G4"),
         ["bear"] = Animals.Bear,
         ["duck"] = Animals.Duck,

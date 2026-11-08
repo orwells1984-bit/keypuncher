@@ -31,6 +31,17 @@ public class ShapeTests
     }
 
     [Fact]
+    public void The_star_is_a_small_point_of_light_with_no_face()
+    {
+        // Montessori: the real thing a child sees at night, not the five-pointed symbol, and no face on what is not alive.
+        var star = BuiltInRecipes.Concepts["star"];
+        Assert.Equal(Shape.Starlight, star.Body.Shape);
+        Assert.True(star.Body.Shape.IsPicture());
+        Assert.Equal(0, star.Eyes);
+        Assert.True(star.Body.Size < BuiltInRecipes.Concepts["sun"].Body.Size / 2);
+    }
+
+    [Fact]
     public void The_apple_moon_house_and_boat_words_have_drawings_of_their_own()
     {
         Assert.Equal(Shape.Apple, BuiltInRecipes.Concepts["apple"].Body.Shape);

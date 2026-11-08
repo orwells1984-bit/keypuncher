@@ -25,6 +25,7 @@ internal static partial class RecipePainter
             case Shape.Ball: Ball(k); break;
             case Shape.Egg: Egg(k); break;
             case Shape.Car: Car(k); break;
+            case Shape.Starlight: Starlight(k); break;
         }
     }
 
@@ -159,5 +160,21 @@ internal static partial class RecipePainter
             k.Circle(k.Dark, x, 0.58f, 0.3f);
             k.Circle(k.Pale, x, 0.58f, 0.12f);
         }
+    }
+
+    /// <summary>A star as it looks in the night sky: a small bright point with a soft glow round it that slowly swells
+    /// and fades, a twinkle well under a flash. No points and no face: the five-pointed star is a symbol, and the
+    /// toy shows real things. The point keeps its outline, so it reads against a pale day sky too.</summary>
+    private static void Starlight(Kit k)
+    {
+        var twinkle = 0.5f + (k.Wag(0.5f));
+        var r = k.R;
+        var glow = r * (0.78f + (0.17f * twinkle));
+        using (var shader = SKShader.CreateRadialGradient(SKPoint.Empty, glow,
+            [k.Body.FillPaint.Color.WithAlpha((byte)(110 + (70 * twinkle))), k.Body.FillPaint.Color.WithAlpha(0)], [0.35f, 1], SKShaderTileMode.Clamp))
+        using (var halo = new SKPaint { IsAntialias = true, Shader = shader })
+            k.C.DrawCircle(0, 0, glow, halo);
+        k.Circle(k.Body, 0, 0, 0.36f);
+        k.Dot(k.Pale, -0.08f, -0.08f, 0.08f + (0.03f * twinkle));
     }
 }
