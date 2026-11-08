@@ -131,9 +131,9 @@ public sealed class WorldStore : IDisposable
             {
                 Recipe? recipe;
                 try { recipe = JsonSerializer.Deserialize<Recipe>(r.GetString(2)); }
-                catch (JsonException e)
+                catch (JsonException damaged)
                 {
-                    Log.Warn("world", $"thing {r.GetInt64(0)} could not be read and was left out", e);
+                    Log.Warn("world", $"thing {r.GetInt64(0)} could not be read and was left out", damaged);
                     continue;
                 }
                 if (recipe is null) continue;

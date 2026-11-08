@@ -133,7 +133,8 @@ public class LogTests
             catch (Exception e) { boom = e; }
             file.Write(new LogRecord(new DateTime(2026, 11, 8, 7, 1, 2, 345), LogLevel.Info, "director", "key family 3: zebra", null, 1, "main"));
             file.Write(new LogRecord(new DateTime(2026, 11, 8, 7, 1, 3), LogLevel.Error, "ollama", "call failed", boom, 9, null, Suppressed: 4));
-            file.Flush(TimeSpan.FromSeconds(5));
+            // Closed first: Windows will not let File.ReadAllLines open a file another handle is writing.
+            file.Dispose();
             var lines = File.ReadAllLines(file.Path);
             Assert.Equal("2026-11-08 07:01:02.345 INFO  director  [1 main] key family 3: zebra", lines[0]);
             Assert.StartsWith("2026-11-08 07:01:03.000 ERROR ollama    [9] call failed  (and 4 more the same", lines[1]);
@@ -157,7 +158,7 @@ public class LogTests
             var line = new string('x', 300);
             for (var i = 0; i < 40; i++)
                 file.Write(new LogRecord(DateTime.Now, LogLevel.Debug, "t", $"{i} {line}", null, 1, null));
-            file.Flush(TimeSpan.FromSeconds(5));
+            file.Dispose();
             Assert.Equal(["test.1.log", "test.2.log", "test.log"], Directory.GetFiles(folder).Select(f => Path.GetFileName(f)!).Order().ToArray());
             Assert.All(Directory.GetFiles(folder), f => Assert.True(new FileInfo(f).Length < 1_000 + 400));
             Assert.Contains("39 ", File.ReadAllText(file.Path));
