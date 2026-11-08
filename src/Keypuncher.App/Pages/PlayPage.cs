@@ -106,7 +106,12 @@ public sealed class PlayPage : ContentPage
             _host.Engine.OnKey(key);
         }
         _host.Engine.Advance(elapsed);
-        if (_host.Engine.IsAsleep && !_wasAsleep) Story($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
+        if (_host.Engine.IsAsleep && !_wasAsleep)
+        {
+            Story($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
+            // The director has stopped choosing, so the card is free for the vision model.
+            _host.CheckNewPictures();
+        }
         _wasAsleep = _host.Engine.IsAsleep;
         var settings = _host.Engine.Settings;
         _host.Director.Update(_host.World, settings.Limits, settings.Director && !_host.Engine.IsAsleep);

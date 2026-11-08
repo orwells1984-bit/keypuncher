@@ -64,7 +64,8 @@ public sealed class PhotoFetcher : IPictureFetcher
         var wanted = _folder.Wanted.Get(slug);
         var asked = wanted?.Exclude ?? [];
         var inPlay = _folder.HasPicture(slug) || _folder.IsHidden(slug);
-        if (inPlay && asked.Count == 0)
+        // A hidden picture still on the wanted list is one the checker turned down; one a grown-up hid is left hidden.
+        if (asked.Count == 0 && (_folder.HasPicture(slug) || (_folder.IsHidden(slug) && wanted is null)))
         {
             _folder.Wanted.Remove(slug);
             return FetchOutcome.AlreadyHave;

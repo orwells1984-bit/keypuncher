@@ -22,11 +22,13 @@ public enum MakeOutcome
 /// <summary>
 /// Fills the gaps the photo sources leave: for a thing the finder found nothing for, asks the image model for a
 /// picture, cuts it out like a photo, writes the sidecar with how it was made, and, when a checker is given, shows
-/// the cut-out to the vision model and records what it said. The check only flags. Everything here takes the graphics
+/// the cut-out to the vision model, which takes a picture it fails out of play (see <see cref="PictureChecks"/>). Everything here takes the graphics
 /// card, so it runs from the console tool at night, never from the toy.
 /// </summary>
 public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOut cutOut, IVisionChecker? checker = null, Func<DateTime>? clock = null, Action<string>? note = null)
 {
+    private readonly PictureChecks? _checks = checker is null ? null : new PictureChecks(folder, checker, clock, note);
+
     /// <summary>The wanted reasons that mean the photo sources are done with a thing, so the image model may try.</summary>
     public static readonly string[] GapReasons = ["no photo found", "no article"];
 
@@ -43,7 +45,8 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
     {
         var slug = Slugs.For(name);
         var now = (clock ?? (() => DateTime.Now))();
-        if (folder.HasPicture(slug) || folder.IsHidden(slug)) { folder.Wanted.Remove(slug); return MakeOutcome.AlreadyHave; }
+        // A hidden picture still on the wanted list is one the checker turned down: another is drawn.
+        if (folder.HasPicture(slug) || (folder.IsHidden(slug) && folder.Wanted.Get(slug) is null)) { folder.Wanted.Remove(slug); return MakeOutcome.AlreadyHave; }
         var wanted = folder.Wanted.Get(slug) ?? folder.Wanted.Add(name, category, now);
         if (!maker.IsAvailable) { Note($"{name}: image model missing"); return MakeOutcome.ModelMissing; }
         if (!cutOut.IsAvailable) { folder.Wanted.Bump(slug, PhotoFetcher.ModelMissing, now, countTry: false); Note($"{name}: {PhotoFetcher.ModelMissing}"); return MakeOutcome.ModelMissing; }
@@ -85,37 +88,14 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
         }
         folder.Wanted.Remove(slug);
         Note($"{name}: picture in play ({maker.Name}, {result.Model})");
-        if (checker is not null) await CheckAsync(sidecar, cutPng, ct);
+        if (_checks is not null) await _checks.CheckAsync(sidecar, cutPng, ct);
         return MakeOutcome.Made;
     }
 
-    /// <summary>Shows a picture already in play to the checker and records its verdict; null when there is no checker,
-    /// no such picture, or the checker did not answer.</summary>
-    public async Task<VisionCheck?> CheckAsync(string slug, CancellationToken ct = default)
-    {
-        if (checker is null || folder.ReadSidecar(slug) is not { } sidecar) return null;
-        var path = folder.HasPicture(slug) ? folder.PicturePath(slug) : folder.IsHidden(slug) ? folder.HiddenPath(slug) : null;
-        if (path is null) return null;
-        return await CheckAsync(sidecar, await File.ReadAllBytesAsync(path, ct), ct);
-    }
-
-    private async Task<VisionCheck?> CheckAsync(PictureSidecar sidecar, byte[] png, CancellationToken ct)
-    {
-        if (checker is null) return null;
-        var (real, realCategory) = ToyNames.LookUp(sidecar.Name, sidecar.Category);
-        VisionCheck? check;
-        try { check = await checker.CheckAsync(png, real, realCategory, ct); }
-        catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
-        {
-            Note($"{sidecar.Name}: the checker did not answer ({e.Message})");
-            Log.Warn("pictures", $"the picture checker did not answer for {sidecar.Name}", e);
-            return null;
-        }
-        if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }
-        folder.WriteSidecar((folder.ReadSidecar(sidecar.Slug) ?? sidecar) with { Check = check });
-        Note($"{sidecar.Name}: {checker.Model} says {(check.Passed ? "looks right" : "looks WRONG")} ({check.Confidence:0.00}): {check.Saw}");
-        return check;
-    }
+    /// <summary>Shows a picture (in play or hidden) to the checker and acts on its verdict (see <see cref="PictureChecks"/>);
+    /// null when there is no checker, no such picture, or the checker did not answer.</summary>
+    public Task<VisionCheck?> CheckAsync(string slug, CancellationToken ct = default) =>
+        _checks?.CheckAsync(slug, ct) ?? Task.FromResult<VisionCheck?>(null);
 
     private void Note(string line) => note?.Invoke(line);
 }
