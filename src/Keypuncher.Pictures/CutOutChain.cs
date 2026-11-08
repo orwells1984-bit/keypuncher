@@ -1,4 +1,5 @@
 using SkiaSharp;
+using Keypuncher.Core;
 
 namespace Keypuncher.Pictures;
 
@@ -37,7 +38,12 @@ public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
                     }
                 }
             }
-            catch (ObjectDisposedException) { continue; }
+            catch (ObjectDisposedException e)
+            {
+                // The models are closed as the toy shuts down.
+                Log.Debug("pictures", $"cut-out model {cutOut.Name} was closed mid-cut", e);
+                continue;
+            }
             if (result.Succeeded) return result;
             last = result;
         }

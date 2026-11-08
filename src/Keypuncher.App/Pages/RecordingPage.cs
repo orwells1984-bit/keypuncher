@@ -148,6 +148,7 @@ public sealed class RecordingPage : ContentPage
             try { _mic.Start(); }
             catch (Exception e)
             {
+                Log.Warn("recording", "could not open the microphone", e);
                 _status.Text = "Could not open the microphone: " + e.Message + " (check Windows privacy settings for the microphone).";
                 return;
             }

@@ -34,46 +34,66 @@ public sealed class ToyHost : IDisposable
     private readonly OnnxCutOut[] _cutOuts;
     private volatile HostMode _mode = HostMode.Play;
 
-    public ToyHost()
-    {
-        DataFolder = Environment.GetEnvironmentVariable("KEYPUNCHER_DATA") is { Length: > 0 } custom
+    /// <summary>Where the toy keeps its data: KEYPUNCHER_DATA if set, otherwise %LOCALAPPDATA%\Keypuncher.</summary>
+    public static string ResolveDataFolder() =>
+        Environment.GetEnvironmentVariable("KEYPUNCHER_DATA") is { Length: > 0 } custom
             ? custom
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Keypuncher");
+
+    public ToyHost()
+    {
+        var starting = System.Diagnostics.Stopwatch.StartNew();
+        DataFolder = ResolveDataFolder();
         Directory.CreateDirectory(DataFolder);
+        _directorLog = Path.Combine(DataFolder, DirectorLogName);
 
         _settingsStore = new SettingsStore(Path.Combine(DataFolder, "settings.json"));
         Clips = new ClipStore(Path.Combine(DataFolder, "recordings"));
         Speech = new SpeechLibrary(Clips, new WindowsVoices());
         WorldStore = new WorldStore(Path.Combine(DataFolder, "world.db"));
+        var loading = System.Diagnostics.Stopwatch.StartNew();
         WorldStore.Load(World);
+        Log.Info("world", $"loaded in {loading.ElapsedMilliseconds} ms: {World.Live.Count} things on screen, "
+            + $"{World.Families.Restyled().Count()} key families changed by the model, scene {World.Scene}");
         // The toy's own things ease in over many plays; a real thing the director picked shows its picture at once.
         Pictures = new PictureLibrary(Path.Combine(DataFolder, PicturesName)) { Climbs = BuiltInRecipes.IsBuiltIn };
 
-        try { Audio = new AudioOutput(Mixer); }
-        catch (Exception e) { AudioError = e.Message; }
+        try
+        {
+            Audio = new AudioOutput(Mixer);
+            Log.Info("audio", "sound card opened");
+        }
+        catch (Exception e)
+        {
+            AudioError = e.Message;
+            Log.Error("audio", "could not open the sound card; the toy plays silently", e);
+        }
 
-        Engine = new ToyEngine(World, Mixer, Speech, _settingsStore.Load(), clock: () => DateTime.Now);
+        var settings = _settingsStore.Load();
+        Log.Info("settings", $"loaded: {settings}");
+        Engine = new ToyEngine(World, Mixer, Speech, settings, clock: () => DateTime.Now);
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
         _shortcuts = new AccessibilityShortcuts();
         _lock = new LockShortcut();
+        Log.Info("windows", $"keyboard hook installed; Win+L {(_lock.Active ? "turned off for this run" : "left as it was")}");
 
         var ollama = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } host
             ? (host.Contains("://") ? host : "http://" + host)
             : "http://localhost:11434");
         var model = Environment.GetEnvironmentVariable("KEYPUNCHER_MODEL") is { Length: > 0 } m ? m : DefaultModel;
-        var author = new OllamaLanguageModel(ollama, model);
-        var checker = new OllamaLanguageModel(ollama, model, temperature: 0);
+        var author = new OllamaLanguageModel(ollama, model, role: "author");
+        var checker = new OllamaLanguageModel(ollama, model, temperature: 0, role: "checker");
         Director = new DirectorLoop(
             new RealThingDirector(author, new FactChecker(checker)),
             scenes: new SceneDirector(author, new PlaceChecker(checker)));
         OllamaAddress = ollama;
-        _directorLog = Path.Combine(DataFolder, DirectorLogName);
         Director.Noted += WriteDirectorLog;
         // A new thing appears once on its own as soon as it is chosen; before, it waited for its key, and a whole
         // play could pass without that key being pressed again.
         Director.Restyled += (_, recipe) => Engine.Show(recipe);
-        WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  started; model {model} at {ollama}");
-        if (Engine.Settings.Director) _ = WarmUpAsync(author);
+        Story($"started; model {model} at {ollama}");
+        if (Engine.Settings.Director) Task.Run(() => WarmUpAsync(author)).LogFailures("ollama", "warming up the model");
+        else Log.Info("director", "model changes are off in the settings; the model is not loaded");
 
         // Pictures of real things: fetched in the background as the director picks them, cut out on the CPU, and
         // handed to the renderer; the toy never waits on any of it. The two cut-out models are only used when a
@@ -99,7 +119,9 @@ public sealed class ToyHost : IDisposable
             PictureJobs.Enqueue(animal.Name, ToyNames.LookUp(animal.Name, RealCategory.Animal).Category);
         PictureJobs.RetryWanted();
 
-        _ = Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id));
+        Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(ClipCatalog.For).Select(e => e.Id)).LogFailures("speech", "loading the recordings");
+        Log.Info("app", $"ready in {starting.ElapsedMilliseconds} ms; {PictureFolder.Wanted.All().Count} pictures wanted, "
+            + $"cut-out models {(_cutOuts.Any(c => c.IsAvailable) ? "present" : "missing")}");
     }
 
     public const string DefaultModel = "qwen3:4b";
@@ -146,13 +168,14 @@ public sealed class ToyHost : IDisposable
     };
 
     /// <summary>A line about a picture, stamped, in the director's log.</summary>
-    private void NotePicture(string line) => WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
+    private void NotePicture(string line) => Story(line);
 
     public HostMode Mode
     {
         get => _mode;
         set
         {
+            if (_mode != value) Log.Info("app", $"mode {_mode} -> {value}");
             _mode = value;
             // Only play holds the screen on; the grown-ups' and recording pages let the power plan apply.
             _keepAwake.Active = value == HostMode.Play;
@@ -166,6 +189,7 @@ public sealed class ToyHost : IDisposable
 
     public void SaveSettings(ToySettings settings)
     {
+        Log.Info("settings", $"saved: {settings}");
         Engine.Settings = settings;
         _settingsStore.Save(settings);
     }
@@ -182,41 +206,92 @@ public sealed class ToyHost : IDisposable
         Pictures.Save();
     }
 
+    /// <summary>Shuts everything down. Each step is on its own, so one failing (and being logged) never keeps the
+    /// world from being saved or Win+L from being put back.</summary>
     public void Dispose()
     {
-        Keyboard.Dispose();
-        _shortcuts.Dispose();
-        _lock.Dispose();
-        _keepAwake.Dispose();
-        Director.Dispose();
+        Log.Info("app", "shutting down");
+        Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
+        Log.Safely("app", "putting the accessibility shortcuts back", _shortcuts.Dispose);
+        Log.Safely("app", "putting Win+L back", _lock.Dispose);
+        Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
+        Log.Safely("app", "stopping the director", Director.Dispose);
         // The cut-out models are closed only once the worker has stopped: a cut it is still running cannot be
         // interrupted, so closing under it would hold the window; the process ending reclaims them instead.
-        if (PictureJobs.Dispose()) foreach (var cutOut in _cutOuts) cutOut.Dispose();
-        SaveWorld();
-        WorldStore.Dispose();
-        Pictures.Dispose();
-        Audio?.Dispose();
+        Log.Safely("app", "stopping the picture worker", () =>
+        {
+            if (PictureJobs.Dispose()) foreach (var cutOut in _cutOuts) cutOut.Dispose();
+            else Log.Warn("pictures", "the picture worker did not stop within 2 s; its cut-out models are left open");
+        });
+        Log.Safely("world", "saving the world", SaveWorld);
+        Log.Safely("world", "closing world.db", WorldStore.Dispose);
+        Log.Safely("pictures", "closing the pictures", Pictures.Dispose);
+        Log.Safely("audio", "closing the sound card", () => Audio?.Dispose());
+        Story("stopped");
+        Log.Flush();
     }
 
     /// <summary>Loads the model while the toy starts, so the first pick 30 s into play does not also wait for the
     /// load, and writes how long it took (or why it failed) to the log.</summary>
+    /// <remarks>Around the load it also logs Ollama's version, the card's free memory before and after, and how much
+    /// of the model ended up on the card: a model that spills to the CPU, or a card another job is holding, is the
+    /// usual reason for slow or missing picks.</remarks>
     private async Task WarmUpAsync(OllamaLanguageModel model)
     {
+        try { Log.Info("ollama", $"Ollama {await model.ServerVersionAsync().ConfigureAwait(false) ?? "(version unknown)"} at {OllamaAddress}"); }
+        catch (Exception e) { Log.Warn("ollama", $"Ollama did not answer at {OllamaAddress}; is it running?", e); }
+        LogFreeVram("before loading the model");
         try
         {
             var took = await model.WarmUpAsync().ConfigureAwait(false);
-            WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  model loaded in {took.TotalSeconds:0.0} s");
+            Story($"model loaded in {took.TotalSeconds:0.0} s");
         }
         catch (Exception e)
         {
-            WriteDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  could not load the model: {e.GetBaseException().Message}");
+            // OllamaLanguageModel has logged the whole exception; the director's log gets the short reason.
+            Story($"could not load the model: {e.GetBaseException().Message}");
+            LogFreeVram("after the failed load");
+            return;
         }
+        try
+        {
+            if (await model.LoadedSizeAsync().ConfigureAwait(false) is { } size)
+                Log.Info("ollama", $"{model.ModelName} takes {size.Size / 1e9:0.0} GB, {size.SizeVram / 1e9:0.0} GB of it on the card"
+                    + (size.SizeVram < size.Size ? $" ({100.0 * size.SizeVram / Math.Max(1, size.Size):0}%): the rest runs on the CPU, several times slower" : " (all of it)"));
+            else Log.Warn("ollama", $"{model.ModelName} is not in Ollama's list of loaded models just after loading");
+            Log.Info("ollama", $"models loaded now: {string.Join(", ", await model.LoadedModelsAsync().ConfigureAwait(false))}");
+        }
+        catch (Exception e) { Log.Warn("ollama", "could not ask Ollama what it has loaded", e); }
+        LogFreeVram("after loading the model");
+    }
+
+    /// <summary>The card's free memory in the log, from nvidia-smi; nothing on a computer without one.</summary>
+    private static void LogFreeVram(string when)
+    {
+        if (Vram.FreeMiB() is { } free) Log.Info("gpu", $"{free} MiB free on the card {when}");
+        else Log.Debug("gpu", $"free memory on the card {when}: unknown (no nvidia-smi)");
+    }
+
+    /// <summary>A line, stamped, in the director's log: the short story of a play that the grown-ups read. It goes
+    /// to the app's log too, with <paramref name="e"/> in full if there is one.</summary>
+    public void Story(string line, Exception? e = null)
+    {
+        Log.Write(e is null ? Core.LogLevel.Info : Core.LogLevel.Warn, "story", line, e);
+        AppendDirectorLog($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
     }
 
     private readonly object _directorLogLock = new();
 
+    /// <summary>Appends a line the director stamped to its log file, and to the app's log.</summary>
+    private void WriteDirectorLog(string line)
+    {
+        // The director stamps its lines as "yyyy-MM-dd HH:mm:ss  "; the app's log has its own stamp.
+        Log.Info("story", line.Length > 21 && line[4] == '-' && line[19] == ' ' ? line[21..] : line);
+        AppendDirectorLog(line);
+    }
+
     /// <summary>Appends a line to the director's log file; a failure to write it never stops play.</summary>
-    public void WriteDirectorLog(string line)
+    private void AppendDirectorLog(string line)
     {
         // The warm-up writes from the thread pool; everything else from the UI thread.
         lock (_directorLogLock)
@@ -227,8 +302,10 @@ public sealed class ToyHost : IDisposable
                     File.Move(_directorLog, Path.ChangeExtension(_directorLog, ".old.log"), overwrite: true);
                 File.AppendAllText(_directorLog, line + Environment.NewLine);
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn("log", $"could not write to {_directorLog}", e);
+            }
         }
     }
 

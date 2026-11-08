@@ -7,6 +7,7 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        AppLog.Start();
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<ToyApp>()

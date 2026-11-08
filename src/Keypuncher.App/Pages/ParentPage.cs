@@ -192,6 +192,7 @@ public sealed class ParentPage : ContentPage
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
+                Log.Warn("pictures", $"could not ask for another picture of {picture.Name}", e);
                 _pictureStatus.Text = $"Could not write the wanted list: {e.Message}";
                 return;
             }
@@ -213,6 +214,7 @@ public sealed class ParentPage : ContentPage
         }
         catch (Exception e)
         {
+            Log.Error("pictures", "downloading the cut-out models did not finish", e);
             _pictureStatus.Text = $"The download did not finish: {e.GetBaseException().Message}";
             return;
         }
@@ -221,14 +223,24 @@ public sealed class ParentPage : ContentPage
 
     private async void FreshWorld()
     {
-        if (!await DisplayAlertAsync("Start a fresh world?", "Everything the child has made so far is cleared. This cannot be undone.", "Clear it", "Keep it"))
-            return;
-        _host.World.Clear();
-        _host.SaveWorld();
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        try
+        {
+            if (!await DisplayAlertAsync("Start a fresh world?", "Everything the child has made so far is cleared. This cannot be undone.", "Clear it", "Keep it"))
+                return;
+            Log.Info("world", "a grown-up started a fresh world");
+            _host.World.Clear();
+            _host.SaveWorld();
+        }
+        catch (Exception e)
+        {
+            Log.Error("world", "starting a fresh world failed", e);
+        }
     }
 
     private void Quit()
     {
+        Log.Info("app", "a grown-up chose Quit");
         _host.SaveWorld();
         Application.Current!.Quit();
     }
@@ -257,7 +269,11 @@ public sealed class ParentPage : ContentPage
     private static IEnumerable<string> SafeVoices()
     {
         try { return WindowsVoices.InstalledLanguages(); }
-        catch (Exception) { return ["unknown"]; }
+        catch (Exception e)
+        {
+            Log.Warn("speech", "could not list the installed Windows voices", e);
+            return ["unknown"];
+        }
     }
 
     private static string SessionName(int? minutes) => minutes switch

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Keypuncher.Director;
+using Keypuncher.Core;
 
 namespace Keypuncher.Pictures;
 
@@ -126,7 +127,11 @@ public static partial class Vram
             if (!process.WaitForExit(10_000)) { process.Kill(); return null; }
             return Parse(output);
         }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { return null; }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            Log.Debug("gpu", "nvidia-smi could not be asked for the card's free memory", e);
+            return null;
+        }
     }
 
     /// <summary>The first number in nvidia-smi's answer ("4592" or "4592 MiB"), or null.</summary>
@@ -179,7 +184,8 @@ public sealed class SdCli(SdCliSetup setup, Func<int?>? freeVram = null, Action<
         }
         finally
         {
-            try { File.Delete(outPath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            try { File.Delete(outPath); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Warn("pictures", $"could not delete {outPath}", e); }
         }
     }
 
@@ -200,7 +206,9 @@ public sealed class SdCli(SdCliSetup setup, Func<int?>? freeVram = null, Action<
         try { await process.WaitForExitAsync(cts.Token); }
         catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            Log.Warn("pictures", $"sd-cli was stopped {(ct.IsCancellationRequested ? "as asked" : "after five minutes")}");
+            try { process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException e) { Log.Debug("pictures", "sd-cli had already ended", e); }
             return (false, "took longer than five minutes");
         }
         var log = await output + "\n" + await errors;

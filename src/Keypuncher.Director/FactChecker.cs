@@ -223,8 +223,9 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
         {
             return result.Json.RootElement.Deserialize<FactCheck>(Options) ?? FactCheck.Failed("checker gave nothing");
         }
-        catch (JsonException)
+        catch (JsonException e)
         {
+            Log.Warn("director", $"the fact checker's answer did not fit the schema: {Log.Short(result.RawText)}", e);
             return FactCheck.Failed("checker gave bad JSON");
         }
     }

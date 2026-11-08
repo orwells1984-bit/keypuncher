@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Keypuncher.Director;
+using Keypuncher.Core;
 
 namespace Keypuncher.Pictures;
 
@@ -122,7 +123,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 isThing = root.TryGetProperty("is_the_thing", out var t) && t.ValueKind == JsonValueKind.True;
                 whole = root.TryGetProperty("whole", out var w) && w.ValueKind == JsonValueKind.True;
             }
-            catch (JsonException) { }
+            catch (JsonException e) { Log.Warn("pictures", $"the picture checker's verdict on {name} was not JSON: {Log.Short(verdict)}", e); }
         }
         saw = Sentence(saw);
         var kept = saw.Length > 300 ? saw[..300] : saw;

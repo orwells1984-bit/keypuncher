@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.Json;
+using Keypuncher.Core;
 using Keypuncher.Inference;
 using OllamaSharp;
 using OllamaSharp.Models;
@@ -24,11 +26,16 @@ public sealed class OllamaLanguageModel : ILanguageModel
     private readonly int _numCtx;
     private readonly float _temperature;
     private readonly bool _think;
+    private readonly string _role;
+    private readonly HashSet<string> _systemsLogged = [];
+    private static int _calls;
 
     /// <param name="think">Whether a reasoning model (qwen3) may think before it answers. Off for the toy: the bench
     /// measured 60 to 130 s a recipe with it on. The bench turns it on to see what it buys the checker.</param>
-    public OllamaLanguageModel(Uri baseUri, string modelName, int numCtx = 4096, float temperature = 0.8f, bool think = false)
+    /// <param name="role">What this model is used for ("author", "checker"), so the log can tell the calls apart.</param>
+    public OllamaLanguageModel(Uri baseUri, string modelName, int numCtx = 4096, float temperature = 0.8f, bool think = false, string? role = null)
     {
+        _role = role ?? "model";
         _http = new HttpClient { BaseAddress = baseUri, Timeout = CallTimeout };
         _client = new OllamaApiClient(_http, modelName);
         ModelName = modelName;
@@ -56,20 +63,54 @@ public sealed class OllamaLanguageModel : ILanguageModel
             Options = new RequestOptions { NumCtx = _numCtx, Temperature = _temperature },
         };
 
+        var call = $"#{Interlocked.Increment(ref _calls)} {_role} ({ModelName})";
+        Log.Info("ollama", $"{call} asking: system prompt {systemPrompt.Length} chars, prompt {userPrompt.Length} chars, temperature {_temperature}, think {(_think ? "on" : "off")}");
+        // The system prompts are the same every time; each is logged in full once per run, the prompt every time.
+        bool firstSystem;
+        lock (_systemsLogged) firstSystem = _systemsLogged.Add(systemPrompt);
+        if (firstSystem) Log.Debug("ollama", $"{call} system prompt:{Environment.NewLine}{systemPrompt}");
+        Log.Debug("ollama", $"{call} prompt:{Environment.NewLine}{userPrompt}");
+
         var text = new System.Text.StringBuilder();
         GenerateDoneResponseStream? done = null;
-
-        await foreach (var chunk in _client.GenerateAsync(request, cancellationToken))
+        var clock = Stopwatch.StartNew();
+        TimeSpan? firstToken = null;
+        try
         {
-            if (chunk is null) continue;
-            text.Append(chunk.Response);
-            if (chunk is GenerateDoneResponseStream d) done = d;
+            await foreach (var chunk in _client.GenerateAsync(request, cancellationToken))
+            {
+                if (chunk is null) continue;
+                firstToken ??= clock.Elapsed;
+                text.Append(chunk.Response);
+                if (chunk is GenerateDoneResponseStream d) done = d;
+            }
+        }
+        catch (OperationCanceledException e) when (cancellationToken.IsCancellationRequested)
+        {
+            Log.Info("ollama", $"{call} cancelled after {clock.Elapsed.TotalSeconds:0.0} s (the toy is closing or the request was given up)", e);
+            throw;
+        }
+        catch (OperationCanceledException e)
+        {
+            // HttpClient's timeout surfaces as a cancellation nobody asked for.
+            Log.Error("ollama", $"{call} no answer within {CallTimeout.TotalMinutes:0} min (gave up after {clock.Elapsed.TotalSeconds:0.0} s{(firstToken is { } f ? $"; first words came at {f.TotalSeconds:0.0} s" : "; not a word came back")}). Is the model loading, or is something else using the card?", e);
+            throw;
+        }
+        catch (Exception e)
+        {
+            Log.Error("ollama", $"{call} failed after {clock.Elapsed.TotalSeconds:0.0} s, {text.Length} chars received", e);
+            throw;
         }
 
         var raw = text.ToString();
         JsonDocument? json = null;
         try { json = JsonDocument.Parse(raw); }
-        catch (JsonException) { /* caller treats null as a failed generation */ }
+        catch (JsonException e)
+        {
+            // The caller treats null as a failed generation.
+            Log.Warn("ollama", $"{call} answer is not JSON: {Log.Short(raw, 500)}", e);
+        }
+        if (done is null) Log.Warn("ollama", $"{call} the answer ended without Ollama's closing message (no timings)");
 
         var timing = new GenerationTiming(
             Total: Nanos(done?.TotalDuration),
@@ -79,6 +120,10 @@ public sealed class OllamaLanguageModel : ILanguageModel
             PromptTokens: done?.PromptEvalCount ?? 0,
             OutputTokens: done?.EvalCount ?? 0);
 
+        Log.Info("ollama", $"{call} answered in {clock.Elapsed.TotalSeconds:0.0} s (load {timing.Load.TotalSeconds:0.0} s, "
+            + $"reading {timing.PromptTokens} tokens {timing.PromptEval.TotalSeconds:0.0} s, writing {timing.OutputTokens} tokens {timing.Eval.TotalSeconds:0.0} s, "
+            + $"{timing.OutputTokensPerSecond:0} tokens/s): {Log.Short(raw, 400)}");
+        if (raw.Length > 400) Log.Debug("ollama", $"{call} whole answer:{Environment.NewLine}{raw}");
         return new GenerationResult(raw, json, timing);
     }
 
@@ -86,10 +131,20 @@ public sealed class OllamaLanguageModel : ILanguageModel
     /// first real request does not wait for the load. Returns how long the load took.</summary>
     public async Task<TimeSpan> WarmUpAsync(CancellationToken cancellationToken = default)
     {
-        var started = System.Diagnostics.Stopwatch.StartNew();
+        var started = Stopwatch.StartNew();
+        Log.Info("ollama", $"loading {ModelName} at {_http.BaseAddress} (context {_numCtx}, keep_alive {KeepAlive})");
         // The same context size as the real calls, or Ollama loads it once now and again on the first call.
         var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive, Options = new RequestOptions { NumCtx = _numCtx } };
-        await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
+        try
+        {
+            await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
+        }
+        catch (Exception e)
+        {
+            Log.Error("ollama", $"loading {ModelName} failed after {started.Elapsed.TotalSeconds:0.0} s", e);
+            throw;
+        }
+        Log.Info("ollama", $"{ModelName} loaded in {started.Elapsed.TotalSeconds:0.0} s");
         return started.Elapsed;
     }
 
@@ -124,6 +179,13 @@ public sealed class OllamaLanguageModel : ILanguageModel
             return (m.TryGetProperty("size", out var size) ? size.GetInt64() : 0, m.TryGetProperty("size_vram", out var vram) ? vram.GetInt64() : 0);
         }
         return null;
+    }
+
+    /// <summary>The Ollama server's version, from <c>/api/version</c>; for the log.</summary>
+    public async Task<string?> ServerVersionAsync(CancellationToken cancellationToken = default)
+    {
+        using var doc = JsonDocument.Parse(await _http.GetStringAsync("api/version", cancellationToken));
+        return doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : null;
     }
 
     /// <summary>Lists models already pulled on the server, so the bench can skip ones that are missing.</summary>

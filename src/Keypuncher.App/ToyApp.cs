@@ -1,4 +1,5 @@
 using Keypuncher.App.Pages;
+using Keypuncher.Core;
 
 namespace Keypuncher.App;
 
@@ -6,10 +7,19 @@ namespace Keypuncher.App;
 /// or navigation bar for the child to reach.</summary>
 public sealed class ToyApp : Application
 {
-    private readonly ToyHost _host = new();
+    private readonly ToyHost _host;
 
     public ToyApp()
     {
+        try { _host = new ToyHost(); }
+        catch (Exception e)
+        {
+            // Without its host the toy cannot run at all; a window with nothing behind it would be worse than closing.
+            Log.Fatal("app", "the toy could not start", e);
+            Log.Flush();
+            Environment.Exit(1);
+            throw;
+        }
         // The grown-up pages are drawn on a light background, so they must not follow Windows' dark mode
         // (white text on cream was unreadable). Explicit colours as well, in case a control ignores the theme.
         UserAppTheme = AppTheme.Light;
@@ -30,6 +40,7 @@ public sealed class ToyApp : Application
     {
         var window = new Window(new PlayPage(_host)) { Title = "Keypuncher" };
         window.Destroying += (_, _) => _host.Dispose();
+        Log.Info("app", "window created");
         return window;
     }
 

@@ -1,4 +1,5 @@
 using Keypuncher.Audio;
+using Keypuncher.Core;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -35,6 +36,17 @@ public sealed class AudioOutput : IDisposable
     {
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(Mixer.SampleRate, Mixer.Channels);
 
-        public int Read(Span<float> buffer) => mixer.Read(buffer);
+        /// <summary>Called on the sound card's thread. A fault in the mixer is logged and heard as a moment's silence,
+        /// rather than ending the playback thread (and the sound) for the rest of the run.</summary>
+        public int Read(Span<float> buffer)
+        {
+            try { return mixer.Read(buffer); }
+            catch (Exception e)
+            {
+                Log.Error("audio", "mixing sound failed; this moment is silent", e);
+                buffer.Clear();
+                return buffer.Length;
+            }
+        }
     }
 }

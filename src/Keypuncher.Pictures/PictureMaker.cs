@@ -108,6 +108,7 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
         catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
         {
             Note($"{sidecar.Name}: the checker did not answer ({e.Message})");
+            Log.Warn("pictures", $"the picture checker did not answer for {sidecar.Name}", e);
             return null;
         }
         if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }

@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Keypuncher.Core;
+using AppLog = Keypuncher.Core.Log;
 
 namespace Keypuncher.Director;
 
@@ -88,6 +90,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     private double? _familyDue, _sceneDue;
     private int _stepsHere;
     private bool _lastWasScene;
+    private readonly Stopwatch _familyClock = new(), _sceneClock = new();
 
     public string ModelName => director.ModelName;
 
@@ -129,6 +132,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             _lastWasScene = true;
             _sceneWas = world.Scene;
             var sceneToken = _stop.Token;
+            _sceneClock.Restart();
             _scene = Task.Run(() => scenes!.ProposeAsync(sceneRequest, sceneToken), sceneToken);
             return;
         }
@@ -143,6 +147,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             ? $"asking key family {request.Slot} to grow from {request.Current} into {next}"
             : $"asking key family {request.Slot} ({request.Current ?? world.Families[request.Slot].Name}) for {RealThingPick.Describe(request.Category).Split(':')[0]} {request.Place}");
         var token = _stop.Token;
+        _familyClock.Restart();
         _family = Task.Run(() => director.ProposeAsync(request, token), token);
     }
 
@@ -273,17 +278,20 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var (slot, was) = _asked!.Value;
         _family = null;
         _asked = null;
+        var took = _familyClock.Elapsed.TotalSeconds;
         if (done.IsCanceled)
         {
             // Cancelled by us only when the loop is being disposed; any other cancellation is the model taking too
             // long (an HTTP timeout surfaces as a cancelled task), which used to vanish from the log.
             if (_stop.IsCancellationRequested) return;
+            AppLog.Warn("director", $"key family {slot}: no answer after {took:0.0} s");
             AddLog(new DirectorLogEntry(DateTime.Now, slot, null, null, TimedOut: true));
             _familyDue = world.Time + Math.Min(FirstAfterSeconds, limits.RestyleMinutes * 60);
             return;
         }
         if (done.Exception is { } e)
         {
+            AppLog.Error("director", $"key family {slot}: the request failed after {took:0.0} s", e.GetBaseException());
             AddLog(new DirectorLogEntry(DateTime.Now, slot, null, e.GetBaseException().Message));
             // An unreachable model is not asked again at once, however fast the director is set to go.
             _familyDue = world.Time + Math.Max(FirstAfterSeconds, limits.RestyleMinutes * 60);
@@ -292,12 +300,24 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
         var outcome = done.Result;
         AddLog(new DirectorLogEntry(DateTime.Now, slot, outcome, null));
+        Note($"key family {slot}: {(outcome.Accepted ? "accepted" : "nothing accepted")} after {outcome.Attempts.Count} {(outcome.Attempts.Count == 1 ? "try" : "tries")} in {took:0.0} s");
         // Nothing usable came back: try again (another category and place, maybe another family) shortly,
         // rather than leaving the family as it is for a whole interval.
         _familyDue = world.Time + Math.Min(outcome.Accepted ? double.MaxValue : FirstAfterSeconds, limits.RestyleMinutes * 60);
+        if (outcome.Recipe is not { } recipe) return;
         // A fresh world, or another change, since the request was made: the answer is for something gone.
-        if (outcome.Recipe is not { } recipe || !ReferenceEquals(world.Families[slot], was)) return;
-        if (!world.Families.Restyle(slot, recipe, world.Time)) return;
+        if (!ReferenceEquals(world.Families[slot], was))
+        {
+            Note($"{recipe.Name} dropped: key family {slot} changed while the model was answering");
+            return;
+        }
+        if (!world.Families.Restyle(slot, recipe, world.Time))
+        {
+            Note($"{recipe.Name} dropped: key family {slot} may not change");
+            return;
+        }
+        AppLog.Info("director", $"key family {slot} is now {recipe.Name} ({outcome.Request.Category}, was {was.Name})");
+        AppLog.Debug("director", $"key family {slot} recipe: {recipe}");
         Restyled?.Invoke(slot, recipe);
         Picked?.Invoke(recipe, outcome.Request.Category);
     }
@@ -307,15 +327,18 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var was = _sceneWas;
         _scene = null;
         _sceneWas = null;
+        var took = _sceneClock.Elapsed.TotalSeconds;
         if (done.IsCanceled)
         {
             if (_stop.IsCancellationRequested) return;
+            AppLog.Warn("director", $"scene step: no answer after {took:0.0} s");
             AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, TimedOut: true));
             _sceneDue = world.Time + Math.Min(FirstAfterSeconds, limits.SceneMinutes * 60);
             return;
         }
         if (done.Exception is { } e)
         {
+            AppLog.Error("director", $"scene step: the request failed after {took:0.0} s", e.GetBaseException());
             AddLog(new DirectorLogEntry(DateTime.Now, -1, null, e.GetBaseException().Message));
             _sceneDue = world.Time + Math.Max(FirstAfterSeconds, limits.SceneMinutes * 60);
             return;
@@ -323,8 +346,14 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
         var outcome = done.Result;
         AddLog(new DirectorLogEntry(DateTime.Now, -1, null, null, outcome));
+        Note($"scene step: {(outcome.Accepted ? "accepted" : "nothing accepted")} after {outcome.Attempts.Count} {(outcome.Attempts.Count == 1 ? "try" : "tries")} in {took:0.0} s");
         _sceneDue = world.Time + Math.Min(outcome.Accepted ? double.MaxValue : FirstAfterSeconds, limits.SceneMinutes * 60);
-        if (outcome.Scene is not { } scene || world.Scene != was) return;
+        if (outcome.Scene is not { } scene) return;
+        if (world.Scene != was)
+        {
+            Note($"scene step to {scene} dropped: the scene changed while the model was answering");
+            return;
+        }
         _stepsHere = SceneRules.SamePlace(world.Scene.Place, scene.Place) ? _stepsHere + 1 : 0;
         if (world.Scene.Place is { } left && !SceneRules.SamePlace(left, scene.Place))
         {
@@ -332,6 +361,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             if (_places.Count > RecentPlaces) _places.RemoveAt(_places.Count - 1);
         }
         world.SetScene(scene);
+        AppLog.Info("director", $"scene is now {scene} (was {was}); {_stepsHere} steps at this place");
     }
 
     private void Note(string line) => Noted?.Invoke($"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}");
