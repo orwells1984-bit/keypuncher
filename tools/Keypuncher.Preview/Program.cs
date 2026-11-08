@@ -10,6 +10,7 @@
 // --sheet instead writes one contact sheet per calm level of every animal and dinosaur, each in its own small scene at
 // the size a word's picture is drawn.
 // --concepts does the same for the starter words that are not animals (apple, moon, house, boat and the rest).
+// --stock does the same for typical director picks drawn with the stock shapes the director's prompt names.
 // --scenes instead writes one contact sheet per calm level of every landscape in a few times of day and weathers.
 // --tour instead records a video (as test mode does) of the backdrop moving through every landscape, time of day
 // and weather, with the toy's real fades, to tour.avi.
@@ -35,7 +36,8 @@ var width = int.Parse(Get("--width", "1280"));
 var height = int.Parse(Get("--height", "720"));
 var calm = Enum.Parse<CalmLevel>(Get("--calm", nameof(CalmLevel.Toddler)), ignoreCase: true);
 Directory.CreateDirectory(outDir);
-if (args.Contains("--sheet")) return Sheet(outDir, "animals", BuiltInRecipes.Animals.All);
+if (args.Contains("--sheet")) return Sheet(outDir, "animals", [.. BuiltInRecipes.Animals.All, BuiltInRecipes.Concepts["butterfly"]]);
+if (args.Contains("--stock")) return Sheet(outDir, "stock", StockPicks());
 if (args.Contains("--concepts")) return Sheet(outDir, "concepts", [.. BuiltInRecipes.Concepts.Values.Where(r => !r.Body.Shape.IsAnimal())]);
 if (args.Contains("--calls")) return Calls(outDir);
 if (args.Contains("--pictures")) return PictureSheet(outDir, Get("--pictures", "pictures"));
@@ -145,6 +147,15 @@ static int PictureSheet(string outDir, string folder)
         files.Add(sample);
         Console.WriteLine($"no pictures in {folder}; drew {sample}");
     }
+    // How clear each cut-out's silhouette is; a lump keeps the stock shape at the silhouette rung.
+    foreach (var file in files)
+    {
+        using var decoded = SKBitmap.Decode(file);
+        if (decoded is null) continue;
+        using var rgba = decoded.Copy(SKColorType.Rgba8888);
+        var solidity = Outline.Solidity(rgba.GetPixelSpan(), rgba.Width, rgba.Height, rgba.RowBytes);
+        Console.WriteLine($"{Path.GetFileNameWithoutExtension(file),-20} {rgba.Width}x{rgba.Height}, fills {solidity:0.00} of its hull: {(Outline.IsClear(rgba.Width, rgba.Height, solidity) ? "clear silhouette" : "a lump, the shape stays")}");
+    }
     const int tileW = 480, tileH = 320;
     var stages = Enum.GetValues<PictureStage>();
     using var pictures = new PictureLibrary(folder);
@@ -156,7 +167,8 @@ static int PictureSheet(string outDir, string folder)
         for (var row = 0; row < files.Count; row++)
         {
             var name = Path.GetFileNameWithoutExtension(files[row]).Replace('-', ' ');
-            var recipe = BuiltInRecipes.Animals.Cat with { Name = name };
+            // A built-in thing keeps its own colour, so the silhouette rung looks as it does in the toy.
+            var recipe = (BuiltInRecipes.Concepts.TryGetValue(name, out var own) ? own : BuiltInRecipes.Animals.Cat) with { Name = name };
             for (var col = 0; col < stages.Length; col++)
             {
                 pictures.Forced = stages[col];
@@ -185,6 +197,38 @@ static int PictureSheet(string outDir, string folder)
         Console.WriteLine(path);
     }
     return 0;
+}
+
+// Typical director picks drawn the way the director's prompt tells it to draw them, for judging the stock shapes a
+// real thing with no picture yet is drawn with.
+static List<Recipe> StockPicks()
+{
+    static Recipe Pick(string name, RecipeKind kind, Shape shape, int lobes, int hue, double size, int eyes = 0) => new()
+    {
+        Kind = kind, Name = name, Body = new Body(shape, lobes, hue, size), Eyes = eyes,
+        Motion = new Motion(MotionType.Still, 0), Voice = new Voice(Waveform.Sine, 0.01, 0.5, "pentatonic", "C4"),
+    };
+    return
+    [
+        Pick("tomato (Blob)", RecipeKind.Plant, Shape.Blob, 2, 0, 0.45),
+        Pick("ladybird (Blob)", RecipeKind.Creature, Shape.Blob, 1, 0, 0.35, 2),
+        Pick("frog (Blob)", RecipeKind.Creature, Shape.Blob, 3, 120, 0.4, 2),
+        Pick("hedgehog (Blob)", RecipeKind.Creature, Shape.Blob, 5, 25, 0.4, 2),
+        Pick("caterpillar (Stripe)", RecipeKind.Creature, Shape.Stripe, 4, 110, 0.4, 2),
+        Pick("tulip (Petal)", RecipeKind.Plant, Shape.Petal, 6, 340, 0.5),
+        Pick("oak tree (Cloud)", RecipeKind.Plant, Shape.Cloud, 6, 110, 0.9),
+        Pick("pine tree (Star)", RecipeKind.Plant, Shape.Star, 5, 130, 0.8),
+        Pick("meadow grass (Wave)", RecipeKind.Plant, Shape.Wave, 4, 100, 0.5),
+        Pick("blueberries (DotField)", RecipeKind.Plant, Shape.DotField, 4, 230, 0.4),
+        Pick("kite (Star)", RecipeKind.Creature, Shape.Star, 4, 0, 0.5),
+        Pick("balloon (Blob)", RecipeKind.Creature, Shape.Blob, 1, 0, 0.4),
+        Pick("fire engine (Car)", RecipeKind.Creature, Shape.Car, 2, 0, 0.7),
+        Pick("bus (Car)", RecipeKind.Creature, Shape.Car, 2, 50, 0.7),
+        Pick("fire engine (old Stripe)", RecipeKind.Creature, Shape.Stripe, 2, 0, 0.7),
+        Pick("fennec fox (old Stripe)", RecipeKind.Creature, Shape.Stripe, 3, 340, 0.8, 2),
+        Pick("fennec fox (now Dog)", RecipeKind.Creature, Shape.Dog, 3, 30, 0.6, 2),
+        Pick("monarch (Butterfly)", RecipeKind.Creature, Shape.Butterfly, 4, 30, 0.5, 2),
+    ];
 }
 
 static int Sheet(string outDir, string name, IReadOnlyList<Recipe> animals)

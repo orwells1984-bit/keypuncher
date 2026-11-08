@@ -14,6 +14,20 @@ public class ShapeTests
         Assert.True(Shape.Boat.IsPicture());
         Assert.True(Shape.Cat.IsAnimal());
         Assert.False(Shape.Moon.IsAnimal());
+        // Added after the recognition review: four more pictures and one more animal, after the sea animals.
+        Assert.True(Shape.Sun.IsPicture() && Shape.Ball.IsPicture() && Shape.Egg.IsPicture() && Shape.Car.IsPicture());
+        Assert.True(Shape.Butterfly.IsAnimal());
+    }
+
+    [Fact]
+    public void The_sun_ball_egg_and_butterfly_words_have_drawings_of_their_own()
+    {
+        // The sun was a star (the same five points as the star at a baby's level), the ball and egg plain ovals,
+        // the butterfly four petals with a face, which read as a flower.
+        Assert.Equal(Shape.Sun, BuiltInRecipes.Concepts["sun"].Body.Shape);
+        Assert.Equal(Shape.Ball, BuiltInRecipes.Concepts["ball"].Body.Shape);
+        Assert.Equal(Shape.Egg, BuiltInRecipes.Concepts["egg"].Body.Shape);
+        Assert.Equal(Shape.Butterfly, BuiltInRecipes.Concepts["butterfly"].Body.Shape);
     }
 
     [Fact]

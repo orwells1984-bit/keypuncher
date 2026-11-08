@@ -58,7 +58,7 @@ public class RealThingTests
         Assert.False(Build(Pick("hedgehog", "Animal", "Blob"), PlantFamily, out _, out _, out _));
         Assert.False(Build(Pick("bus", "Vehicle", "Stripe"), CreatureFamily, out _, out _, out var e0));
         Assert.Equal("not a kind of animal alive today", e0);
-        Assert.False(Build(Pick("bus", "Vehicle", "Elephant"), Vehicles, out _, out _, out var e1));
+        Assert.False(Build(Pick("rickshaw", "Vehicle", "Elephant"), Vehicles, out _, out _, out var e1));
         Assert.Contains("animal shape", e1);
         Assert.False(Build(Pick("crocodile", "Animal", "Rex"), CreatureFamily, out _, out _, out var e2));
         Assert.Contains("dinosaur", e2);
@@ -72,6 +72,25 @@ public class RealThingTests
         Assert.Equal(Shape.Cow, cow!.Body.Shape);
         Assert.True(Build(Pick("woolly mammoth", "ExtinctAnimal", "Blob"), Extinct, out _, out var mammoth, out _));
         Assert.Equal(Shape.Elephant, mammoth!.Body.Shape);
+    }
+
+    [Fact]
+    public void A_names_last_word_picks_the_drawing_where_the_category_allows_it()
+    {
+        // From a live run: a fennec fox came back as a pink Stripe, which draws as a fish.
+        Assert.True(Build(Pick("fennec fox", "Animal", "Stripe"), CreatureFamily, out _, out var fox, out _));
+        Assert.Equal(Shape.Dog, fox!.Body.Shape);
+        Assert.True(Build(Pick("polar bear", "Animal", "Blob"), CreatureFamily, out _, out var bear, out _));
+        Assert.Equal(Shape.Bear, bear!.Body.Shape);
+        Assert.True(Build(Pick("fire engine", "Vehicle", "Stripe"), Vehicles, out _, out var engine, out _));
+        Assert.Equal(Shape.Car, engine!.Body.Shape);
+        // Two words that would mislead by their last one, and a word that suits no shape of this category.
+        Assert.Equal(Shape.Seal, RealThingRules.ShapeByName("sea lion", RealCategory.Animal));
+        Assert.Equal(Shape.Mouse, RealThingRules.ShapeByName("prairie dog", RealCategory.Animal));
+        Assert.Null(RealThingRules.ShapeByName("teddy bear", RealCategory.Object));
+        Assert.Null(RealThingRules.ShapeByName("oak tree", RealCategory.Plant));
+        Assert.Null(RealThingRules.ShapeByName("toy car", RealCategory.Animal));
+        Assert.Equal(Shape.Ball, RealThingRules.ShapeByName("beach ball", RealCategory.Object));
     }
 
     [Fact]

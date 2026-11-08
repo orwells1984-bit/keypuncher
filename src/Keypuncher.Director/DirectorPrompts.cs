@@ -18,7 +18,7 @@ public static class DirectorPrompts
         Hues snap to a small palette of bright colours, so pick the nearest natural one.
         For a real animal or dinosaur use its own shape (Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck,
         Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus, Whale, Dolphin, Shark,
-        Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish); it is always a Creature.
+        Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish, Butterfly); it is always a Creature.
         """;
 
     public static string NewRecipe(WorldSummary world, string conceptGloss) =>
@@ -45,17 +45,17 @@ public static class DirectorPrompts
 
         Draw it with the nearest shape:
         - Animals with a shape of their own: Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck, Elephant, Rabbit, Bear,
-          Mouse, Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish. A similar
-          animal uses the nearest one: lion or tiger Cat, wolf or fox Dog, goat Sheep, zebra or donkey Horse,
-          hen, owl or penguin Bird, goose or swan Duck, hippo Elephant, squirrel or hamster Mouse.
+          Mouse, Whale, Dolphin, Shark, Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish, Butterfly. A
+          similar animal uses the nearest one: lion or tiger Cat, wolf or fox Dog, goat Sheep, zebra or donkey Horse,
+          hen, owl or penguin Bird, goose or swan Duck, hippo Elephant, squirrel or hamster Mouse, moth Butterfly.
         - Dinosaurs: Rex for meat-eaters on two legs, LongNeck for long-necked plant-eaters, Triceratops for
           horned ones, Stegosaurus for ones with plates. A woolly mammoth is an Elephant.
         - Small animals with no shape of their own: Blob for round ones (ladybird, frog, hedgehog, snail),
-          Petal for butterflies and moths, Stripe for caterpillars and worms.
+          Stripe for caterpillars and worms.
         - Plants: Petal for flowers, Cloud for trees and bushes, Wave for grass, reeds and seaweed, DotField for
           berries and peas, Blob for fruit and vegetables, Star for pine trees and cactus.
-        - Vehicles and objects: Stripe for boats, trains, buses and cars, Blob for balls and balloons, Cloud for
-          a hot-air balloon, Star for a kite.
+        - Vehicles and objects: Car for cars, buses, trucks, tractors and trains, Boat for boats and ships, Ball for
+          balls, Egg for eggs, Blob for balloons, Cloud for a hot-air balloon, Star for a kite.
         Use its real colour: hue is 0 to 359 degrees and snaps to a few bright colours, so pick the nearest.
         size, speed and attack are between 0 and 1, decay between 0.05 and 2 seconds, lobes 1 to 12.
         Big things move slowly and sound low; small things are quick and sound high. Nothing sharp, scary or loud.
@@ -71,7 +71,7 @@ public static class DirectorPrompts
         Three examples of good answers, each for a different request:
         {"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}
         {"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}
-        {"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Stripe","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
+        {"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
         """;
 
     /// <summary>The three prompts the author needs for one try, arranged as <paramref name="variant"/> asks.

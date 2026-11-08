@@ -51,7 +51,28 @@ internal static partial class RecipePainter
             case Shape.Seahorse: Seahorse(k); break;
             case Shape.Starfish: Starfish(k); break;
             case Shape.Jellyfish: Jellyfish(k, lobes); break;
+            case Shape.Butterfly: Butterfly(k); break;
         }
+    }
+
+    /// <summary>Seen from above: two big upper wings and two smaller lower ones either side of a dark body, with a
+    /// round head, two antennae and a face. Petals round a middle read as a flower, so the wings never meet.</summary>
+    private static void Butterfly(Kit k)
+    {
+        // The wings open and close a little, on the thing's own clock.
+        var flap = 1 - Math.Abs(k.Wag(0.12f));
+        foreach (var side in new[] { -1f, 1f })
+        {
+            k.Oval(k.Body, side * 0.4f * flap, 0.38f, 0.3f * flap, 0.26f, side * 30);
+            k.Oval(k.Body, side * 0.48f * flap, -0.12f, 0.46f * flap, 0.36f, side * -25);
+            if (k.Fine) k.Circle(k.Second, side * 0.55f * flap, -0.15f, 0.13f * flap);
+        }
+        k.Ribbon(k.Dark, 0.12f, (0, -0.2f), (0, 0.62f));
+        var (hx, hy, h) = k.FrontHead(0, -0.46f, 0.22f);
+        k.Stroke((hx - (0.3f * h), hy - (0.8f * h)), (hx - (0.75f * h), hy - (2.2f * h)), (hx - (1.4f * h), hy - (2.4f * h)));
+        k.Stroke((hx + (0.3f * h), hy - (0.8f * h)), (hx + (0.75f * h), hy - (2.2f * h)), (hx + (1.4f * h), hy - (2.4f * h)));
+        k.Circle(k.Body, hx, hy, h);
+        k.FrontEyes(hx, hy, h);
     }
 
     private static void Cat(Kit k, int lobes)
@@ -608,7 +629,7 @@ internal static partial class RecipePainter
         public readonly Pen Dark;
         /// <summary>Natural white: wool, a cow, a muzzle, horns.</summary>
         public readonly Pen Pale;
-        /// <summary>Orange where the palette has it (yellow or red for a baby): beaks, bills, feet.</summary>
+        /// <summary>Orange, which every level's palette has: beaks, bills, feet.</summary>
         public readonly Pen Accent;
         public readonly Pen Pink;
         /// <summary>Another palette colour for a dinosaur's frill or plates.</summary>
@@ -627,7 +648,7 @@ internal static partial class RecipePainter
             Body = new Pen(b.FillColor, b.Outline, b.Stroke);
             Dark = new Pen(b.Outline, b.Outline, b.Stroke);
             Pale = new Pen(Rgb(PaleFill), b.Outline, b.Stroke);
-            Accent = PenFor(b.Style.Snap(20), b.Stroke);
+            Accent = PenFor(b.Style.Snap(32), b.Stroke);
             Pink = PenFor(b.Style.Snap(335), b.Stroke);
             Second = PenFor(b.Style.Companion(hue), b.Stroke);
             Ink = new Pen(Rgb(b.Style.Ink), Rgb(b.Style.Ink), b.Stroke);
