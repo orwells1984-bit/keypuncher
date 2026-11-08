@@ -55,6 +55,9 @@ public sealed class ToyHost : IDisposable
         WorldStore.Load(World);
         Log.Info("world", $"loaded in {loading.ElapsedMilliseconds} ms: {World.Live.Count} things on screen, "
             + $"{World.Families.Restyled().Count()} key families changed by the model, scene {World.Scene}");
+        // What each changed key draws, so a run can be read without the world file: its shape, colour and size.
+        foreach (var (slot, recipe, _) in World.Families.Restyled())
+            Log.Info("world", $"key family {slot} is {recipe.Name}: {recipe}");
         // The toy's own things ease in over many plays; a real thing the director picked shows its picture at once.
         Pictures = new PictureLibrary(Path.Combine(DataFolder, PicturesName)) { Climbs = BuiltInRecipes.IsBuiltIn };
 
@@ -149,6 +152,8 @@ public sealed class ToyHost : IDisposable
     public WorldStore WorldStore { get; }
     public ToyEngine Engine { get; }
     public KeyboardHook Keyboard { get; }
+    /// <summary>Win+L being off while the toy runs, and the grown-up's one-time permission it may need.</summary>
+    public LockShortcut WinL => _lock;
     public DirectorLoop Director { get; }
     public Uri OllamaAddress { get; }
     /// <summary>The pictures folder as the fetcher and the grown-ups' page see it: sidecars, raw photos, the wanted list.</summary>
