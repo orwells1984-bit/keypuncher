@@ -166,6 +166,36 @@ public sealed class CutOutPostTests
         Assert.Equal((400, 300), model.LastSize);
     }
 
+    /// <summary>The octopus photo: the first look found only the white shell in its arms, and the closer look round the
+    /// shell kept 11% of the crop. A whole thing fills about a quarter of a crop twice its box each way.</summary>
+    [Theory]
+    [InlineData(0.11, false)]
+    [InlineData(0.149, false)]
+    [InlineData(0.15, true)]
+    [InlineData(0.18, true)]
+    public void A_closer_look_must_keep_a_fair_share_of_its_crop(double coverage, bool kept)
+    {
+        using var photo = Photo(1600, 1200);
+        var model = new FakeCutOut("isnet", available: true, succeeds: true, smallAbove: 800, coverage: coverage);
+        var result = new CutOutChain(model).Cut(photo);
+        using var picture = result.Picture;
+
+        Assert.Equal(kept, result.Succeeded);
+        Assert.Equal(kept ? null : "too small", result.Reason);
+        Assert.Equal(2, model.Calls);
+    }
+
+    [Theory]
+    [InlineData("isnet, zoomed in, covers 11% of the photo", true)]
+    [InlineData("birefnet-lite, zoomed in, covers 14% of the photo", true)]
+    [InlineData("isnet, zoomed in, covers 15% of the photo", false)]
+    [InlineData("isnet, zoomed in, covers 26% of the picture", false)]
+    [InlineData("isnet, covers 9% of the photo", false)]
+    [InlineData("isnet failed: too small", false)]
+    [InlineData(null, false)]
+    public void A_sidecar_tells_whether_its_closer_look_kept_too_little(string? note, bool tooLittle) =>
+        Assert.Equal(tooLittle, CutOutChain.ZoomedTooLittle(note));
+
     [Fact]
     public void The_chain_gives_up_when_the_closer_look_is_too_small_as_well()
     {
@@ -344,7 +374,7 @@ public sealed class CutOutPostTests
 
     /// <summary>A cut-out that is <paramref name="closed"/> still looks available (its file is on disk) but throws, as
     /// one disposed between the chain's check and its cut would.</summary>
-    private sealed class FakeCutOut(string name, bool available, bool succeeds, bool closed = false, int smallAbove = int.MaxValue) : ICutOut
+    private sealed class FakeCutOut(string name, bool available, bool succeeds, bool closed = false, int smallAbove = int.MaxValue, double coverage = 0.5) : ICutOut
     {
         public int Calls { get; private set; }
         public (int Width, int Height) LastSize { get; private set; }
@@ -363,7 +393,7 @@ public sealed class CutOutPostTests
                 return new CutOutResult(null, name, 0.015, "too small", box);
             }
             return succeeds
-                ? new CutOutResult(new SKBitmap(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Unpremul)), name, 0.5, null)
+                ? new CutOutResult(new SKBitmap(new SKImageInfo(4, 4, SKColorType.Rgba8888, SKAlphaType.Unpremul)), name, coverage, null)
                 : new CutOutResult(null, name, 0.01, "too small");
         }
     }

@@ -13,7 +13,9 @@ namespace Keypuncher.Pictures;
 public interface IVisionChecker
 {
     string Model { get; }
-    Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default);
+    /// <summary>Checks a cut-out. With <paramref name="photo"/> (the photo or made image it was cut from), a cut-out that
+    /// passes is also compared with it, to catch a cut-out that kept only a part of the thing or something else in the photo.</summary>
+    Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default);
 }
 
 /// <summary>The check through Ollama's chat API with a multimodal model (gemma3:4b by default), asking for a JSON
@@ -34,8 +36,10 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
 
     /// <summary>Two calls: first the picture with the question and no answer shape, which gets a real sentence
     /// (forcing JSON made gemma3 write placeholders like ":[{" or "{count} bilberries" for what it saw), then the
-    /// short verdict in a fixed shape with that sentence already in the conversation. About twelve seconds a picture.</summary>
-    public async Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
+    /// short verdict in a fixed shape with that sentence already in the conversation. About twelve seconds a picture.
+    /// With the photo, a cut-out that passes is shown again beside it in a fresh conversation (see <see cref="Compare"/>),
+    /// a few seconds more.</summary>
+    public async Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(Limit);
@@ -47,7 +51,61 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
             new JsonObject { ["role"] = "assistant", ["content"] = saw },
             new JsonObject { ["role"] = "user", ["content"] = Verdict(name) });
         var verdict = await AskAsync(follow, Schema(), cts.Token);
-        return Read(saw.Trim(), verdict, model, DateTime.Now, name, category);
+        var check = Read(saw.Trim(), verdict, model, DateTime.Now, name, category);
+        if (!check.Passed || photo is null) return check;
+        var both = new JsonObject
+        {
+            ["role"] = "user",
+            ["content"] = Compare(name),
+            ["images"] = new JsonArray(Convert.ToBase64String(photo), Convert.ToBase64String(png)),
+        };
+        var compared = await AskAsync(new JsonArray(both), CompareSchema(), cts.Token);
+        return Compared(check, compared, name);
+    }
+
+    /// <summary>The comparison, with the photo first and the cut-out second. The octopus photo's cut-out was the white
+    /// shell in its arms, and the description call, shown the shell alone, saw "a single, complete, live octopus"; beside
+    /// the photo the difference is plain.</summary>
+    public static string Compare(string name) =>
+        $"The first image is a photo. The second image is a cut-out made from that photo, meant to show the whole {name} from the photo on its own. " +
+        $"Answer in JSON. kept: in a few words, what the cut-out kept from the photo. " +
+        $"all_of_it: whether the cut-out kept the whole {name} from the photo, and not only a part of it or something else from the photo.";
+
+    /// <summary>The JSON shape the comparison must answer in.</summary>
+    public static JsonObject CompareSchema() => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["kept"] = new JsonObject { ["type"] = "string" },
+            ["all_of_it"] = new JsonObject { ["type"] = "boolean" },
+        },
+        ["required"] = new JsonArray("kept", "all_of_it"),
+    };
+
+    /// <summary>A passed check, failed when the comparison says the cut-out did not keep all of the thing. A comparison
+    /// that did not answer, or not in JSON, leaves the check as it was: it only ever takes a pass away, on a clear no.</summary>
+    public static VisionCheck Compared(VisionCheck check, string? answer, string name)
+    {
+        if (!check.Passed || answer is null) return check;
+        string? kept = null;
+        bool? allOfIt = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(answer);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return check;
+            kept = root.TryGetProperty("kept", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null;
+            allOfIt = root.TryGetProperty("all_of_it", out var a) && a.ValueKind is JsonValueKind.True or JsonValueKind.False ? a.GetBoolean() : null;
+        }
+        catch (JsonException e)
+        {
+            Log.Warn("pictures", $"the picture checker's comparison for {name} was not JSON: {Log.Short(answer)}", e);
+            return check;
+        }
+        if (allOfIt != false) return check;
+        var what = string.IsNullOrWhiteSpace(kept) ? "" : $"kept {kept.Trim().TrimEnd('.')}, ";
+        return check with { Passed = false, Confidence = 0, Saw = $"{check.Saw} [{what}not all of the {name} in the photo]" };
     }
 
     private async Task<string?> AskAsync(JsonArray messages, JsonObject? format, CancellationToken ct)
