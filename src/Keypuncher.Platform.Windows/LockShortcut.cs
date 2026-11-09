@@ -78,7 +78,10 @@ public sealed class LockShortcut : IDisposable
     {
         var sid = WindowsIdentity.GetCurrent().User?.Value
             ?? throw new InvalidOperationException("this account has no security identifier");
-        var script = PermissionScript(sid);
+        // The admin window is hidden, so the script writes what went wrong here for the log to show.
+        var errorFile = Path.Combine(Path.GetTempPath(), "keypuncher-permission-error.txt");
+        try { File.Delete(errorFile); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        var script = PermissionScript(sid, errorFile);
         Log.Info("windows", $"asking for admin permission to let {sid} change its policy key");
         try
         {
@@ -92,7 +95,9 @@ public sealed class LockShortcut : IDisposable
                 WindowStyle = ProcessWindowStyle.Hidden,
             }) ?? throw new InvalidOperationException("PowerShell did not start");
             await process.WaitForExitAsync();
-            Log.Info("windows", $"the permission step finished with exit code {process.ExitCode}");
+            var why = File.Exists(errorFile) ? (await File.ReadAllTextAsync(errorFile)).Trim() : null;
+            if (process.ExitCode == 0) Log.Info("windows", "the permission step finished");
+            else Log.Warn("windows", $"the permission step failed with exit code {process.ExitCode}: {why ?? "it left no message"}");
         }
         catch (Win32Exception e) when (e.NativeErrorCode == Cancelled)
         {
@@ -106,20 +111,35 @@ public sealed class LockShortcut : IDisposable
 
     /// <summary>The PowerShell run as admin: create the account's <c>Policies\System</c> key if it is missing and give
     /// the account full control of that one key, addressed by SID so it is the right profile even when another
-    /// account's password is typed into the prompt.</summary>
-    public static string PermissionScript(string sid)
+    /// account's password is typed into the prompt. Anything that goes wrong is written to <paramref name="errorFile"/>.</summary>
+    /// <remarks>On 2026-11-08 the first version, which used Get-Acl and Set-Acl on a <c>Registry::</c> path, ended with
+    /// exit code 1 and no message. This one talks to the registry through .NET directly and asks only to change the
+    /// key's permission list (not its owner, which on that key is usually SYSTEM).</remarks>
+    public static string PermissionScript(string sid, string errorFile)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(sid, @"^S-1-[0-9-]+$"))
             throw new ArgumentException($"not a SID: {sid}", nameof(sid));
+        var quotedFile = errorFile.Replace("'", "''");
         return $$"""
             $ErrorActionPreference = 'Stop'
-            $path = 'Registry::HKEY_USERS\{{sid}}\{{PolicyKey}}'
-            if (-not (Test-Path -LiteralPath $path)) { New-Item -Path $path -Force | Out-Null }
-            $who = New-Object System.Security.Principal.SecurityIdentifier('{{sid}}')
-            $rule = New-Object System.Security.AccessControl.RegistryAccessRule($who, 'FullControl', 'None', 'None', 'Allow')
-            $acl = Get-Acl -LiteralPath $path
-            $acl.AddAccessRule($rule)
-            Set-Acl -LiteralPath $path -AclObject $acl
+            try {
+                $sub = '{{sid}}\{{PolicyKey}}'
+                $users = [Microsoft.Win32.Registry]::Users
+                $users.CreateSubKey($sub).Close()
+                $rights = [System.Security.AccessControl.RegistryRights]'ReadPermissions, ChangePermissions'
+                $key = $users.OpenSubKey($sub, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, $rights)
+                if ($null -eq $key) { throw "HKEY_USERS\$sub could not be opened" }
+                $acl = $key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
+                $who = New-Object System.Security.Principal.SecurityIdentifier('{{sid}}')
+                $rule = New-Object System.Security.AccessControl.RegistryAccessRule($who, 'FullControl', 'None', 'None', 'Allow')
+                $acl.AddAccessRule($rule)
+                $key.SetAccessControl($acl)
+                $key.Close()
+            } catch {
+                try { ($_ | Out-String) | Set-Content -LiteralPath '{{quotedFile}}' -Encoding UTF8 } catch { }
+                exit 1
+            }
+            exit 0
             """;
     }
 

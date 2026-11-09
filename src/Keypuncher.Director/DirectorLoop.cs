@@ -155,7 +155,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     /// the world. A small model left to choose only ever moves the clock on, so the loop chooses the kind: a journey
     /// from the starting meadow and after <see cref="StepsBeforeJourney"/> steps at one place, otherwise mostly the
     /// weather or the time of day, now and then a journey early. The weather must suit this month at the place, and
-    /// only one step in twenty may bring weather that is rare there now.</summary>
+    /// only one step in twenty may bring weather that is rare there now. The time of day follows the real hour, which
+    /// play starts at, so it only moves on when the hour does.</summary>
     public SceneRequest NextSceneRequest(World world)
     {
         var things = world.Families.All
@@ -167,7 +168,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             .ToList();
         var month = DateTime.Now.Month;
         var rare = _random.NextDouble() < Climates.RareChance;
-        var change = ChooseChange(world.Scene, _stepsHere, _random.NextDouble());
+        var change = ChooseChange(world.Scene, _stepsHere, _random.NextDouble(), Scene.ForHour(DateTime.Now.Hour));
         List<Weather>? offer = change == SceneChange.Weather
             ? [.. SceneRequest.Changes(world.Scene, month, rare).OrderBy(_ => _random.Next()).Take(WeathersOffered)]
             : null;
@@ -177,9 +178,12 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
     /// <summary>The kind of step to take from <paramref name="current"/> after <paramref name="stepsHere"/> steps at
     /// its place, for a roll between 0 and 1.</summary>
-    public static SceneChange ChooseChange(Scene current, int stepsHere, double roll) =>
+    /// <param name="clock">The time of day the real hour gives. A time step is only taken when the sky is behind it, so
+    /// the sky keeps to the window: on 2026-11-08 an evening play's first step wrapped evening round to dawn, and the
+    /// next play started at evening again. Null lets time move freely (the Sandbox bench).</param>
+    public static SceneChange ChooseChange(Scene current, int stepsHere, double roll, TimeOfDay? clock = null) =>
         current.Place is null || stepsHere >= StepsBeforeJourney || roll < 0.2 ? SceneChange.Journey
-        : roll < 0.6 ? SceneChange.Weather
+        : roll < 0.6 || clock == current.TimeOfDay ? SceneChange.Weather
         : SceneChange.Time;
 
     /// <summary>The next family to restyle and what to ask for it; null if no family may change.</summary>

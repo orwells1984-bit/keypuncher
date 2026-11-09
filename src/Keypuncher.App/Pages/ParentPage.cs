@@ -17,6 +17,7 @@ public sealed class ParentPage : ContentPage
     private readonly Label _pictureStatus = new() { FontSize = 13 };
     private readonly Label _lockStatus = new();
     private readonly Button _lockButton;
+    private Button _quitButton = null!;
     private readonly VerticalStackLayout _pictureRows = new() { Spacing = 8 };
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
@@ -44,9 +45,9 @@ public sealed class ParentPage : ContentPage
         // The two ways out first, where nobody has to look for them.
         var play = Button("Back to play", Play);
         play.BackgroundColor = Color.FromArgb("#2E7D32");
-        var quit = Button("Quit Keypuncher", Quit);
-        quit.BackgroundColor = Color.FromArgb("#C62828");
-        layout.Add(new HorizontalStackLayout { Spacing = 12, Children = { play, quit } });
+        _quitButton = Button("Quit Keypuncher", Quit);
+        _quitButton.BackgroundColor = Color.FromArgb("#C62828");
+        layout.Add(new HorizontalStackLayout { Spacing = 12, Children = { play, _quitButton } });
 
         layout.Add(Heading("Languages"));
         layout.Add(new Label { Text = "How often each language is picked for a play session. One session keeps one language, so each key keeps one sound. Icelandic leads." });
@@ -126,6 +127,10 @@ public sealed class ParentPage : ContentPage
     {
         base.OnAppearing();
         _host.Mode = HostMode.Parent;
+        // Play has stopped and the director does not choose on this page, so the card is free for the vision model.
+        // Grown-ups usually end play here rather than waiting for the goodnight (both plays on 2026-11-08 did), and
+        // the check used to run only after a goodnight, so new pictures went unchecked.
+        _host.CheckNewPictures();
     }
 
     protected override void OnDisappearing()
@@ -273,10 +278,25 @@ public sealed class ParentPage : ContentPage
         }
     }
 
-    private void Quit()
+    private async void Quit()
     {
-        Log.Info("app", "a grown-up chose Quit");
-        _host.SaveWorld();
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        try
+        {
+            Log.Info("app", "a grown-up chose Quit");
+            _host.SaveWorld();
+            if (_host.PictureCheckRunning)
+            {
+                // A few pictures take a few seconds each; quitting would throw that work away until the next time.
+                _quitButton.IsEnabled = false;
+                _quitButton.Text = "Finishing the picture check...";
+                await _host.FinishPictureCheckAsync(ToyHost.MaxPictureCheckOnQuit);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error("app", "waiting for the picture check before quitting failed; quitting anyway", e);
+        }
         Application.Current!.Quit();
     }
 
