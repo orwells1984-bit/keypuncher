@@ -65,6 +65,19 @@ public class SceneTests
     }
 
     [Fact]
+    public void The_sky_keeps_to_the_real_hour()
+    {
+        var evening = Vik with { TimeOfDay = TimeOfDay.Evening };
+        // An evening play at evening never wraps round to dawn: the step is the weather instead.
+        Assert.Equal(SceneChange.Weather, DirectorLoop.ChooseChange(evening, 1, 0.9, TimeOfDay.Evening));
+        Assert.Equal(SceneChange.Weather, DirectorLoop.ChooseChange(Vik, 1, 0.9, TimeOfDay.Morning));
+        // When the hour has moved on past the sky, time catches up.
+        Assert.Equal(SceneChange.Time, DirectorLoop.ChooseChange(Vik, 1, 0.9, TimeOfDay.Midday));
+        // Journeys are unchanged.
+        Assert.Equal(SceneChange.Journey, DirectorLoop.ChooseChange(evening, DirectorLoop.StepsBeforeJourney, 0.9, TimeOfDay.Evening));
+    }
+
+    [Fact]
     public void A_small_real_step_is_taken()
     {
         Assert.True(Build(Step("Reynisfjara, Iceland", "Beach", "Morning", "Rain"), FromVik with { Change = SceneChange.Weather }, out var scene, out var newPlace, out var error), error);

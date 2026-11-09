@@ -35,6 +35,7 @@ public sealed class ToyHost : IDisposable
     private readonly OllamaLanguageModel _author;
     private readonly CancellationTokenSource _stopChecks = new();
     private Task? _checking;
+    private volatile bool _quitting;
     private volatile HostMode _mode = HostMode.Play;
 
     /// <summary>Where the toy keeps its data: KEYPUNCHER_DATA if set, otherwise %LOCALAPPDATA%\Keypuncher.</summary>
@@ -180,8 +181,9 @@ public sealed class ToyHost : IDisposable
     /// Shows the pictures play has just fetched to the vision model, while the toy sleeps after its goodnight and the
     /// director has stopped choosing. One it fails (a school of fish, a mare and foal, a cloth for a coconut) is taken
     /// out of play and another photo is fetched; see <see cref="PictureChecks"/>. Then the director's model is loaded
-    /// again, so a new play straight after does not wait for it. Quitting stops it at once; what was not
-    /// checked waits for the next goodnight, or the console tool's <c>check</c>.
+    /// again, so a new play straight after does not wait for it. It also runs when the grown-ups' page opens, since
+    /// that is how play usually ends. Quit waits for it (up to <see cref="MaxPictureCheckOnQuit"/>); what was not
+    /// checked waits for the next time, or the console tool's <c>check</c>.
     /// </summary>
     public void CheckNewPictures()
     {
@@ -189,6 +191,24 @@ public sealed class ToyHost : IDisposable
         if (_checking is { IsCompleted: false }) return;
         _checking = Task.Run(() => CheckNewPicturesAsync(_stopChecks.Token));
         _checking.LogFailures("pictures", "checking new pictures");
+    }
+
+    /// <summary>The longest Quit waits for a picture check under way: about twenty pictures.</summary>
+    public static readonly TimeSpan MaxPictureCheckOnQuit = TimeSpan.FromMinutes(2);
+
+    /// <summary>True while the vision model is looking at new pictures.</summary>
+    public bool PictureCheckRunning => _checking is { IsCompleted: false };
+
+    /// <summary>Waits for a picture check under way to finish, without loading the director's model again after it,
+    /// for at most <paramref name="max"/>. Returns whether it finished.</summary>
+    public async Task<bool> FinishPictureCheckAsync(TimeSpan max)
+    {
+        _quitting = true;
+        if (_checking is not { IsCompleted: false } checking) return true;
+        Log.Info("pictures", "waiting for the picture check before quitting");
+        var finished = await Task.WhenAny(checking, Task.Delay(max)).ConfigureAwait(false) == checking;
+        if (!finished) Log.Info("pictures", $"the picture check took longer than {max.TotalMinutes:0} min; the rest wait for next time");
+        return finished;
     }
 
     private async Task CheckNewPicturesAsync(CancellationToken ct)
@@ -223,7 +243,7 @@ public sealed class ToyHost : IDisposable
             return;
         }
         Story($"picture check done: {passed} looked right, {failed} taken out of play, {todo.Count - passed - failed} not checked");
-        if (ct.IsCancellationRequested) return;
+        if (ct.IsCancellationRequested || _quitting) return;
         try { await _author.WarmUpAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception e) { Log.Warn("ollama", "loading the director's model again after the picture check failed; the next pick loads it", e); }
