@@ -113,8 +113,9 @@ public sealed class LockShortcut : IDisposable
     /// the account full control of that one key, addressed by SID so it is the right profile even when another
     /// account's password is typed into the prompt. Anything that goes wrong is written to <paramref name="errorFile"/>.</summary>
     /// <remarks>On 2026-11-08 the first version, which used Get-Acl and Set-Acl on a <c>Registry::</c> path, ended with
-    /// exit code 1 and no message. This one talks to the registry through .NET directly and asks only to change the
-    /// key's permission list (not its owner, which on that key is usually SYSTEM).</remarks>
+    /// exit code 1 and no message, so why is not known (the key's owner there is Administrators, who have full control).
+    /// This one talks to the registry through .NET directly, changes only the key's permission list (Set-Acl writes
+    /// the owner and group too), and leaves the error where the log can show it.</remarks>
     public static string PermissionScript(string sid, string errorFile)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(sid, @"^S-1-[0-9-]+$"))
