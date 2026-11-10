@@ -107,7 +107,7 @@ Nothing leaves this computer and play never waits on the network; a thing with n
 stock shape, and the wanted list (`wanted.json`) remembers it. The two cut-out models (about 400 MB, in
 `%LOCALAPPDATA%\Keypuncher\models`) are only downloaded when a grown-up asks, from the grown-ups' page or with
 `dotnet run --project tools/Keypuncher.Pictures -- model`; until then photos are kept under `raw/` and cut out later.
-The grown-ups' page lists every picture with its credit and a Hide button, has a "Try another" for a wrong one, and
+The grown-ups' page lists every thing with its pictures (see below), has a "Try another" for a wrong one, and
 a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`, `fetch`, `recut`, `hide`, `show`,
 and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
 folder of its own and writes a report of what photos cover and which things are gaps.
@@ -130,7 +130,18 @@ a rung set to `picture:N` is made from that picture, and from the picture in pla
 rung takes only `auto` or `skip`. The toy holds the choices in memory and reads the cards when it starts and when
 the grown-ups' page closes, so a choice made with the console tool while the toy runs shows after a visit to that
 page. `tools/Keypuncher.Preview --pictures` draws its sheets by the same cards and labels each chosen rung, and
-`PictureLibrary.RenderRung` draws one rung of a thing by itself for the grown-ups' page that comes next.
+`PictureLibrary.RenderRung` draws one rung of a thing by itself for the grown-ups' page.
+
+The grown-ups' page shows all of this as one list (`PicturesPanel`): a row for each thing with a picture, a kept
+picture, a wanted entry or a card, and for each of the toy's starter things, newest first, with a filter ("needs a
+look": failed the check, hidden, or no picture yet) and a search by name or word. Each row draws the four rungs as
+the child sees them at the calm level set, with a green edge on the rung drawn now and the rungs the level does not
+reach shown pale. Tapping a rung opens a strip under the row with everything that can be drawn there, each as it
+would look: left to the toy, each of the thing's pictures, the drawn shape, or the rung skipped; the choice is
+written to the card at once. The row also has "Try another" (or "Find a picture"), Hide or Show, the thing's kind,
+whether it climbs, and "Add from a file": a grown-up's own picture, taken as it is when its background is already
+clear and cut out by the same models otherwise, put in play with the picture it replaces kept. A picture added this
+way (`"source": "Hand"` in its sidecar) is, like a chosen one, never taken out of play by the check.
 
 The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white

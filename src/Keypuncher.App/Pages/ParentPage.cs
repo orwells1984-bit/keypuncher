@@ -18,7 +18,7 @@ public sealed class ParentPage : ContentPage
     private readonly Label _lockStatus = new();
     private readonly Button _lockButton;
     private Button _quitButton = null!;
-    private readonly VerticalStackLayout _pictureRows = new() { Spacing = 8 };
+    private readonly PicturesPanel _pictureList;
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
     private readonly Action<string> _fetchFinished;
@@ -42,6 +42,7 @@ public sealed class ParentPage : ContentPage
         BackgroundColor = Color.FromArgb("#FFF8EC");
 
         _lockButton = Button("Let Keypuncher turn off Win+L (asks for admin once)", AskToTurnOffLock);
+        _pictureList = new PicturesPanel(host);
         var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 720 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
 
@@ -98,7 +99,8 @@ public sealed class ParentPage : ContentPage
         if (!host.Models.AllPresent) modelButtons.Add(Button("Download the cut-out models (about 400 MB)", DownloadModels));
         modelButtons.Add(Button("Fetch wanted pictures now", () => { _host.PictureJobs.RetryWanted(again: true); RefreshPictures(); }));
         layout.Add(modelButtons);
-        layout.Add(_pictureRows);
+        layout.Add(new Label { Text = "Every thing the toy knows is listed below with the four rungs of its ladder, drawn as the child sees them; the rung drawn now has a green edge, and a pale rung is one this calm level does not reach. Tap a rung to choose what is drawn there: leave it to the toy, pick one of the thing's pictures, keep the drawn shape, or skip the rung. \"Try another\" fetches a different photo and keeps the old one to choose from; \"Add from a file\" takes a picture of your own (one with a clear background goes in as it is, any other is cut out). A picture you chose or added is never taken out of play by the check: its doubt is only shown here.", FontSize = 13 });
+        layout.Add(_pictureList);
         RefreshPictures();
 
         layout.Add(Heading("Voices"));
@@ -153,7 +155,7 @@ public sealed class ParentPage : ContentPage
 
     private void Play() => ToyApp.Show(new PlayPage(_host));
 
-    /// <summary>Fills the status line and the list of pictures and wanted things from the folder as it is now.</summary>
+    /// <summary>Fills the status line and the list of things from the folder as it is now.</summary>
     private void RefreshPictures()
     {
         var host = _host;
@@ -167,67 +169,7 @@ public sealed class ParentPage : ContentPage
             + (jobs.Fetching is { } fetching ? $"Fetching {fetching} now" : jobs.Queued > 0 ? $"{jobs.Queued} waiting" : "Nothing being fetched")
             + (jobs.Last is { } last ? $"; last: {last}." : ".");
 
-        _pictureRows.Clear();
-        foreach (var picture in all.Take(60)) _pictureRows.Add(PictureRow(picture));
-        if (all.Count > 60) _pictureRows.Add(new Label { Text = $"and {all.Count - 60} more", FontSize = 13 });
-        if (wanted.Count > 0)
-        {
-            _pictureRows.Add(new Label { Text = "Wanted, no picture yet:", FontAttributes = FontAttributes.Bold, FontSize = 13 });
-            foreach (var w in wanted.Take(60))
-                _pictureRows.Add(new Label { Text = $"{w.Name} ({w.Category}), since {w.Since:d MMM}{(w.Reason is { } r ? ", " + r : "")}{(w.Tries > 0 ? $", tried {w.Tries}" : "")}", FontSize = 13 });
-        }
-    }
-
-    /// <summary>One picture: its thumbnail, what it is and where it came from, and the buttons to take it out of
-    /// play or ask for another.</summary>
-    private HorizontalStackLayout PictureRow(PictureSidecar picture)
-    {
-        var host = _host;
-        var row = new HorizontalStackLayout { Spacing = 12 };
-        // The thumbnail is read as bytes rather than by its path: the file keeps its name when another picture
-        // replaces it, and an image loaded by path can come back from the image cache as the old one.
-        var thumb = ReadThumb(host.PictureFolder.ThumbPath(picture.Slug));
-        row.Add(thumb is not null
-            ? new Image { Source = ImageSource.FromStream(() => new MemoryStream(thumb)), WidthRequest = 64, HeightRequest = 64, Aspect = Aspect.AspectFit }
-            : new BoxView { WidthRequest = 64, HeightRequest = 64, Color = Colors.Transparent });
-        var meetings = host.Pictures.Meetings(picture.Name);
-        var lines = $"{picture.Name} ({picture.Category}){(picture.Hidden ? ", hidden" : "")}: met {meetings} times, drawn as {PictureLibrary.StageFor(meetings).ToString().ToLowerInvariant()}\n"
-            + picture.CreditLine
-            + (picture.Photo?.DescriptionUrl is { } url ? $"\n{url}" : "")
-            + (picture.Check is { } check ? $"\nChecked by {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}, it saw {check.Saw}" : "");
-        row.Add(new Label { Text = lines, FontSize = 13, WidthRequest = 420, VerticalOptions = LayoutOptions.Center });
-        row.Add(Button(picture.Hidden ? "Show" : "Hide", () =>
-        {
-            if (picture.Hidden) host.PictureFolder.Unhide(picture.Slug);
-            else host.PictureFolder.Hide(picture.Slug);
-            host.Pictures.Invalidate(picture.Name);
-            RefreshPictures();
-        }));
-        // While a fetch for this thing is running or waiting, the button waits too. Each press turns down the photo
-        // in play, so pressing again before the list showed the new picture used to turn the new one down as well
-        // (the octopus on 2026-11-10: four presses, the good second photo excluded by the third).
-        var looking = host.PictureJobs.IsPending(picture.Name);
-        var another = Button(looking ? "Looking for another..." : "Try another", () =>
-        {
-            if (host.PictureJobs.IsPending(picture.Name)) return;
-            var now = DateTime.Now;
-            try
-            {
-                host.PictureFolder.Wanted.Add(picture.Name, picture.Category, now);
-                host.PictureFolder.Wanted.Bump(picture.Slug, "another was asked for", now, countTry: false, exclude: picture.Photo?.FileTitle);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                Log.Warn("pictures", $"could not ask for another picture of {picture.Name}", e);
-                _pictureStatus.Text = $"Could not write the wanted list: {e.Message}";
-                return;
-            }
-            host.PictureJobs.Enqueue(picture.Name, picture.Category, again: true);
-            RefreshPictures();
-        });
-        another.IsEnabled = !looking;
-        row.Add(another);
-        return row;
+        _pictureList.Reload();
     }
 
     /// <summary>Downloads the two cut-out models with a running line of progress, then fetches what was waiting.</summary>
@@ -362,12 +304,6 @@ public sealed class ParentPage : ContentPage
         foreach (var item in items) picker.Items.Add(item);
         picker.SelectedIndex = Math.Max(0, selected);
         return picker;
-    }
-
-    private static byte[]? ReadThumb(string path)
-    {
-        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static Label Heading(string text) =>

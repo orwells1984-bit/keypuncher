@@ -114,7 +114,8 @@ public sealed class ToyHost : IDisposable
         Choices.Changed += slug => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(slug));
         Models = new ModelStore(DataFolder);
         _cutOuts = [new OnnxCutOut(OnnxCutOut.ISNet, Models.Folder), new OnnxCutOut(OnnxCutOut.BiRefNetLite, Models.Folder)];
-        var fetcher = new PhotoFetcher(PictureFolder, new ToyNameFinder(new WikimediaPhotoFinder(PictureHttp.NewClient())), new CutOutChain(_cutOuts), note: NotePicture);
+        CutOut = new CutOutChain(_cutOuts);
+        var fetcher = new PhotoFetcher(PictureFolder, new ToyNameFinder(new WikimediaPhotoFinder(PictureHttp.NewClient())), CutOut, note: NotePicture);
         PictureJobs = new PictureJobs(PictureFolder, fetcher, enabled: () => Engine.Settings.Pictures, note: NotePicture);
         PictureJobs.Landed += name => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
         Director.Picked += (recipe, category) => PictureJobs.Enqueue(recipe.Name, category);
@@ -172,6 +173,8 @@ public sealed class ToyHost : IDisposable
     public ChoiceBook Choices { get; }
     /// <summary>The cut-out models on this computer, and where to get them.</summary>
     public ModelStore Models { get; }
+    /// <summary>The cut-out models the fetcher uses, for a picture a grown-up adds from their own files.</summary>
+    public ICutOut CutOut { get; }
     /// <summary>The background fetching of pictures.</summary>
     public PictureJobs PictureJobs { get; }
 

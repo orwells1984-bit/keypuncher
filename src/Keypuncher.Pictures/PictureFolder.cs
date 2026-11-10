@@ -162,6 +162,16 @@ public sealed class PictureFolder
         }
     }
 
+    /// <summary>The slugs of the things with a folder of kept pictures.</summary>
+    public IReadOnlyList<string> KeptSlugs()
+    {
+        lock (_lock)
+        {
+            var more = Path.Combine(Root, "more");
+            return Directory.Exists(more) ? [.. Directory.GetDirectories(more).Select(d => Path.GetFileName(d))] : [];
+        }
+    }
+
     /// <summary>The number the thing's next picture gets: one more than any it has, in play, hidden or kept, so a
     /// number a grown-up chose always means the same picture.</summary>
     public int NextId(string slug)
