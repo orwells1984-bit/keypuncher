@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Keypuncher.Pictures\Keypuncher.Pictures.csproj" />
     <ProjectReference Include="..\..\src\Keypuncher.Rendering\Keypuncher.Rendering.csproj" />
     <ProjectReference Include="..\..\src\Keypuncher.Toy\Keypuncher.Toy.csproj" />
   </ItemGroup>

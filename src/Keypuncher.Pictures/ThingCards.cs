@@ -28,6 +28,10 @@ public sealed record ThingCard(
     [JsonIgnore]
     public bool IsEmpty => Category is null && Climb == ClimbChoice.Auto && !Rungs.AnyByHand && Words.Count == 0;
 
+    /// <summary>The part of the card the renderer draws by, or null when it says nothing about drawing.</summary>
+    [JsonIgnore]
+    public ThingChoices? Choices => Climb == ClimbChoice.Auto && !Rungs.AnyByHand ? null : new ThingChoices(Climb, Rungs);
+
     public string? WordIn(string languageTag) => Words.TryGetValue(languageTag, out var w) && !string.IsNullOrWhiteSpace(w) ? w : null;
 }
 
@@ -114,4 +118,48 @@ public sealed class ThingCards
 
     /// <summary>Whether a grown-up chose this picture of the thing for one of its rungs.</summary>
     public bool ChoseByHand(string slug, int picture) => Get(slug)?.Rungs.Uses(picture) == true;
+}
+
+/// <summary>Every thing's drawing choices held in memory, for the renderer, which asks several times a frame and
+/// must not wait on a file. Read from the cards once and kept up to date as cards are saved or removed through the
+/// same <see cref="ThingCards"/>; <see cref="Reload"/> picks up changes made by another program, such as the
+/// console tool. Safe from several threads.</summary>
+public sealed class ChoiceBook : IDisposable
+{
+    private readonly ThingCards _cards;
+    private System.Collections.Concurrent.ConcurrentDictionary<string, ThingChoices> _choices = new();
+
+    public ChoiceBook(ThingCards cards)
+    {
+        _cards = cards;
+        _cards.Changed += OnChanged;
+        Reload();
+    }
+
+    /// <summary>Raised, on the thread that made the change, with the slug of a thing whose choices may have changed.</summary>
+    public event Action<string>? Changed;
+
+    /// <summary>The thing's choices, or null when the grown-ups chose nothing about how it is drawn.</summary>
+    public ThingChoices? Get(string slug) => _choices.GetValueOrDefault(slug);
+
+    /// <summary>Reads every card again; returns the slugs whose choices differ from before.</summary>
+    public IReadOnlyList<string> Reload()
+    {
+        var fresh = new System.Collections.Concurrent.ConcurrentDictionary<string, ThingChoices>();
+        foreach (var card in _cards.All())
+            if (card.Choices is { } choices) fresh[card.Slug] = choices;
+        var before = Interlocked.Exchange(ref _choices, fresh);
+        List<string> changed = [.. before.Keys.Union(fresh.Keys).Where(slug => !Equals(before.GetValueOrDefault(slug), fresh.GetValueOrDefault(slug)))];
+        foreach (var slug in changed) Changed?.Invoke(slug);
+        return changed;
+    }
+
+    public void Dispose() => _cards.Changed -= OnChanged;
+
+    private void OnChanged(string slug)
+    {
+        if (_cards.Get(slug)?.Choices is { } choices) _choices[slug] = choices;
+        else _choices.TryRemove(slug, out _);
+        Changed?.Invoke(slug);
+    }
 }

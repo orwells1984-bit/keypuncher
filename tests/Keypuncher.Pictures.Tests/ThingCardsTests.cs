@@ -84,4 +84,46 @@ public sealed class ThingCardsTests : IDisposable
 
         Assert.Empty(_folder.All());
     }
+
+    [Fact]
+    public void The_book_holds_the_drawing_choices_in_memory_and_follows_every_save()
+    {
+        var skip = new RungChoices().With(PictureStage.Silhouette, RungChoice.Skip);
+        _folder.Cards.Save(new ThingCard("octopus", "octopus") { Rungs = skip }, _now);
+        _folder.Cards.Save(new ThingCard("sailboat", "sailboat") { Category = RealCategory.Vehicle }, _now);
+        using var book = new ChoiceBook(_folder.Cards);
+        var changed = new List<string>();
+        book.Changed += changed.Add;
+
+        Assert.Equal(new ThingChoices(ClimbChoice.Auto, skip), book.Get("octopus"));
+        Assert.Null(book.Get("sailboat"));
+        Assert.Null(book.Get("zebra"));
+
+        _folder.Cards.Save(new ThingCard("zebra", "zebra") { Climb = ClimbChoice.Ladder }, _now);
+        _folder.Cards.Remove("octopus");
+
+        Assert.Equal(ClimbChoice.Ladder, book.Get("zebra")!.Climb);
+        Assert.Null(book.Get("octopus"));
+        Assert.Equal(["zebra", "octopus"], changed);
+    }
+
+    [Fact]
+    public void Reloading_the_book_picks_up_what_another_program_changed_and_says_which_things()
+    {
+        _folder.Cards.Save(new ThingCard("octopus", "octopus") { Climb = ClimbChoice.Ladder }, _now);
+        _folder.Cards.Save(new ThingCard("zebra", "zebra") { Climb = ClimbChoice.Real }, _now);
+        using var book = new ChoiceBook(_folder.Cards);
+        var elsewhere = new PictureFolder(_folder.Root).Cards;
+        elsewhere.Save(new ThingCard("octopus", "octopus") { Climb = ClimbChoice.Real }, _now);
+        elsewhere.Save(new ThingCard("crab", "crab") { Climb = ClimbChoice.Ladder }, _now);
+        Assert.Equal(ClimbChoice.Ladder, book.Get("octopus")!.Climb);
+
+        var changed = book.Reload();
+
+        Assert.Equal(["crab", "octopus"], changed.Order());
+        Assert.Equal(ClimbChoice.Real, book.Get("octopus")!.Climb);
+        Assert.Equal(ClimbChoice.Ladder, book.Get("crab")!.Climb);
+        Assert.Equal(ClimbChoice.Real, book.Get("zebra")!.Climb);
+        Assert.Empty(book.Reload());
+    }
 }

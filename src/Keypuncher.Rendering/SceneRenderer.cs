@@ -272,7 +272,7 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
         {
             // A thing that skips the ladder is never settled, so its picture shows the moment it lands, even on
             // one already on screen when the photo arrives.
-            if (Pictures.Climbs(e.Recipe!.Name) && Pictures.TryStage(e.Recipe!, world.Style, out var stage)) _stageOf[e.Id] = stage;
+            if (Pictures.Climbing(e.Recipe!.Name) && Pictures.TryStage(e.Recipe!, world.Style, out var stage)) _stageOf[e.Id] = stage;
             if (e.Born >= _firstDraw && _met.Add(e.Id)) Pictures.Meet(e.Recipe!.Name);
         }
         if (Place(e, e.Age(world.Time), clock, motion, world.Limits.MaxMotionHz, width, height, unit, world.Style) is { } p)
@@ -443,7 +443,9 @@ public sealed partial class SceneRenderer(SKTypeface typeface) : IDisposable
     {
         if (Pictures is null) return PictureStage.Shape;
         var stage = _stageOf.TryGetValue(e.Id, out var s) ? s : Pictures.Stage(e.Recipe!, style);
-        return (PictureStage)Math.Min((int)stage, (int)Pictures.Cap(e.Recipe!.Name, style));
+        // A rung settled under a higher cap (the level was made calmer since) comes down to what is allowed now,
+        // by way of the grown-ups' choices; a settled rung within the cap is drawn as it was settled.
+        return stage <= Pictures.Cap(e.Recipe!.Name, style) ? stage : Pictures.Settled(e.Recipe!.Name, stage, style);
     }
 
     /// <summary>Draws a thing straight onto the canvas, as one layer when it is translucent.</summary>

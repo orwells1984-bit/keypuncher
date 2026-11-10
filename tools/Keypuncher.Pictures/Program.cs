@@ -295,7 +295,7 @@ int Choose(string[] words)
             break;
         default:
             if (!Enum.TryParse<PictureStage>(what, ignoreCase: true, out var stage) || !Enum.IsDefined(stage) || !RungChoice.TryParse(value, out var choice)) { Console.WriteLine(usage); return 1; }
-            if (!RungChoices.Allows(stage, choice)) { Console.WriteLine($"the {what} rung takes only auto or picture:N"); return 1; }
+            if (!RungChoices.Allows(stage, choice)) { Console.WriteLine(stage == PictureStage.Shape ? "the shape rung takes only auto or skip" : "the photo rung takes only auto or picture:N"); return 1; }
             if (choice.Kind == RungKind.Picture && folder.PathOf(slug, choice.Picture) is null)
             {
                 Console.WriteLine($"{slug} has no picture {choice.Picture} in play or kept; see 'things {slug}'");

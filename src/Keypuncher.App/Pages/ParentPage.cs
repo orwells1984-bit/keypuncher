@@ -141,6 +141,8 @@ public sealed class ParentPage : ContentPage
     protected override void OnDisappearing()
     {
         _host.PictureJobs.Finished -= _fetchFinished;
+        // Choices made with the console tool while this page was open are picked up before play goes on.
+        _host.Choices.Reload();
         _host.SaveSettings(new ToySettings(
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
