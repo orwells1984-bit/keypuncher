@@ -11,6 +11,12 @@
 //   dotnet run --project tools/Keypuncher.Pictures -- model                     download the two cut-out models (about 400 MB) and check them
 //   dotnet run --project tools/Keypuncher.Pictures -- recut [slug]              cut out again from raw/ (a new model, or new rules)
 //   dotnet run --project tools/Keypuncher.Pictures -- hide <slug> | show <slug>  take a picture out of play, or put it back
+//   dotnet run --project tools/Keypuncher.Pictures -- things [slug]             each thing's pictures (the one in play and the kept ones, by number)
+//                                                                               and what the grown-ups chose for it
+//   dotnet run --project tools/Keypuncher.Pictures -- choose <slug> <shape|silhouette|flat|photo> <auto|shape|skip|picture:N>
+//                                                                               what is drawn on one rung of a thing's ladder
+//   dotnet run --project tools/Keypuncher.Pictures -- choose <slug> climb <auto|ladder|real>
+//   dotnet run --project tools/Keypuncher.Pictures -- choose <slug> category <auto|Animal|ExtinctAnimal|Plant|Vehicle|Object>
 //   dotnet run --project tools/Keypuncher.Pictures -- generate [--until HH:mm] [--limit N] [--seed N] [--again]
 //                                                                               draw a picture with the image model for every thing the
 //                                                                               photo sources gave up on, cut it out, and have gemma3 check it
@@ -58,6 +64,10 @@ switch (verb)
     case "hide":
     case "show":
         return HideOrShow(verb == "hide", args.Length > 1 ? args[1] : null);
+    case "things":
+        return Things(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null);
+    case "choose":
+        return Choose(args.Skip(1).TakeWhile(a => !a.StartsWith("--")).ToArray());
     case "generate":
         return await GenerateAsync();
     case "check":
@@ -65,7 +75,7 @@ switch (verb)
     case "nightly":
         return await NightlyAsync();
     default:
-        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, generate, check, nightly");
+        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, things, choose, generate, check, nightly");
         return 1;
 }
 
@@ -232,6 +242,70 @@ int HideOrShow(bool hide, string? slug)
     if (hide) folder.Hide(slug); else folder.Unhide(slug);
     Console.WriteLine($"{slug}: {(folder.HasPicture(slug) ? "in play" : folder.IsHidden(slug) ? "hidden" : "no such picture")}");
     return 0;
+}
+
+int Things(string? only)
+{
+    var pictures = folder.All().ToDictionary(p => p.Slug);
+    var cards = folder.Cards.All().ToDictionary(c => c.Slug);
+    var slugs = only is { } one ? [one] : pictures.Keys.Concat(cards.Keys).Distinct().Order(StringComparer.Ordinal).ToList();
+    if (slugs.Count == 0) { Console.WriteLine("No pictures and no cards yet."); return 0; }
+    foreach (var slug in slugs)
+    {
+        var picture = pictures.GetValueOrDefault(slug);
+        var card = cards.GetValueOrDefault(slug);
+        var kept = folder.Kept(slug);
+        if (picture is null && card is null && kept.Count == 0) { Console.WriteLine($"{slug}: no such thing"); continue; }
+        Console.WriteLine($"{picture?.Name ?? card?.Name ?? slug} [{slug}] ({card?.Category?.ToString() ?? picture?.Category.ToString() ?? "kind unknown"}{(card?.Category is not null ? ", set by a grown-up" : "")})");
+        if (picture is not null)
+            Console.WriteLine($"  picture {picture.Id}: {(folder.HasPicture(slug) ? "in play" : folder.IsHidden(slug) ? "hidden" : "no cut-out")}, {PictureLine(picture)}");
+        foreach (var k in kept) Console.WriteLine($"  picture {k.Id}: kept, {PictureLine(k)}");
+        if (card is null) { Console.WriteLine("  no choices: drawn as the toy decides"); continue; }
+        Console.WriteLine($"  rungs: shape {card.Rungs.Shape}, silhouette {card.Rungs.Silhouette}, flat {card.Rungs.Flat}, photo {card.Rungs.Photo}; climb {card.Climb.ToString().ToLowerInvariant()}");
+        if (card.Words.Count > 0) Console.WriteLine($"  words: {string.Join(", ", card.Words.Select(w => $"{w.Key} {w.Value}"))}");
+    }
+    return 0;
+}
+
+string PictureLine(PictureSidecar p) =>
+    p.CreditLine + (p.Photo?.FileTitle is { } title ? $", {title}" : "") + (p.Check is { } check ? $"; {check.Model}: {(check.Passed ? "looks right" : "looks WRONG")}" : "; not checked");
+
+int Choose(string[] words)
+{
+    const string usage = "choose <slug> <shape|silhouette|flat|photo> <auto|shape|skip|picture:N>, or choose <slug> climb <auto|ladder|real>, or choose <slug> category <auto|kind>";
+    if (words.Length != 3) { Console.WriteLine(usage); return 1; }
+    var (slug, what, value) = (words[0], words[1].ToLowerInvariant(), words[2]);
+    var name = folder.ReadSidecar(slug)?.Name ?? folder.Kept(slug).FirstOrDefault()?.Name ?? folder.Wanted.Get(slug)?.Name;
+    var card = folder.Cards.Get(slug) ?? (name is not null ? new ThingCard(slug, name) : null);
+    if (card is null) { Console.WriteLine($"{slug}: no such thing (no picture, kept picture or wanted entry under that slug)"); return 1; }
+    switch (what)
+    {
+        case "climb":
+            if (!Enum.TryParse<ClimbChoice>(value, ignoreCase: true, out var climb) || !Enum.IsDefined(climb)) { Console.WriteLine(usage); return 1; }
+            card = card with { Climb = climb };
+            break;
+        case "category":
+            if (value.Equals("auto", StringComparison.OrdinalIgnoreCase)) { card = card with { Category = null }; break; }
+            if (!Enum.TryParse<RealCategory>(value, ignoreCase: true, out var category) || !Enum.IsDefined(category))
+            {
+                Console.WriteLine($"kinds: auto, {string.Join(", ", Enum.GetNames<RealCategory>())}");
+                return 1;
+            }
+            card = card with { Category = category };
+            break;
+        default:
+            if (!Enum.TryParse<PictureStage>(what, ignoreCase: true, out var stage) || !Enum.IsDefined(stage) || !RungChoice.TryParse(value, out var choice)) { Console.WriteLine(usage); return 1; }
+            if (!RungChoices.Allows(stage, choice)) { Console.WriteLine($"the {what} rung takes only auto or picture:N"); return 1; }
+            if (choice.Kind == RungKind.Picture && folder.PathOf(slug, choice.Picture) is null)
+            {
+                Console.WriteLine($"{slug} has no picture {choice.Picture} in play or kept; see 'things {slug}'");
+                return 1;
+            }
+            card = card with { Rungs = card.Rungs.With(stage, choice) };
+            break;
+    }
+    folder.Cards.Save(card, DateTime.Now);
+    return Things(slug);
 }
 
 string ModelsLine() => models.AllPresent ? "both here" : models.AnyPresent ? $"{string.Join(", ", ModelStore.All.Where(models.IsPresent).Select(m => m.Name))} here, {string.Join(", ", models.Missing.Select(m => m.Name))} missing" : "none downloaded";

@@ -9,7 +9,10 @@ namespace Keypuncher.Pictures;
 /// The pictures folder as the fetcher, the batch tool and the grown-ups' page see it: <c>&lt;slug&gt;.png</c> is what the
 /// toy draws (see <c>PictureLibrary</c>), <c>&lt;slug&gt;.json</c> says where it came from, <c>raw/</c> keeps the photo or
 /// generated image the cut-out was made from, <c>thumbs/</c> small copies for the grown-ups' page, <c>hidden/</c> pictures a
-/// grown-up took out of play, and <c>wanted.json</c> the things with no picture yet. Every file is written under a
+/// grown-up took out of play, and <c>wanted.json</c> the things with no picture yet. A thing can have more pictures
+/// than the one in play: when another replaces it, the old one is kept under <c>more/&lt;slug&gt;/</c> by its number
+/// (<c>3.png</c>, <c>3.json</c>, <c>raw/3.jpg</c>, <c>thumbs/3.png</c>), for a grown-up to choose from. <c>things/</c>
+/// holds what the grown-ups chose for each thing (see <see cref="ThingCards"/>). Every file is written under a
 /// temporary name and renamed into place, so the toy never reads half a file. Safe from several threads.
 /// </summary>
 public sealed class PictureFolder
@@ -25,6 +28,7 @@ public sealed class PictureFolder
     {
         Root = root;
         Wanted = new WantedList(Path.Combine(root, "wanted.json"), _lock);
+        Cards = new ThingCards(Path.Combine(root, "things"), _lock);
     }
 
     public string Root { get; }
@@ -32,12 +36,21 @@ public sealed class PictureFolder
     public string ThumbsFolder => Path.Combine(Root, "thumbs");
     public string HiddenFolder => Path.Combine(Root, "hidden");
     public WantedList Wanted { get; }
+    /// <summary>What the grown-ups chose for each thing.</summary>
+    public ThingCards Cards { get; }
 
     public string PicturePath(string slug) => Path.Combine(Root, slug + PictureExtension);
     public string SidecarPath(string slug) => Path.Combine(Root, slug + ".json");
     public string ThumbPath(string slug) => Path.Combine(ThumbsFolder, slug + PictureExtension);
     public string HiddenPath(string slug) => Path.Combine(HiddenFolder, slug + PictureExtension);
     public string RawPath(string slug, string extension) => Path.Combine(RawFolder, slug + extension);
+
+    /// <summary>Where a thing's kept pictures are, the ones another picture took the place of.</summary>
+    public string MoreFolder(string slug) => Path.Combine(Root, "more", slug);
+    public string KeptPicturePath(string slug, int id) => Path.Combine(MoreFolder(slug), Number(id) + PictureExtension);
+    public string KeptSidecarPath(string slug, int id) => Path.Combine(MoreFolder(slug), Number(id) + ".json");
+    public string KeptThumbPath(string slug, int id) => Path.Combine(MoreFolder(slug), "thumbs", Number(id) + PictureExtension);
+    public string KeptRawPath(string slug, int id, string extension) => Path.Combine(MoreFolder(slug), "raw", Number(id) + extension);
 
     /// <summary>Whether the toy has a picture of this thing in play (hidden ones do not count).</summary>
     public bool HasPicture(string slug) => File.Exists(PicturePath(slug));
@@ -135,6 +148,63 @@ public sealed class PictureFolder
         }
     }
 
+    /// <summary>The stories of a thing's kept pictures, by number. The picture in play is not among them.</summary>
+    public IReadOnlyList<PictureSidecar> Kept(string slug)
+    {
+        lock (_lock)
+        {
+            var more = MoreFolder(slug);
+            if (!Directory.Exists(more)) return [];
+            return [.. Directory.GetFiles(more, "*.json")
+                .Select(ReadSidecarFile)
+                .Where(s => s is not null && File.Exists(KeptPicturePath(slug, s.Id))).Select(s => s!)
+                .OrderBy(s => s.Id)];
+        }
+    }
+
+    /// <summary>The number the thing's next picture gets: one more than any it has, in play, hidden or kept, so a
+    /// number a grown-up chose always means the same picture.</summary>
+    public int NextId(string slug)
+    {
+        lock (_lock)
+        {
+            var current = (HasPicture(slug) || IsHidden(slug)) && ReadSidecar(slug) is { } sidecar ? sidecar.Id : 0;
+            return Math.Max(current, Kept(slug).Select(k => k.Id).DefaultIfEmpty(0).Max()) + 1;
+        }
+    }
+
+    /// <summary>Copies the thing's picture (in play or hidden) under <c>more/</c> with its story, its photo and its
+    /// thumbnail, just before another takes its place. Returns its number, or null when there is no picture to keep.</summary>
+    public int? Keep(string slug)
+    {
+        lock (_lock)
+        {
+            var picture = HasPicture(slug) ? PicturePath(slug) : IsHidden(slug) ? HiddenPath(slug) : null;
+            if (picture is null || ReadSidecar(slug) is not { } sidecar) return null;
+            var id = sidecar.Id;
+            Directory.CreateDirectory(MoreFolder(slug));
+            // The story goes last: a kept picture is listed by its story, and only once its cut-out is there.
+            CopyAtomically(picture, KeptPicturePath(slug, id));
+            if (File.Exists(ThumbPath(slug))) CopyAtomically(ThumbPath(slug), KeptThumbPath(slug, id));
+            if (FindRaw(slug) is { } raw) CopyAtomically(raw, KeptRawPath(slug, id, Path.GetExtension(raw)));
+            // Hidden is about the place in play, which the kept copy has left; what the check said stays with it.
+            WriteAtomically(KeptSidecarPath(slug, id), JsonSerializer.Serialize(sidecar with { Hidden = false }, Json));
+            return id;
+        }
+    }
+
+    /// <summary>The cut-out with this number: the thing's picture in play, or a kept one. Null when there is none
+    /// (a hidden picture is out of play under every number).</summary>
+    public string? PathOf(string slug, int id)
+    {
+        lock (_lock)
+        {
+            if (HasPicture(slug) && ReadSidecar(slug)?.Id == id) return PicturePath(slug);
+            var kept = KeptPicturePath(slug, id);
+            return File.Exists(kept) ? kept : null;
+        }
+    }
+
     /// <summary>Every picture with a story, newest first.</summary>
     public IReadOnlyList<PictureSidecar> All()
     {
@@ -155,6 +225,25 @@ public sealed class PictureFolder
         var k = Math.Min(1f, ThumbSide / (float)Math.Max(cutOut.Width, cutOut.Height));
         // Scaled in premultiplied space, so the edge keeps the thing's colour rather than the photo's background.
         return CutOutPost.Scale(cutOut, Math.Max(1, (int)(cutOut.Width * k)), Math.Max(1, (int)(cutOut.Height * k)));
+    }
+
+    private static string Number(int id) => id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private PictureSidecar? ReadSidecarFile(string path)
+    {
+        try { return JsonSerializer.Deserialize<PictureSidecar>(File.ReadAllText(path), Json); }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"the notes for the kept picture {path} could not be read", e);
+            return null;
+        }
+    }
+
+    private static void CopyAtomically(string from, string to)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+        File.Copy(from, to + ".tmp", overwrite: true);
+        File.Move(to + ".tmp", to, overwrite: true);
     }
 
     private static void WriteAtomically(string path, string text)

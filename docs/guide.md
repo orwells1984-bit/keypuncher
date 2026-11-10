@@ -112,6 +112,18 @@ a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`,
 and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
 folder of its own and writes a report of what photos cover and which things are gaps.
 
+A thing can have more pictures than the one in play. When another photo takes a picture's place ("Try another", or a
+refetch after a failed check), the old one is kept under `more\<slug>\` by its number (`1.png`, `1.json`, `raw\1.jpg`,
+`thumbs\1.png`); the number is in each picture's sidecar (`id`) and never changes. What the grown-ups chose for a
+thing is kept in its card, `things\<slug>.json`: what is drawn on each rung of the realism ladder (`auto`, `shape`,
+`skip` or `picture:N`; the photo rung takes only `auto` or a picture), whether it climbs the ladder (`auto`, `ladder`,
+`real`), its kind when the director filed it wrongly (the photo search then uses the grown-up's), and its word in each
+language. A thing with no card is treated as before, and the cards live with the pictures rather than in `world.db`
+so that a fresh world does not clear them. A picture a grown-up chose for a rung is never taken out of play by the
+check, only flagged. `tools/Keypuncher.Pictures` has `things [slug]` to list pictures and choices, and
+`choose <slug> <rung> <choice>`, `choose <slug> climb ...` and `choose <slug> category ...` to set them. The toy does
+not draw from the rung choices yet; that and the grown-ups' page for them come next.
+
 The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
 background but mistakes rare species for a familiar relative, so it only ever draws what the photo sources gave up on.

@@ -130,6 +130,66 @@ public sealed class PhotoFetcherTests : IDisposable
     }
 
     [Fact]
+    public async Task Try_another_keeps_the_picture_it_takes_the_place_of_and_numbers_the_new_one_after_it()
+    {
+        await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
+        var first = File.ReadAllBytes(_folder.PicturePath("sable-antelope"));
+        Assert.Equal(1, _folder.ReadSidecar("sable-antelope")!.Id);
+        Assert.Empty(_folder.Kept("sable-antelope"));
+        const string second = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_female.jpg/1280px-Sable_antelope_female.jpg";
+        _web.Bytes(second, TestPhotos.Jpeg(300, 300), "image/jpeg");
+
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope male.jpg");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope female.jpg", second), []);
+        Assert.Equal(FetchOutcome.Pictured, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+
+        Assert.Equal(2, _folder.ReadSidecar("sable-antelope")!.Id);
+        var kept = Assert.Single(_folder.Kept("sable-antelope"));
+        Assert.Equal((1, "File:Sable antelope male.jpg"), (kept.Id, kept.Photo!.FileTitle));
+        Assert.Equal(first, File.ReadAllBytes(_folder.KeptPicturePath("sable-antelope", 1)));
+        Assert.True(File.Exists(_folder.KeptRawPath("sable-antelope", 1, ".jpg")));
+        Assert.True(File.Exists(_folder.KeptThumbPath("sable-antelope", 1)));
+        Assert.Equal(_folder.PicturePath("sable-antelope"), _folder.PathOf("sable-antelope", 2));
+        Assert.Contains(_log, l => l.Contains("kept as number 1"));
+
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope female.jpg");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope calf.jpg", Download), []);
+        Assert.Equal(FetchOutcome.Pictured, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+
+        Assert.Equal(3, _folder.ReadSidecar("sable-antelope")!.Id);
+        Assert.Equal([1, 2], _folder.Kept("sable-antelope").Select(k => k.Id));
+    }
+
+    [Fact]
+    public async Task A_failed_try_at_another_keeps_nothing()
+    {
+        await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
+        _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now);
+        _folder.Wanted.Bump("sable-antelope", "another was asked for", _now, countTry: false, exclude: "File:Sable antelope male.jpg");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope female.jpg", Download), []);
+        _cutOut.FailWith = "touches three edges";
+
+        Assert.Equal(FetchOutcome.RawOnly, await Fetcher().FetchAsync("sable antelope", RealCategory.Animal));
+
+        Assert.Empty(_folder.Kept("sable-antelope"));
+        Assert.Equal(1, _folder.ReadSidecar("sable-antelope")!.Id);
+    }
+
+    [Fact]
+    public async Task The_kind_a_grown_up_set_is_the_one_the_photo_is_looked_for_under()
+    {
+        _folder.Cards.Save(new ThingCard("sailboat", "sailboat") { Category = RealCategory.Vehicle }, _now);
+
+        await Fetcher().FetchAsync("sailboat", RealCategory.Animal);
+
+        Assert.Equal(RealCategory.Vehicle, _finder.Asked[^1].Category);
+        Assert.Equal(RealCategory.Vehicle, _folder.ReadSidecar("sailboat")!.Category);
+        Assert.Contains(_log, l => l.Contains("as a grown-up set"));
+    }
+
+    [Fact]
     public async Task Try_another_leaves_the_old_pictures_photo_and_story_alone_until_a_new_cut_out_lands()
     {
         await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
