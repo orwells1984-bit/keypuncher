@@ -109,6 +109,47 @@ public sealed class PictureChecksTests : IDisposable
     }
 
     [Fact]
+    public async Task The_checker_is_shown_the_photo_the_cut_out_came_from()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        await Checks().CheckAsync("fish");
+
+        var photo = Assert.Single(_checker.Photos);
+        Assert.NotNull(photo);
+        using var decoded = SkiaSharp.SKBitmap.Decode(photo);
+        Assert.NotNull(decoded);
+        Assert.True(Math.Max(decoded.Width, decoded.Height) <= PictureChecks.MaxPhotoSide);
+    }
+
+    [Fact]
+    public async Task Without_its_photo_a_picture_is_checked_alone()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        File.Delete(_folder.FindRaw("fish")!);
+
+        Assert.True((await Checks().CheckAsync("fish"))!.Passed);
+        Assert.Null(Assert.Single(_checker.Photos));
+    }
+
+    /// <summary>The octopus and thylacine pictures were cut out from closer looks that kept 11% and 8% of the crop,
+    /// before the cut-out turned those down; a check takes them out without asking the model.</summary>
+    [Fact]
+    public async Task A_picture_whose_closer_look_kept_too_little_is_taken_out_without_asking()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _folder.WriteSidecar(_folder.ReadSidecar("fish")! with { CutOut = "isnet, zoomed in, covers 11% of the photo" });
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.False(check!.Passed);
+        Assert.Equal(PictureChecks.CutOutRule, check.Model);
+        Assert.Empty(_checker.Asked);
+        Assert.True(_folder.IsHidden("fish"));
+        Assert.Equal(["File:Maldives Surgeonfish.jpg"], _folder.Wanted.Get("fish")!.Exclude);
+    }
+
+    [Fact]
     public async Task A_checker_that_does_not_answer_changes_nothing()
     {
         await Fetcher().FetchAsync("fish", RealCategory.Animal);
@@ -136,10 +177,12 @@ public sealed class PictureChecksTests : IDisposable
         public bool Answer { get; set; } = true;
         public string Saw { get; set; } = "one blue fish";
         public List<(string Name, RealCategory Category)> Asked { get; } = [];
+        public List<byte[]?> Photos { get; } = [];
 
-        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
+        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
         {
             Asked.Add((name, category));
+            Photos.Add(photo);
             return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 1 : 0, Saw, new DateTime(2026, 11, 8, 16, 1, 0)) : null);
         }
     }

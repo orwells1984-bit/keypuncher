@@ -206,10 +206,12 @@ public sealed class PictureMakerTests : IDisposable
         public bool Answer { get; set; } = true;
         public string Saw { get; set; } = "a sailboat";
         public List<(string Name, RealCategory Category)> Asked { get; } = [];
+        public List<byte[]?> Photos { get; } = [];
 
-        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
+        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
         {
             Asked.Add((name, category));
+            Photos.Add(photo);
             return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 0.9 : 0.3, Saw, new DateTime(2026, 11, 7, 1, 5, 0)) : null);
         }
     }
@@ -369,6 +371,78 @@ public sealed class OllamaVisionTests
     [InlineData("grass", "grass")]
     public void A_rough_singular_is_enough_to_match_the_name(string plural, string singular) =>
         Assert.Equal(singular, OllamaVision.Singular(plural));
+
+    /// <summary>The octopus: shown the white shell from its arms alone, gemma3 saw "a single, complete, live octopus".
+    /// With the photo, a third call shows both and a clear "not all of it" takes the pass away.</summary>
+    [Fact]
+    public async Task With_the_photo_a_passed_cut_out_is_compared_with_it()
+    {
+        var sent = new List<string>();
+        var handler = new RecordingHandler(request =>
+        {
+            sent.Add(request);
+            return sent.Count switch
+            {
+                1 => Reply("A single, complete, live octopus with its tentacles extended."),
+                2 => Reply("""{"count":1,"is_the_thing":true,"whole":true}"""),
+                _ => Reply("""{"kept":"a white shell the octopus is holding.","all_of_it":false}"""),
+            };
+        });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
+        var png = TestPhotos.Jpeg(32, 32);
+        var photo = TestPhotos.Jpeg(64, 48);
+
+        var check = await new OllamaVision(http).CheckAsync(png, "octopus", RealCategory.Animal, photo);
+
+        Assert.False(check!.Passed);
+        Assert.Equal(0, check.Confidence);
+        Assert.Equal("A single, complete, live octopus with its tentacles extended. [kept a white shell the octopus is holding, not all of the octopus in the photo]", check.Saw);
+        Assert.Equal(3, sent.Count);
+        using var third = JsonDocument.Parse(sent[2]);
+        var messages = third.RootElement.GetProperty("messages");
+        Assert.Equal(1, messages.GetArrayLength());
+        Assert.Equal(OllamaVision.Compare("octopus"), messages[0].GetProperty("content").GetString());
+        var images = messages[0].GetProperty("images");
+        Assert.Equal(Convert.ToBase64String(photo), images[0].GetString());
+        Assert.Equal(Convert.ToBase64String(png), images[1].GetString());
+        Assert.Equal("object", third.RootElement.GetProperty("format").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task A_cut_out_that_already_failed_is_not_compared()
+    {
+        var sent = 0;
+        var handler = new RecordingHandler(_ => ++sent == 1 ? Reply("two zebras") : Reply("""{"count":2,"is_the_thing":true,"whole":true}"""));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
+
+        var check = await new OllamaVision(http).CheckAsync(TestPhotos.Jpeg(32, 32), "zebra", RealCategory.Animal, TestPhotos.Jpeg(64, 48));
+
+        Assert.False(check!.Passed);
+        Assert.Equal(2, sent);
+    }
+
+    [Theory]
+    [InlineData("""{"kept":"the whole zebra","all_of_it":true}""", true, "one zebra")]
+    [InlineData("""{"kept":"one hoof","all_of_it":false}""", false, "one zebra [kept one hoof, not all of the zebra in the photo]")]
+    [InlineData("""{"all_of_it":false}""", false, "one zebra [not all of the zebra in the photo]")]
+    [InlineData("""{"kept":"the zebra"}""", true, "one zebra")]
+    [InlineData("I think it kept the zebra", true, "one zebra")]
+    [InlineData(null, true, "one zebra")]
+    public void Only_a_clear_no_from_the_comparison_takes_a_pass_away(string? answer, bool passed, string saw)
+    {
+        var check = OllamaVision.Compared(new VisionCheck("gemma3:4b", true, 1, "one zebra", DateTime.UnixEpoch), answer, "zebra");
+        Assert.Equal(passed, check.Passed);
+        Assert.Equal(saw, check.Saw);
+    }
+
+    [Fact]
+    public void The_comparison_says_which_image_is_which()
+    {
+        var compare = OllamaVision.Compare("octopus");
+        Assert.Contains("first image is a photo", compare);
+        Assert.Contains("second image is a cut-out", compare);
+        Assert.Contains("whole octopus", compare);
+    }
 
     [Fact]
     public async Task A_server_error_is_no_verdict()

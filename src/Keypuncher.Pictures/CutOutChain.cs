@@ -13,6 +13,11 @@ public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
     public const double ZoomMargin = 0.5;
     /// <summary>A crop is never smaller than this on either side, so a tiny find still gives the model something to see.</summary>
     public const int MinZoomSide = 256;
+    /// <summary>The share of the crop a closer cut-out must cover. The crop is twice the find's box each way, so a whole
+    /// thing that fills its box fairly covers a quarter of it; under this, the closer look kept something smaller than
+    /// the find, usually a part or another thing. The octopus photo gave a shell from its arms at 11%, the thylacine
+    /// photo a dog behind it at 8%; a small bird in a wide shot came out whole at 18%.</summary>
+    public const double MinZoomedCoverage = 0.15;
 
     public string Name => string.Join("+", cutOuts.Where(c => c.IsAvailable).Select(c => c.Name)) is { Length: > 0 } names ? names : "none";
 
@@ -33,7 +38,12 @@ public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
                     using (crop)
                     {
                         var closer = cutOut.Cut(crop);
-                        if (closer.Succeeded) return closer with { Model = closer.Model + ", zoomed in" };
+                        if (closer.Succeeded && closer.Coverage >= MinZoomedCoverage) return closer with { Model = closer.Model + ", zoomed in" };
+                        if (closer.Succeeded)
+                        {
+                            closer.Picture?.Dispose();
+                            closer = closer with { Picture = null, Reason = "too small" };
+                        }
                         result = closer with { Box = null };
                     }
                 }
@@ -48,6 +58,15 @@ public sealed class CutOutChain(params ICutOut[] cutOuts) : ICutOut
             last = result;
         }
         return last ?? new CutOutResult(null, Name, 0, "model missing");
+    }
+
+    /// <summary>Whether a sidecar's cut-out note ("isnet, zoomed in, covers 11% of the photo") tells of a closer look
+    /// that kept less than <see cref="MinZoomedCoverage"/>: a picture made before that floor, which would not pass now.</summary>
+    public static bool ZoomedTooLittle(string? note)
+    {
+        if (note is null || !note.Contains("zoomed in", StringComparison.Ordinal)) return false;
+        var match = System.Text.RegularExpressions.Regex.Match(note, @"covers (\d+)%");
+        return match.Success && int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) < MinZoomedCoverage * 100;
     }
 
     /// <summary>The crop to look at a small find from: the box grown by <see cref="ZoomMargin"/> each way, at least
