@@ -33,6 +33,15 @@ public sealed record ThingCard(
     public ThingChoices? Choices => Climb == ClimbChoice.Auto && !Rungs.AnyByHand ? null : new ThingChoices(Climb, Rungs);
 
     public string? WordIn(string languageTag) => Words.TryGetValue(languageTag, out var w) && !string.IsNullOrWhiteSpace(w) ? w : null;
+
+    /// <summary>This card with the word in one language set, trimmed; a blank word takes the language's word away.</summary>
+    public ThingCard WithWord(string languageTag, string? word)
+    {
+        var words = new Dictionary<string, string>(Words);
+        if (string.IsNullOrWhiteSpace(word)) words.Remove(languageTag);
+        else words[languageTag] = word.Trim();
+        return this with { Words = words };
+    }
 }
 
 /// <summary>The thing cards in the pictures folder. Every look reads the file, so the toy and the console tool,
@@ -115,6 +124,10 @@ public sealed class ThingCards
         }
         Changed?.Invoke(slug);
     }
+
+    /// <summary>The words the grown-ups wrote in one language, by the thing's slug.</summary>
+    public IReadOnlyDictionary<string, string> WordsIn(string languageTag) =>
+        All().Select(c => (c.Slug, Word: c.WordIn(languageTag))).Where(c => c.Word is not null).ToDictionary(c => c.Slug, c => c.Word!);
 
     /// <summary>Whether a grown-up chose this picture of the thing for one of its rungs.</summary>
     public bool ChoseByHand(string slug, int picture) => Get(slug)?.Rungs.Uses(picture) == true;

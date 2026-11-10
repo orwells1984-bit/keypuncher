@@ -43,7 +43,7 @@ public sealed class ParentPage : ContentPage
 
         _lockButton = Button("Let Keypuncher turn off Win+L (asks for admin once)", AskToTurnOffLock);
         _pictureList = new PicturesPanel(host);
-        var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 720 };
+        var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 1040 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
 
         // The two ways out first, where nobody has to look for them.
@@ -99,13 +99,14 @@ public sealed class ParentPage : ContentPage
         if (!host.Models.AllPresent) modelButtons.Add(Button("Download the cut-out models (about 400 MB)", DownloadModels));
         modelButtons.Add(Button("Fetch wanted pictures now", () => { _host.PictureJobs.RetryWanted(again: true); RefreshPictures(); }));
         layout.Add(modelButtons);
-        layout.Add(new Label { Text = "Every thing the toy knows is listed below with the four rungs of its ladder, drawn as the child sees them; the rung drawn now has a green edge, and a pale rung is one this calm level does not reach. Tap a rung to choose what is drawn there: leave it to the toy, pick one of the thing's pictures, keep the drawn shape, or skip the rung. \"Try another\" fetches a different photo and keeps the old one to choose from; \"Add from a file\" takes a picture of your own (one with a clear background goes in as it is, any other is cut out). A picture you chose or added is never taken out of play by the check: its doubt is only shown here.", FontSize = 13 });
+        layout.Add(new Label { Text = "Every thing the toy knows is listed below with the four rungs of its ladder, drawn as the child sees them; the rung drawn now has a green edge, and a pale rung is one this calm level does not reach. Tap a rung to choose what is drawn there: leave it to the toy, pick one of the thing's pictures, keep the drawn shape, or skip the rung. \"Try another\" fetches a different photo and keeps the old one to choose from; \"Add from a file\" takes a picture of your own (one with a clear background goes in as it is, any other is cut out). A picture you chose or added is never taken out of play by the check: its doubt is only shown here. Beside the rungs is the thing's word in each language that play uses: type it and press Record to say it, Stop when done; it is played back at once. The words also appear in the list under \"Record voices\" below, for recording many in one go.", FontSize = 13 });
         layout.Add(_pictureList);
         RefreshPictures();
 
         layout.Add(Heading("Voices"));
         var recorded = KeyMeanings.Languages
-            .Select(tag => $"{tag}: {ClipCatalog.For(tag).Count(e => host.Clips.Exists(e.Id))} of {ClipCatalog.For(tag).Count(e => !e.Optional)} recorded");
+            .Select(tag => (Tag: tag, Clips: ClipCatalog.For(tag, host.PictureFolder.Cards.WordsIn(tag)).ToList()))
+            .Select(l => $"{l.Tag}: {l.Clips.Count(e => host.Clips.Exists(e.Id))} of {l.Clips.Count(e => !e.Optional)} recorded");
         layout.Add(new Label { Text = string.Join("    ", recorded) });
         layout.Add(new Label { Text = "Windows voices installed: " + string.Join(", ", SafeVoices()) + ". Used only for numbers and words that are not recorded yet." });
         layout.Add(Button("Record voices", () => ToyApp.Show(new RecordingPage(_host))));
@@ -143,6 +144,7 @@ public sealed class ParentPage : ContentPage
     protected override void OnDisappearing()
     {
         _host.PictureJobs.Finished -= _fetchFinished;
+        _pictureList.Close();
         // Choices made with the console tool while this page was open are picked up before play goes on.
         _host.Choices.Reload();
         _host.SaveSettings(new ToySettings(

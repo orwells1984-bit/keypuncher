@@ -1,6 +1,9 @@
+using Keypuncher.Audio;
 using Keypuncher.Core;
 using Keypuncher.Director;
+using Keypuncher.Language;
 using Keypuncher.Pictures;
+using Keypuncher.Platform.Windows;
 using Keypuncher.Rendering;
 using SkiaSharp;
 
@@ -11,7 +14,9 @@ namespace Keypuncher.App.Pages;
 /// realism ladder drawn as play draws them. Tapping a rung opens a strip under the row to choose what is drawn
 /// there: left to the toy, one of the thing's pictures, the drawn shape, or the rung skipped. Each row also asks for
 /// another picture, adds one from a file, hides the picture, and sets the thing's kind and whether it climbs.
-/// What is chosen is written to the thing's card at once (see <see cref="ThingCards"/>).
+/// Beside the rungs is the thing's word in each language in use: typed, and recorded and played back on the spot.
+/// What is chosen or typed is written to the thing's card at once (see <see cref="ThingCards"/>); a recording is
+/// kept with the other clips, named by the thing (see <see cref="ClipCatalog.ThingClip"/>).
 /// </summary>
 /// <remarks>The rungs are drawn on a background thread, one at a time, and kept as PNG bytes by picture file, rung and
 /// calm level, so a list drawn again (after a choice, or a search) shows at once. Everything else runs on the UI thread.</remarks>
@@ -28,6 +33,7 @@ public sealed class PicturesPanel : ContentView
     private static readonly Color Wrong = Color.FromArgb("#C62828");
     private static readonly PictureStage[] Rungs = [PictureStage.Shape, PictureStage.Silhouette, PictureStage.Flat, PictureStage.Photo];
     private static readonly RealCategory[] Kinds = [RealCategory.Animal, RealCategory.ExtinctAnimal, RealCategory.Plant, RealCategory.Vehicle, RealCategory.Object];
+    private static readonly (string Tag, string Name)[] LanguageNames = [(KeyMeanings.Icelandic, "Icelandic"), (KeyMeanings.English, "English"), (KeyMeanings.Bulgarian, "Bulgarian")];
     private static readonly (ThingFilter Filter, string Name)[] Filters =
     [
         (ThingFilter.All, "Everything, newest first"),
@@ -44,6 +50,11 @@ public sealed class PicturesPanel : ContentView
     private readonly Dictionary<string, byte[]> _rendered = [];
     private readonly SemaphoreSlim _drawing = new(1, 1);
     private readonly HashSet<string> _adding = [];
+    private readonly MicRecorder _mic = new();
+    /// <summary>The clip being recorded, and the buttons and level bar of the row it is recorded from.</summary>
+    private ClipId? _recording;
+    private Action? _recordingShow;
+    private ProgressBar? _recordingLevel;
     private IReadOnlyList<ThingEntry> _things = [];
     private int _shown = PageSize;
     private (string Slug, PictureStage Stage)? _open;
@@ -57,6 +68,10 @@ public sealed class PicturesPanel : ContentView
         _filter.SelectedIndex = 0;
         _filter.SelectedIndexChanged += (_, _) => { _shown = PageSize; Render(); };
         _search.TextChanged += (_, _) => { _shown = PageSize; Render(); };
+        _mic.Level += peak => MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_recordingLevel is { } bar) bar.Progress = peak;
+        });
         Content = new VerticalStackLayout
         {
             Spacing = 10,
@@ -71,16 +86,30 @@ public sealed class PicturesPanel : ContentView
     /// <summary>Reads the pictures folder again and draws the list from it.</summary>
     public void Reload()
     {
+        Read();
+        Render();
+    }
+
+    /// <summary>Stops a recording in progress without keeping it: for when the page is left.</summary>
+    public void Close()
+    {
+        if (_mic.Recording) _mic.Stop();
+        _recording = null;
+        _recordingShow = null;
+        _recordingLevel = null;
+    }
+
+    private void Read()
+    {
         try
         {
-            _things = ThingIndex.Build(_host.PictureFolder, Keypuncher.Language.StarterConcepts.All.Select(c => c.Id));
+            _things = ThingIndex.Build(_host.PictureFolder, StarterConcepts.All.Select(c => c.Id));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Log.Warn("pictures", "the pictures folder could not be read for the grown-ups' page", e);
             Say($"The pictures folder could not be read: {e.Message}");
         }
-        Render();
     }
 
     /// <summary>Draws the rows the filter and the search leave, from the things as last read.</summary>
@@ -133,7 +162,8 @@ public sealed class PicturesPanel : ContentView
                 Render();
             }));
         }
-        column.Add(cells);
+        var left = new VerticalStackLayout { Spacing = 8 };
+        left.Add(cells);
 
         var buttons = new HorizontalStackLayout { Spacing = 8 };
         // While a fetch for this thing is running or waiting, the button waits too. Each press turns down the photo
@@ -157,7 +187,7 @@ public sealed class PicturesPanel : ContentView
                 Reload();
             }));
         }
-        column.Add(buttons);
+        left.Add(buttons);
 
         var kindPicker = Choice(
             [$"Kind: as it was filed{((thing.Picture?.Category ?? thing.Wanted?.Category) is { } filed ? $" ({KindName(filed).ToLowerInvariant()})" : "")}", .. Kinds.Select(k => "Kind: " + KindName(k).ToLowerInvariant())],
@@ -167,7 +197,9 @@ public sealed class PicturesPanel : ContentView
             [$"Ladder: as the toy does ({(host.Pictures.Climbs(thing.Name) ? "climbs" : "real at once")})", "Ladder: climbs rung by rung", "Ladder: real at once"],
             (int)(thing.Card?.Climb ?? ClimbChoice.Auto), 270,
             i => Change(thing, card => card with { Climb = (ClimbChoice)i }));
-        column.Add(new HorizontalStackLayout { Spacing = 8, Children = { kindPicker, climbPicker } });
+        left.Add(new HorizontalStackLayout { Spacing = 8, Children = { kindPicker, climbPicker } });
+        // The words sit beside the ladder; the chooser strip, when open, runs under both.
+        column.Add(new HorizontalStackLayout { Spacing = 20, Children = { left, WordsPanel(thing) } });
 
         if (_open is { } o && o.Slug == thing.Slug) column.Add(Chooser(thing, recipe, o.Stage, style, jobs));
 
@@ -217,6 +249,169 @@ public sealed class PicturesPanel : ContentView
                 new ScrollView { Orientation = ScrollOrientation.Horizontal, Content = options },
             },
         };
+    }
+
+    /// <summary>The thing's word in each language in use: a box to type it in, and buttons to record it, hear it
+    /// and delete the recording. The toy's own word for a starter thing is shown until a grown-up writes another.</summary>
+    private VerticalStackLayout WordsPanel(ThingEntry thing)
+    {
+        var panel = new VerticalStackLayout { Spacing = 4, WidthRequest = 360 };
+        panel.Add(new Label { Text = "Its word, written and spoken", FontSize = 13, FontAttributes = FontAttributes.Bold, TextColor = Ink });
+        var starter = StarterConcepts.All.FirstOrDefault(c => c.Id == thing.Slug);
+        var weights = _host.Engine.Settings.LanguageWeights;
+        foreach (var (tag, name) in LanguageNames)
+        {
+            // A language never picked for play needs no word; all three show when none has a weight.
+            if (weights.GetValueOrDefault(tag) <= 0 && weights.Values.Any(w => w > 0)) continue;
+            var toyWord = starter?.WordIn(tag);
+            var id = ClipCatalog.ThingClip(tag, thing.Slug);
+            var word = new Entry { Text = thing.Card?.WordIn(tag) ?? toyWord ?? "", Placeholder = name, WidthRequest = 120, FontSize = 14, TextColor = Ink, BackgroundColor = Colors.White };
+            word.Completed += (_, _) => SaveWord(thing, tag, word.Text, toyWord);
+            word.Unfocused += (_, _) => SaveWord(thing, tag, word.Text, toyWord);
+            var record = Small("● Record");
+            var play = Small("▶");
+            var delete = Small("Delete");
+            var level = new ProgressBar { WidthRequest = 130, ProgressColor = Colors.OrangeRed, IsVisible = false };
+
+            void Show()
+            {
+                var recorded = _host.Clips.Exists(id);
+                var recording = _recording == id;
+                record.Text = recording ? "■ Stop" : recorded ? "● Again" : "● Record";
+                play.IsVisible = recorded && !recording;
+                delete.IsVisible = recorded && !recording;
+                level.IsVisible = recording;
+                if (!recording) level.Progress = 0;
+            }
+
+            record.Clicked += (_, _) => ToggleRecording(id, Show, level);
+            play.Clicked += (_, _) => PlayClip(id);
+            delete.Clicked += (_, _) =>
+            {
+                try
+                {
+                    _host.Clips.Delete(id);
+                    _host.Speech.Invalidate(id);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    Log.Warn("recording", $"the recording {id} could not be deleted", e);
+                    Say($"The recording could not be deleted: {e.Message}");
+                }
+                Show();
+            };
+            // A list drawn again while this word is being recorded hands the recording on to its new buttons.
+            if (_recording == id)
+            {
+                _recordingShow = Show;
+                _recordingLevel = level;
+            }
+            Show();
+            panel.Add(new Label { Text = name, FontSize = 12, TextColor = Ink });
+            panel.Add(new HorizontalStackLayout { Spacing = 6, Children = { word, record, play, delete } });
+            panel.Add(level);
+        }
+        return panel;
+    }
+
+    /// <summary>Writes the word typed for a thing to its card, when it differs from what the card has. The toy's
+    /// own word for a starter thing, typed back, is no word of the grown-ups'. The list is not drawn again, so
+    /// the box being typed in keeps its place.</summary>
+    private void SaveWord(ThingEntry thing, string tag, string? text, string? toyWord)
+    {
+        var word = string.IsNullOrWhiteSpace(text) || text.Trim() == toyWord ? null : text.Trim();
+        try
+        {
+            var cards = _host.PictureFolder.Cards;
+            var card = cards.Get(thing.Slug) ?? new ThingCard(thing.Slug, thing.Name);
+            if (card.WordIn(tag) == word) return;
+            cards.Save(card.WithWord(tag, word), DateTime.Now);
+            Log.Info("pictures", $"a grown-up wrote the {tag} word for {thing.Name}: {word ?? "(none)"}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("pictures", $"the word for {thing.Name} could not be saved", e);
+            Say($"The word for {thing.Name} could not be saved: {e.Message}");
+            return;
+        }
+        Read();
+    }
+
+    /// <summary>Starts recording a word, or stops and keeps it. Starting one while another is being recorded
+    /// stops and keeps that one first.</summary>
+    private void ToggleRecording(ClipId id, Action show, ProgressBar level)
+    {
+        if (_mic.Recording)
+        {
+            var same = _recording == id;
+            FinishRecording();
+            if (same) return;
+        }
+        _host.Mixer.StopSpeech();
+        try
+        {
+            _mic.Start();
+        }
+        catch (Exception e)
+        {
+            Log.Warn("recording", "could not open the microphone", e);
+            Say("Could not open the microphone: " + e.Message + " (check Windows privacy settings for the microphone).");
+            return;
+        }
+        Say(null);
+        _recording = id;
+        _recordingShow = show;
+        _recordingLevel = level;
+        show();
+    }
+
+    /// <summary>Stops the microphone and keeps what was said, trimmed and levelled, as the clip being recorded;
+    /// plays it back.</summary>
+    private void FinishRecording()
+    {
+        var raw = _mic.Stop();
+        var id = _recording;
+        var show = _recordingShow;
+        _recording = null;
+        _recordingShow = null;
+        _recordingLevel = null;
+        if (id is null) return;
+        var clip = ClipProcessing.TrimAndNormalize(raw, MicRecorder.SampleRate);
+        if (clip.Length == 0)
+        {
+            Say("Didn't hear anything. Try again a little closer to the microphone.");
+        }
+        else
+        {
+            try
+            {
+                _host.Clips.Save(id, s => WavFile.Write(s, clip, MicRecorder.SampleRate));
+                _host.Speech.Invalidate(id);
+                _host.Mixer.Speak(ClipProcessing.Resample(clip, MicRecorder.SampleRate, Mixer.SampleRate));
+                Say(null);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Log.Warn("recording", $"the recording {id} could not be saved", e);
+                Say($"The recording could not be saved: {e.Message}");
+            }
+        }
+        show?.Invoke();
+    }
+
+    private void PlayClip(ClipId id)
+    {
+        try
+        {
+            using var s = _host.Clips.OpenRead(id);
+            var (mono, rate) = WavFile.Read(s);
+            _host.Mixer.Speak(ClipProcessing.Resample(mono, rate, Mixer.SampleRate));
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            Log.Warn("recording", $"the recording {id} could not be played", e);
+            Say($"The recording could not be played: {e.Message}");
+        }
     }
 
     private void Choose(ThingEntry thing, PictureStage stage, RungChoice choice)
@@ -437,6 +632,8 @@ public sealed class PicturesPanel : ContentView
         b.Clicked += (_, _) => action();
         return b;
     }
+
+    private static Button Small(string text) => new() { Text = text, Padding = new Thickness(10, 6), FontSize = 13 };
 
     /// <summary>A drop-down with explicit colours, so it reads whatever the Windows theme is. The change is acted
     /// on after the event has returned, since acting on it draws the list again and takes the drop-down away.</summary>

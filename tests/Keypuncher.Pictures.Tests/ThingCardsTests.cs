@@ -27,6 +27,33 @@ public sealed class ThingCardsTests : IDisposable
     }
 
     [Fact]
+    public void A_word_is_set_trimmed_and_a_blank_one_takes_it_away()
+    {
+        var card = new ThingCard("octopus", "octopus").WithWord("is", "  kolkrabbi ").WithWord("bg", "октопод");
+        Assert.Equal(("kolkrabbi", "октопод"), (card.WordIn("is"), card.WordIn("bg")));
+
+        var without = card.WithWord("is", " ").WithWord("bg", null);
+        Assert.Empty(without.Words);
+        Assert.True(without.IsEmpty);
+        // The card it was made from is left as it was.
+        Assert.Equal(2, card.Words.Count);
+    }
+
+    [Fact]
+    public void The_words_in_a_language_are_listed_by_slug()
+    {
+        _folder.Cards.Save(new ThingCard("octopus", "octopus").WithWord("is", "kolkrabbi"), _now);
+        _folder.Cards.Save(new ThingCard("plastic-straw", "plastic straw").WithWord("is", "rör").WithWord("en", "straw"), _now);
+        _folder.Cards.Save(new ThingCard("teapot", "teapot") { Climb = ClimbChoice.Real }, _now);
+
+        var icelandic = _folder.Cards.WordsIn("is");
+        Assert.Equal(["octopus", "plastic-straw"], icelandic.Keys.Order());
+        Assert.Equal("rör", icelandic["plastic-straw"]);
+        Assert.Equal(["plastic-straw"], _folder.Cards.WordsIn("en").Keys);
+        Assert.Empty(_folder.Cards.WordsIn("bg"));
+    }
+
+    [Fact]
     public void A_saved_card_comes_back_whole_from_another_look_at_the_folder()
     {
         var card = new ThingCard("octopus", "octopus")
