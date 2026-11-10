@@ -23,6 +23,7 @@
 
 using Keypuncher.Audio;
 using Keypuncher.Core;
+using Keypuncher.Pictures;
 using Keypuncher.Rendering;
 using Keypuncher.Storage;
 using Keypuncher.Toy;
@@ -158,7 +159,11 @@ static int PictureSheet(string outDir, string folder)
     }
     const int tileW = 480, tileH = 320;
     var stages = Enum.GetValues<PictureStage>();
-    using var pictures = new PictureLibrary(folder);
+    // The grown-ups' choices for each thing are drawn too: a skipped rung shows the rung drawn in its place, and a
+    // rung given another picture shows that one.
+    var pictureFolder = new PictureFolder(folder);
+    using var book = new ChoiceBook(pictureFolder.Cards);
+    using var pictures = new PictureLibrary(folder) { Choices = book.Get, PictureFile = pictureFolder.PathOf };
     using var label = new SKFont(Fonts.LoadAndika(), 20);
     using var ink = new SKPaint { IsAntialias = true, Color = new SKColor(40, 40, 70) };
     foreach (var level in Enum.GetValues<CalmLevel>())
@@ -187,7 +192,8 @@ static int PictureSheet(string outDir, string folder)
                 var (x, y) = (col * tileW, row * tileH);
                 sheet.Canvas.DrawImage(image, x, y, SKSamplingOptions.Default);
                 var shown = (PictureStage)Math.Min((int)stages[col], (int)ArtStyle.For(level).MaxPictureStage);
-                sheet.Canvas.DrawText($"{name}: {stages[col]}{(shown != stages[col] ? $" (capped at {shown} here)" : "")}", x + 10, y + 24, SKTextAlign.Left, label, ink);
+                var choice = book.Get(Path.GetFileNameWithoutExtension(files[row]))?.Rungs.For(stages[col]);
+                sheet.Canvas.DrawText($"{name}: {stages[col]}{(shown != stages[col] ? $" (capped at {shown} here)" : "")}{(choice is { ByHand: true } by ? $" [chosen: {by}]" : "")}", x + 10, y + 24, SKTextAlign.Left, label, ink);
             }
         }
         using var snapshot = sheet.Snapshot();

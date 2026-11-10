@@ -73,7 +73,8 @@ public sealed class RungChoiceConverter : JsonConverter<RungChoice>
 }
 
 /// <summary>A thing's choices for the four rungs. The photo rung is the picture itself, so it can only be left to
-/// the toy or given a picture: there is no drawn shape of a photo, and nothing above it to skip to.</summary>
+/// the toy or given a picture: there is no drawn shape of a photo, and nothing above it to skip to. The shape rung
+/// is the toy's own drawing, so it takes no picture: it can only be left as it is or skipped.</summary>
 public sealed record RungChoices
 {
     [JsonPropertyName("shape")] public RungChoice Shape { get; init; }
@@ -92,10 +93,27 @@ public sealed record RungChoices
         _ => Photo,
     };
 
-    /// <summary>Whether a choice may be made for a rung: anything below the photo, and only "auto" or a picture for
-    /// the photo.</summary>
-    public static bool Allows(PictureStage stage, RungChoice choice) =>
-        stage != PictureStage.Photo || choice.Kind is RungKind.Auto or RungKind.Picture;
+    /// <summary>Whether a choice may be made for a rung: anything for the silhouette and the flat colours, no
+    /// picture for the shape, and only "auto" or a picture for the photo.</summary>
+    public static bool Allows(PictureStage stage, RungChoice choice) => stage switch
+    {
+        PictureStage.Shape => choice.Kind != RungKind.Picture,
+        PictureStage.Photo => choice.Kind is RungKind.Auto or RungKind.Picture,
+        _ => true,
+    };
+
+    /// <summary>The rung drawn in place of one the ladder has reached, with skipped rungs passed over: the next
+    /// rung up that is not skipped, as far as <paramref name="cap"/> allows; failing that the nearest below; and the
+    /// shape when everything is skipped, since something must be drawn.</summary>
+    public PictureStage Landing(PictureStage reached, PictureStage cap)
+    {
+        if (reached > cap) reached = cap;
+        for (var s = reached; s <= cap; s++)
+            if (For(s).Kind != RungKind.Skip) return s;
+        for (var s = reached - 1; s >= PictureStage.Shape; s--)
+            if (For(s).Kind != RungKind.Skip) return s;
+        return PictureStage.Shape;
+    }
 
     /// <summary>These choices with one rung changed.</summary>
     /// <exception cref="ArgumentException">The rung does not take that choice; see <see cref="Allows"/>.</exception>
@@ -115,6 +133,9 @@ public sealed record RungChoices
     public bool Uses(int picture) =>
         new[] { Shape, Silhouette, Flat, Photo }.Any(c => c.Kind == RungKind.Picture && c.Picture == picture);
 }
+
+/// <summary>What the renderer needs of a thing's card: whether it climbs, and what is drawn on each rung.</summary>
+public sealed record ThingChoices(ClimbChoice Climb, RungChoices Rungs);
 
 /// <summary>Whether a thing climbs the realism ladder over many plays or is shown as real as the calm level allows
 /// at once.</summary>

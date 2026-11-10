@@ -59,9 +59,38 @@ public class RungChoiceTests
         Assert.Throws<ArgumentException>(() => choices.With(PictureStage.Photo, RungChoice.Skip));
         Assert.Throws<ArgumentException>(() => choices.With(PictureStage.Photo, RungChoice.Shape));
         Assert.Equal(RungChoice.OfPicture(4), choices.With(PictureStage.Photo, RungChoice.OfPicture(4)).Photo);
-        foreach (var stage in new[] { PictureStage.Shape, PictureStage.Silhouette, PictureStage.Flat })
+        foreach (var stage in new[] { PictureStage.Silhouette, PictureStage.Flat })
             foreach (var choice in new[] { RungChoice.Auto, RungChoice.Shape, RungChoice.Skip, RungChoice.OfPicture(1) })
                 Assert.Equal(choice, choices.With(stage, choice).For(stage));
+    }
+
+    [Fact]
+    public void The_shape_rung_takes_no_picture()
+    {
+        var choices = new RungChoices();
+
+        Assert.Throws<ArgumentException>(() => choices.With(PictureStage.Shape, RungChoice.OfPicture(1)));
+        foreach (var choice in new[] { RungChoice.Auto, RungChoice.Shape, RungChoice.Skip })
+            Assert.Equal(choice, choices.With(PictureStage.Shape, choice).Shape);
+    }
+
+    [Theory]
+    // reached, cap, skipped rungs, landing
+    [InlineData(PictureStage.Silhouette, PictureStage.Photo, "", PictureStage.Silhouette)]
+    [InlineData(PictureStage.Silhouette, PictureStage.Photo, "Silhouette", PictureStage.Flat)]
+    [InlineData(PictureStage.Shape, PictureStage.Photo, "Shape,Silhouette", PictureStage.Flat)]
+    [InlineData(PictureStage.Silhouette, PictureStage.Photo, "Silhouette,Flat", PictureStage.Photo)]
+    [InlineData(PictureStage.Photo, PictureStage.Flat, "", PictureStage.Flat)]
+    [InlineData(PictureStage.Photo, PictureStage.Flat, "Flat", PictureStage.Silhouette)]
+    [InlineData(PictureStage.Flat, PictureStage.Flat, "Silhouette,Flat", PictureStage.Shape)]
+    [InlineData(PictureStage.Flat, PictureStage.Flat, "Shape,Silhouette,Flat", PictureStage.Shape)]
+    public void A_skipped_rung_is_passed_over_upwards_and_the_cap_is_never_passed(PictureStage reached, PictureStage cap, string skipped, PictureStage landing)
+    {
+        var choices = new RungChoices();
+        foreach (var name in skipped.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            choices = choices.With(Enum.Parse<PictureStage>(name), RungChoice.Skip);
+
+        Assert.Equal(landing, choices.Landing(reached, cap));
     }
 
     [Fact]

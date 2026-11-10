@@ -107,6 +107,11 @@ public sealed class ToyHost : IDisposable
         // handed to the renderer; the toy never waits on any of it. The two cut-out models are only used when a
         // grown-up has downloaded them; until then the photo is kept for later.
         PictureFolder = new PictureFolder(Path.Combine(DataFolder, PicturesName));
+        // The grown-ups' choices for each thing's ladder, and the kept pictures a choice can name by number.
+        Choices = new ChoiceBook(PictureFolder.Cards);
+        Pictures.Choices = Choices.Get;
+        Pictures.PictureFile = PictureFolder.PathOf;
+        Choices.Changed += slug => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(slug));
         Models = new ModelStore(DataFolder);
         _cutOuts = [new OnnxCutOut(OnnxCutOut.ISNet, Models.Folder), new OnnxCutOut(OnnxCutOut.BiRefNetLite, Models.Folder)];
         var fetcher = new PhotoFetcher(PictureFolder, new ToyNameFinder(new WikimediaPhotoFinder(PictureHttp.NewClient())), new CutOutChain(_cutOuts), note: NotePicture);
@@ -163,6 +168,8 @@ public sealed class ToyHost : IDisposable
     public Uri OllamaAddress { get; }
     /// <summary>The pictures folder as the fetcher and the grown-ups' page see it: sidecars, raw photos, the wanted list.</summary>
     public PictureFolder PictureFolder { get; }
+    /// <summary>What the grown-ups chose about how each thing is drawn, held in memory for the renderer.</summary>
+    public ChoiceBook Choices { get; }
     /// <summary>The cut-out models on this computer, and where to get them.</summary>
     public ModelStore Models { get; }
     /// <summary>The background fetching of pictures.</summary>
@@ -310,6 +317,7 @@ public sealed class ToyHost : IDisposable
         Log.Safely("world", "saving the world", SaveWorld);
         Log.Safely("world", "closing world.db", WorldStore.Dispose);
         Log.Safely("pictures", "closing the pictures", Pictures.Dispose);
+        Log.Safely("pictures", "letting go of the choices", Choices.Dispose);
         Log.Safely("audio", "closing the sound card", () => Audio?.Dispose());
         Story("stopped");
         Log.Flush();

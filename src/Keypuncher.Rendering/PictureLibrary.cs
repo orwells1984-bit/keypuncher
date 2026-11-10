@@ -1,10 +1,16 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Keypuncher.Core;
 using SkiaSharp;
 
 namespace Keypuncher.Rendering;
+
+/// <summary>One rung of a thing drawn on a square; see <see cref="PictureLibrary.RenderRung"/>.</summary>
+/// <param name="Image">The drawing, for the caller to dispose.</param>
+/// <param name="Drawn">What was drawn: the rung asked for, or the shape when the picture could not serve it.</param>
+public sealed record RungRender(SKImage Image, PictureStage Drawn);
 
 /// <summary>
 /// Realistic pictures of real things, one per name, in a folder: <c>sable-antelope.png</c> for "sable antelope".
@@ -21,6 +27,11 @@ namespace Keypuncher.Rendering;
 /// finished. A picture that is missing is looked for again whenever the folder changes, so one written during play
 /// is seen within seconds. Writers must write to a temporary name without the picture extension and rename into
 /// place, so a half-written file is never read. The public surface is for one thread.
+/// </para>
+/// <para>
+/// A grown-up's choices for a thing (<see cref="Choices"/>) come after all that: whether it climbs at all, rungs
+/// the ladder passes over, a rung that keeps the drawn shape, and a rung made from another of the thing's pictures
+/// (<see cref="PictureFile"/>) rather than the one in play. A thing with no choices is drawn as described above.
 /// </para>
 /// </summary>
 public sealed class PictureLibrary : IDisposable
@@ -59,6 +70,7 @@ public sealed class PictureLibrary : IDisposable
     public PictureLibrary(string folder, Func<DateTime>? clock = null)
     {
         _folder = folder;
+        PictureFile = (slug, id) => Extensions.Select(ext => Path.Combine(folder, "more", slug, id.ToString(CultureInfo.InvariantCulture) + ext)).FirstOrDefault(File.Exists);
         _clock = clock ?? (() => DateTime.UtcNow);
         _meetings = LoadMeetings(Path.Combine(folder, MeetingsFile), _clock());
         _folderStamp = FolderStamp();
@@ -73,9 +85,37 @@ public sealed class PictureLibrary : IDisposable
     /// first time it appears, and only the built-in things ease in over many plays. Every name climbs by default.</summary>
     public Func<string, bool> Climbs { get; set; } = _ => true;
 
+    /// <summary>What the grown-ups chose for the thing with this slug, or null when they chose nothing. Asked
+    /// several times a frame, so it must answer from memory, not from a file.</summary>
+    public Func<string, ThingChoices?> Choices { get; set; } = _ => null;
+
+    /// <summary>The file of a thing's picture by its number (slug, number), or null when there is none: for a rung a
+    /// grown-up gave a particular picture. By default the kept pictures under <c>more/</c>; the toy also knows the
+    /// number of the picture in play.</summary>
+    public Func<string, int, string?> PictureFile { get; set; }
+
+    /// <summary>Whether a thing climbs the ladder: as a grown-up chose for it, or else as <see cref="Climbs"/> says.</summary>
+    public bool Climbing(string name) => Choices(Slug(name))?.Climb switch
+    {
+        ClimbChoice.Ladder => true,
+        ClimbChoice.Real => false,
+        _ => Climbs(name),
+    };
+
     /// <summary>The most real a thing of this name may be drawn: the level's cap if it climbs the ladder, otherwise
     /// the picture itself.</summary>
-    public PictureStage Cap(string name, ArtStyle style) => Climbs(name) ? style.MaxPictureStage : PictureStage.Photo;
+    public PictureStage Cap(string name, ArtStyle style) => Climbing(name) ? style.MaxPictureStage : PictureStage.Photo;
+
+    /// <summary>The rung drawn for a thing whose ladder has reached <paramref name="reached"/>: capped as
+    /// <see cref="Cap"/> says, moved off any rung a grown-up skipped, and the shape where they chose the drawn
+    /// shape for that rung. Without choices, just the cap.</summary>
+    public PictureStage Settled(string name, PictureStage reached, ArtStyle style)
+    {
+        var cap = Cap(name, style);
+        if (Choices(Slug(name)) is not { } choices) return (PictureStage)Math.Min((int)reached, (int)cap);
+        var landed = choices.Rungs.Landing(reached, cap);
+        return choices.Rungs.For(landed).Kind == RungKind.Shape ? PictureStage.Shape : landed;
+    }
 
     /// <summary>Whether <see cref="Save"/> has something to write.</summary>
     public bool Dirty { get; private set; }
@@ -107,7 +147,7 @@ public sealed class PictureLibrary : IDisposable
         if (had.Last is { } last && now - last < MeetingGap) return false;
         _meetings[slug] = new Meeting(had.N + 1, now);
         Dirty = true;
-        Log.Debug("pictures", $"met {name}: {had.N + 1} meetings{(Climbs(name) ? $", ladder rung {StageFor(had.N + 1)}" : "")}");
+        Log.Debug("pictures", $"met {name}: {had.N + 1} meetings{(Climbing(name) ? $", ladder rung {StageFor(had.N + 1)}" : "")}");
         return true;
     }
 
@@ -150,26 +190,65 @@ public sealed class PictureLibrary : IDisposable
     {
         var slug = Slug(recipe.Name);
         stage = PictureStage.Shape;
-        if (Lookup(slug) is not { } picture)
-        {
-            if (_entries.TryGetValue(slug, out var e) && e.Loading) return false;
-            Logged(slug, recipe.Name, PictureStage.Shape, "no picture of it yet");
-            return true;
-        }
-        var climbs = Climbs(recipe.Name);
+        var choices = Choices(slug);
+        var climbs = Climbing(recipe.Name);
         var met = _meetings.TryGetValue(slug, out var m) ? m.N : 0;
         var rung = Forced ?? (climbs ? StageFor(met) : PictureStage.Photo);
         var cap = Cap(recipe.Name, style);
-        stage = (PictureStage)Math.Min((int)rung, (int)cap);
+        var settled = Settled(recipe.Name, rung, style);
+        // The picture in play is asked for whatever the rung, so that it is read by the time the thing has climbed.
+        var inPlay = Lookup(slug);
+        var picture = settled == PictureStage.Shape ? inPlay : PictureFor(slug, settled, out _);
+        if (picture is null)
+        {
+            if (IsLoadingFor(slug, settled)) return false;
+            Logged(slug, recipe.Name, PictureStage.Shape, "no picture of it yet");
+            return true;
+        }
+        stage = settled;
         // A silhouette that is only a lump names nothing (an octopus's one curled arm read as a kidney), so that rung
         // keeps the drawn shape a while longer.
         var lump = stage == PictureStage.Silhouette && !picture.ClearOutline;
         if (lump) stage = PictureStage.Shape;
         if (!_logged.TryGetValue(slug, out var was) || was != stage)
-            Logged(slug, recipe.Name, stage, (Forced is { } f ? $"forced to {f}" : climbs ? $"a built-in thing climbing the ladder, met {met} times, rung {rung}" : "the director's pick, shown real at once")
-                + (stage < rung && !lump ? $", capped at {cap} by the calm level" : "")
+            Logged(slug, recipe.Name, stage, (Forced is { } f ? $"forced to {f}"
+                    : climbs ? $"{(choices?.Climb == ClimbChoice.Ladder ? "set by a grown-up to climb" : "a built-in thing climbing")} the ladder, met {met} times, rung {rung}"
+                    : choices?.Climb == ClimbChoice.Real ? "set by a grown-up to be shown real at once" : "the director's pick, shown real at once")
+                + (settled < rung && choices is null ? $", capped at {cap} by the calm level" : "")
+                + (choices is not null && settled != (PictureStage)Math.Min((int)rung, (int)cap) ? $", drawn as {settled} by a grown-up's choices (shape {choices.Rungs.Shape}, silhouette {choices.Rungs.Silhouette}, flat {choices.Rungs.Flat}, photo {choices.Rungs.Photo}; cap {cap})" : "")
+                + (choices?.Rungs.For(settled) is { Kind: RungKind.Picture } chosen && settled != PictureStage.Shape ? $", from picture {chosen.Picture}" : "")
                 + (lump ? $", its silhouette is a lump ({picture.Width}×{picture.Height}, fills {picture.Solidity:0.00} of its hull) so the shape stays" : ""));
         return true;
+    }
+
+    /// <summary>The key a thing's numbered picture is held under, beside the picture in play under the slug alone.</summary>
+    private static string Numbered(string slug, int id) => slug + "#" + id.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>The number of the picture a grown-up chose for this rung of a thing, or null when the rung is made
+    /// from the picture in play.</summary>
+    private int? ChosenFor(string slug, PictureStage stage) =>
+        stage != PictureStage.Shape && Choices(slug)?.Rungs.For(stage) is { Kind: RungKind.Picture } choice ? choice.Picture : null;
+
+    /// <summary>The loaded picture a rung of a thing is made from: the one a grown-up chose for it, or the one in
+    /// play. A chosen picture that is no longer there gives way to the one in play, so a file deleted by hand
+    /// costs the choice, not the thing's picture.</summary>
+    private Picture? PictureFor(string slug, PictureStage stage, out bool chosen)
+    {
+        chosen = false;
+        if (ChosenFor(slug, stage) is { } id)
+        {
+            var key = Numbered(slug, id);
+            if (Lookup(key, (slug, id)) is { } picture) { chosen = true; return picture; }
+            if (_entries.TryGetValue(key, out var e) && e.Loading) return null;
+        }
+        return Lookup(slug);
+    }
+
+    /// <summary>Whether the picture a rung of a thing is made from is still being read.</summary>
+    private bool IsLoadingFor(string slug, PictureStage stage)
+    {
+        if (ChosenFor(slug, stage) is { } id && _entries.TryGetValue(Numbered(slug, id), out var chosen) && chosen.Loading) return true;
+        return _entries.TryGetValue(slug, out var e) && e.Loading;
     }
 
     /// <summary>Notes in the log the stage a name is drawn at, when it differs from last time.</summary>
@@ -184,7 +263,12 @@ public sealed class PictureLibrary : IDisposable
     /// replaced or hidden while the toy runs.</summary>
     public void Invalidate(string name)
     {
-        if (_entries.Remove(Slug(name), out var e)) e.Picture?.Dispose();
+        var slug = Slug(name);
+        if (_entries.Remove(slug, out var e)) e.Picture?.Dispose();
+        // Its numbered pictures too: the one in play may have become a kept one, or a choice may have changed.
+        foreach (var key in _entries.Keys.Where(k => k.StartsWith(slug + "#", StringComparison.Ordinal)).ToList())
+            if (_entries.Remove(key, out var numbered)) numbered.Picture?.Dispose();
+        _logged.Remove(slug);
     }
 
     /// <summary>Forgets every missing picture, so the folder is looked at again.</summary>
@@ -249,7 +333,7 @@ public sealed class PictureLibrary : IDisposable
     /// caller draws the stock shape instead.</summary>
     public bool Paint(SKCanvas c, Recipe recipe, PictureStage stage, float r, ArtStyle style, int unit)
     {
-        if (stage == PictureStage.Shape || Lookup(Slug(recipe.Name)) is not { } picture) return false;
+        if (stage == PictureStage.Shape || PictureFor(Slug(recipe.Name), stage, out _) is not { } picture) return false;
         var colour = style.Snap(recipe.Body.Hue);
         var stroke = Math.Max(RecipePainter.MinDetail(style, unit), r * (float)style.StrokeOfRadius);
         var scale = picture.Scale(r);
@@ -282,8 +366,47 @@ public sealed class PictureLibrary : IDisposable
         return true;
     }
 
+    /// <summary>One rung of a thing drawn by itself on a clear square, just as play draws it, for the grown-ups'
+    /// page and the preview sheets: the picture in <paramref name="pictureFile"/> at that rung, or the stock shape
+    /// at the shape rung, without a picture, or where the picture's silhouette is only a lump. Reads and draws
+    /// on the calling thread, so call it off the drawing thread.</summary>
+    /// <param name="side">The square's side in pixels.</param>
+    public static RungRender RenderRung(string? pictureFile, Recipe recipe, PictureStage stage, ArtStyle style, int side)
+    {
+        using var surface = SKSurface.Create(new SKImageInfo(side, side, SKColorType.Rgba8888, SKAlphaType.Premul))
+            ?? throw new InvalidOperationException($"no drawing surface of {side}×{side}");
+        var c = surface.Canvas;
+        c.Clear(SKColors.Transparent);
+        c.Translate(side / 2f, side / 2f);
+        var r = side * 0.4f;
+        if (stage != PictureStage.Shape && pictureFile is not null && File.Exists(pictureFile))
+        {
+            using var picture = Picture.FromFile(pictureFile);
+            if (picture is not null && (stage != PictureStage.Silhouette || picture.ClearOutline))
+            {
+                var stroke = Math.Max(RecipePainter.MinDetail(style, side), r * (float)style.StrokeOfRadius);
+                var scale = picture.Scale(r);
+                var key = new CompositeKey(stage, style.Snap(recipe.Body.Hue), style, Picture.Bucket(stroke / scale));
+                using var image = picture.Draw(key);
+                if (image is not null)
+                {
+                    var margin = Picture.Margin(key) * scale;
+                    var w = picture.Width * scale;
+                    var h = picture.Height * scale;
+                    c.DrawImage(image, new SKRect((-w / 2) - margin, (0.95f * r) - h - margin, (w / 2) + margin, (0.95f * r) + margin),
+                        new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
+                    return new RungRender(surface.Snapshot(), stage);
+                }
+            }
+        }
+        RecipePainter.Paint(c, recipe, r, 0, style, side);
+        return new RungRender(surface.Snapshot(), PictureStage.Shape);
+    }
+
     /// <summary>The loaded picture for a slug, or null; starts loading it, or looking for it again, as needed.</summary>
-    private Picture? Lookup(string slug)
+    /// <param name="numbered">The thing and number of a numbered picture, found through <see cref="PictureFile"/>;
+    /// the picture in play is found by its slug.</param>
+    private Picture? Lookup(string slug, (string Slug, int Id)? numbered = null)
     {
         if (slug.Length == 0) return null;
         var now = _clock();
@@ -295,7 +418,7 @@ public sealed class PictureLibrary : IDisposable
         else _entries[slug] = e = new Entry { LastUsed = ++_uses };
 
         e.CheckedAt = now;
-        var path = Extensions.Select(ext => Path.Combine(_folder, slug + ext)).FirstOrDefault(File.Exists);
+        var path = numbered is { } n ? PictureFile(n.Slug, n.Id) : Extensions.Select(ext => Path.Combine(_folder, slug + ext)).FirstOrDefault(File.Exists);
         if (path is null) return null;
         e.Loading = true;
         Interlocked.Increment(ref _pending);

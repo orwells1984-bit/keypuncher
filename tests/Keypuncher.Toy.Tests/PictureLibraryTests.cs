@@ -362,6 +362,133 @@ public sealed class PictureLibraryTests : IDisposable
         Assert.True(Count(bitmap, p => Near(p, Magenta, 48)) > 50);
     }
 
+    [Fact]
+    public void A_grown_up_can_make_a_pick_climb_the_ladder_and_one_of_the_toys_own_things_real_at_once()
+    {
+        WritePicture("sable-antelope");
+        WritePicture("zebra");
+        using var library = Library();
+        library.Climbs = name => name == "zebra";
+        library.Choices = slug => slug switch
+        {
+            "sable-antelope" => new ThingChoices(ClimbChoice.Ladder, new RungChoices()),
+            "zebra" => new ThingChoices(ClimbChoice.Real, new RungChoices()),
+            _ => null,
+        };
+        var style = ArtStyle.For(CalmLevel.Baby);
+        library.Stage(Thing("sable antelope"), style);
+        library.Stage(Thing("zebra"), style);
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+
+        Assert.True(library.Climbing("sable antelope"));
+        Assert.False(library.Climbing("zebra"));
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("sable antelope"), style));
+        Assert.Equal(style.MaxPictureStage, library.Cap("sable antelope", style));
+        Assert.Equal(PictureStage.Photo, library.Stage(Thing("zebra"), style));
+    }
+
+    [Fact]
+    public void A_skipped_rung_is_passed_over_and_the_calm_levels_cap_still_holds()
+    {
+        WritePicture("sable-antelope");
+        using var library = Library();
+        library.Choices = _ => new ThingChoices(ClimbChoice.Auto, new RungChoices().With(PictureStage.Silhouette, RungChoice.Skip));
+        var big = ArtStyle.For(CalmLevel.BigToddler);
+        library.Stage(Thing("sable antelope"), big);
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("sable antelope"), big));
+
+        for (var i = 0; i < PictureLibrary.MeetingsPerStage; i++)
+        {
+            Assert.True(library.Meet("sable antelope"));
+            _now += PictureLibrary.MeetingGap + TimeSpan.FromMinutes(1);
+        }
+
+        Assert.Equal(PictureStage.Flat, library.Stage(Thing("sable antelope"), big));
+
+        // Baby stops at flat colours: with those skipped too, a thing that has climbed all the way is its silhouette
+        // there, and never its photo.
+        library.Choices = _ => new ThingChoices(ClimbChoice.Auto, new RungChoices().With(PictureStage.Flat, RungChoice.Skip));
+        library.Forced = PictureStage.Photo;
+        var baby = ArtStyle.For(CalmLevel.Baby);
+        Assert.Equal(PictureStage.Flat, baby.MaxPictureStage);
+        Assert.Equal(PictureStage.Silhouette, library.Stage(Thing("sable antelope"), baby));
+        Assert.Equal(PictureStage.Silhouette, library.Settled("sable antelope", PictureStage.Photo, baby));
+    }
+
+    [Fact]
+    public void A_rung_set_to_the_drawn_shape_keeps_the_shape_whatever_pictures_there_are()
+    {
+        WritePicture("sable-antelope");
+        using var library = Library();
+        library.Choices = _ => new ThingChoices(ClimbChoice.Auto, new RungChoices().With(PictureStage.Flat, RungChoice.Shape));
+        var style = ArtStyle.For(CalmLevel.BigToddler);
+        library.Forced = PictureStage.Flat;
+        library.Stage(Thing("sable antelope"), style);
+        library.WaitIdle(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(PictureStage.Shape, library.Stage(Thing("sable antelope"), style));
+        library.Forced = PictureStage.Photo;
+        Assert.Equal(PictureStage.Photo, library.Stage(Thing("sable antelope"), style));
+    }
+
+    [Fact]
+    public void A_rung_given_another_picture_is_drawn_from_that_one_and_from_the_one_in_play_when_it_is_gone()
+    {
+        var cyan = new SKColor(0x00, 0xFF, 0xFF);
+        WritePicture("sable-antelope");
+        WritePicture("2", colour: cyan, into: Path.Combine(_dir, "more", "sable-antelope"));
+        using var library = Library();
+        library.Forced = PictureStage.Photo;
+        library.Choices = _ => new ThingChoices(ClimbChoice.Auto, new RungChoices().With(PictureStage.Photo, RungChoice.OfPicture(2)));
+        var world = World(CalmLevel.BigToddler, "sable antelope");
+        using (var renderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library })
+        using (var chosen = Settled(renderer, library, world))
+        {
+            Assert.True(Count(chosen, p => Near(p, cyan)) > 500, "the photo rung is drawn from picture 2");
+            Assert.Equal(0, Count(chosen, p => Near(p, Magenta)));
+        }
+
+        // A choice of a picture that is not there costs the choice, not the thing's picture.
+        library.Choices = _ => new ThingChoices(ClimbChoice.Auto, new RungChoices().With(PictureStage.Photo, RungChoice.OfPicture(9)));
+        library.Invalidate("sable antelope");
+        using var fallbackRenderer = new SceneRenderer(Fonts.LoadAndika()) { Pictures = library };
+        using var fallback = Settled(fallbackRenderer, library, world);
+        Assert.True(Count(fallback, p => Near(p, Magenta)) > 500, "the picture in play stands in");
+        Assert.Equal(0, Count(fallback, p => Near(p, cyan)));
+    }
+
+    [Fact]
+    public void One_rung_can_be_drawn_by_itself_as_play_draws_it()
+    {
+        WritePicture("sable-antelope");
+        WritePicture("lump", lump: true);
+        var style = ArtStyle.For(CalmLevel.Toddler);
+        var file = Path.Combine(_dir, "sable-antelope.png");
+
+        var photo = PictureLibrary.RenderRung(file, Thing("sable antelope"), PictureStage.Photo, style, 128);
+        var shape = PictureLibrary.RenderRung(file, Thing("sable antelope"), PictureStage.Shape, style, 128);
+        var silhouette = PictureLibrary.RenderRung(file, Thing("sable antelope"), PictureStage.Silhouette, style, 128);
+        var lump = PictureLibrary.RenderRung(Path.Combine(_dir, "lump.png"), Thing("lump"), PictureStage.Silhouette, style, 128);
+        var missing = PictureLibrary.RenderRung(Path.Combine(_dir, "no-such.png"), Thing("zebra"), PictureStage.Photo, style, 128);
+        using var photoPixels = SKBitmap.FromImage(photo.Image);
+        using var shapePixels = SKBitmap.FromImage(shape.Image);
+        using var silhouettePixels = SKBitmap.FromImage(silhouette.Image);
+
+        Assert.Equal((128, 128), (photo.Image.Width, photo.Image.Height));
+        Assert.Equal(PictureStage.Photo, photo.Drawn);
+        Assert.True(Count(photoPixels, p => Near(p, Magenta)) > 300, "the photo rung shows the picture");
+        Assert.Equal(PictureStage.Shape, shape.Drawn);
+        Assert.Equal(0, Count(shapePixels, p => Near(p, Magenta)));
+        Assert.True(Count(shapePixels, p => p.Alpha > 200) > 300, "the shape rung shows the drawn shape");
+        Assert.Equal(PictureStage.Silhouette, silhouette.Drawn);
+        Assert.Equal(0, Count(silhouettePixels, p => Near(p, Magenta)));
+        Assert.True(Count(silhouettePixels, p => p.Alpha > 200 && Near(p, PaletteFill(CalmLevel.Toddler), 48)) > 200, "the silhouette is filled with the thing's colour");
+        Assert.Equal(PictureStage.Shape, lump.Drawn);
+        Assert.Equal(PictureStage.Shape, missing.Drawn);
+        foreach (var render in new[] { photo, shape, silhouette, lump, missing }) render.Image.Dispose();
+    }
+
     private PictureLibrary Library() => new(_dir, () => _now);
 
     private static Recipe Thing(string name) => BuiltInRecipes.Animals.Cat with { Name = name };
@@ -380,13 +507,13 @@ public sealed class PictureLibraryTests : IDisposable
     /// <summary>A magenta blob with a transparent margin, as a cut-out would be.</summary>
     /// <summary>Writes a magenta cut-out: by default an animal standing side-on (body, four legs, a neck and head), whose
     /// silhouette is clear; a lump is a plain oval, which the silhouette rung skips.</summary>
-    private void WritePicture(string slug, string extension = ".png", bool lump = false)
+    private void WritePicture(string slug, string extension = ".png", bool lump = false, SKColor? colour = null, string? into = null)
     {
         using var bitmap = new SKBitmap(new SKImageInfo(400, 240, SKColorType.Rgba8888, SKAlphaType.Premul));
         using (var c = new SKCanvas(bitmap))
         {
             c.Clear(SKColors.Transparent);
-            using var paint = new SKPaint { IsAntialias = true, Color = Magenta };
+            using var paint = new SKPaint { IsAntialias = true, Color = colour ?? Magenta };
             if (lump) c.DrawOval(new SKRect(40, 40, 360, 200), paint);
             else
             {
@@ -397,7 +524,8 @@ public sealed class PictureLibraryTests : IDisposable
             }
         }
         using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
-        using var f = File.Create(Path.Combine(_dir, slug + extension));
+        Directory.CreateDirectory(into ?? _dir);
+        using var f = File.Create(Path.Combine(into ?? _dir, slug + extension));
         data.SaveTo(f);
     }
 

@@ -121,8 +121,16 @@ thing is kept in its card, `things\<slug>.json`: what is drawn on each rung of t
 language. A thing with no card is treated as before, and the cards live with the pictures rather than in `world.db`
 so that a fresh world does not clear them. A picture a grown-up chose for a rung is never taken out of play by the
 check, only flagged. `tools/Keypuncher.Pictures` has `things [slug]` to list pictures and choices, and
-`choose <slug> <rung> <choice>`, `choose <slug> climb ...` and `choose <slug> category ...` to set them. The toy does
-not draw from the rung choices yet; that and the grown-ups' page for them come next.
+`choose <slug> <rung> <choice>`, `choose <slug> climb ...` and `choose <slug> category ...` to set them.
+
+Play draws by the cards. The rung is found as before (meetings, or the photo at once for a thing that does not
+climb, capped by the calm level, which no choice can lift), then the card is applied: a skipped rung is passed over
+to the next one up within the cap, or failing that the nearest below; a rung set to `shape` keeps the drawn shape;
+a rung set to `picture:N` is made from that picture, and from the picture in play if that file has gone. The shape
+rung takes only `auto` or `skip`. The toy holds the choices in memory and reads the cards when it starts and when
+the grown-ups' page closes, so a choice made with the console tool while the toy runs shows after a visit to that
+page. `tools/Keypuncher.Preview --pictures` draws its sheets by the same cards and labels each chosen rung, and
+`PictureLibrary.RenderRung` draws one rung of a thing by itself for the grown-ups' page that comes next.
 
 The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
