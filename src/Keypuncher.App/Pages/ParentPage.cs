@@ -21,6 +21,7 @@ public sealed class ParentPage : ContentPage
     private readonly VerticalStackLayout _pictureRows = new() { Spacing = 8 };
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
+    private readonly Action<string> _fetchFinished;
 
     private static readonly (CalmLevel Level, string Name)[] CalmChoices =
     [
@@ -35,6 +36,8 @@ public sealed class ParentPage : ContentPage
     public ParentPage(ToyHost host)
     {
         _host = host;
+        // A fetch finishes on the picture worker; the list is redrawn on the UI thread so a new picture shows at once.
+        _fetchFinished = _ => MainThread.BeginInvokeOnMainThread(RefreshPictures);
         var s = host.Engine.Settings;
         BackgroundColor = Color.FromArgb("#FFF8EC");
 
@@ -127,6 +130,8 @@ public sealed class ParentPage : ContentPage
     {
         base.OnAppearing();
         _host.Mode = HostMode.Parent;
+        _host.PictureJobs.Finished += _fetchFinished;
+        RefreshPictures();
         // Play has stopped and the director does not choose on this page, so the card is free for the vision model.
         // Grown-ups usually end play here rather than waiting for the goodnight (both plays on 2026-11-08 did), and
         // the check used to run only after a goodnight, so new pictures went unchecked.
@@ -135,6 +140,7 @@ public sealed class ParentPage : ContentPage
 
     protected override void OnDisappearing()
     {
+        _host.PictureJobs.Finished -= _fetchFinished;
         _host.SaveSettings(new ToySettings(
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
@@ -176,9 +182,11 @@ public sealed class ParentPage : ContentPage
     {
         var host = _host;
         var row = new HorizontalStackLayout { Spacing = 12 };
-        var thumb = host.PictureFolder.ThumbPath(picture.Slug);
-        row.Add(File.Exists(thumb)
-            ? new Image { Source = ImageSource.FromFile(thumb), WidthRequest = 64, HeightRequest = 64, Aspect = Aspect.AspectFit }
+        // The thumbnail is read as bytes rather than by its path: the file keeps its name when another picture
+        // replaces it, and an image loaded by path can come back from the image cache as the old one.
+        var thumb = ReadThumb(host.PictureFolder.ThumbPath(picture.Slug));
+        row.Add(thumb is not null
+            ? new Image { Source = ImageSource.FromStream(() => new MemoryStream(thumb)), WidthRequest = 64, HeightRequest = 64, Aspect = Aspect.AspectFit }
             : new BoxView { WidthRequest = 64, HeightRequest = 64, Color = Colors.Transparent });
         var meetings = host.Pictures.Meetings(picture.Name);
         var lines = $"{picture.Name} ({picture.Category}){(picture.Hidden ? ", hidden" : "")}: met {meetings} times, drawn as {PictureLibrary.StageFor(meetings).ToString().ToLowerInvariant()}\n"
@@ -193,8 +201,13 @@ public sealed class ParentPage : ContentPage
             host.Pictures.Invalidate(picture.Name);
             RefreshPictures();
         }));
-        row.Add(Button("Try another", () =>
+        // While a fetch for this thing is running or waiting, the button waits too. Each press turns down the photo
+        // in play, so pressing again before the list showed the new picture used to turn the new one down as well
+        // (the octopus on 2026-11-10: four presses, the good second photo excluded by the third).
+        var looking = host.PictureJobs.IsPending(picture.Name);
+        var another = Button(looking ? "Looking for another..." : "Try another", () =>
         {
+            if (host.PictureJobs.IsPending(picture.Name)) return;
             var now = DateTime.Now;
             try
             {
@@ -209,7 +222,9 @@ public sealed class ParentPage : ContentPage
             }
             host.PictureJobs.Enqueue(picture.Name, picture.Category, again: true);
             RefreshPictures();
-        }));
+        });
+        another.IsEnabled = !looking;
+        row.Add(another);
         return row;
     }
 
@@ -345,6 +360,12 @@ public sealed class ParentPage : ContentPage
         foreach (var item in items) picker.Items.Add(item);
         picker.SelectedIndex = Math.Max(0, selected);
         return picker;
+    }
+
+    private static byte[]? ReadThumb(string path)
+    {
+        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static Label Heading(string text) =>

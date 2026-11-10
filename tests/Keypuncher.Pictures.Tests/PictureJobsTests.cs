@@ -167,6 +167,42 @@ public sealed class PictureJobsTests : IDisposable
     }
 
     [Fact]
+    public void Finished_is_raised_for_every_fetch_whatever_it_came_to()
+    {
+        _fetcher.Outcomes["owl"] = FetchOutcome.NothingSuitable;
+        _fetcher.OnFetch = name => { if (name == "puffin") throw new InvalidOperationException("boom"); };
+        using var jobs = Jobs();
+        var finished = new List<string>();
+        jobs.Finished += name => { lock (finished) finished.Add(name); };
+
+        jobs.Enqueue("puffin", RealCategory.Animal);
+        jobs.Enqueue("owl", RealCategory.Animal);
+        jobs.Enqueue("seal", RealCategory.Animal);
+        Assert.True(jobs.WaitIdle(Patience));
+        for (var i = 0; i < 200 && finished.Count < 3; i++) Thread.Sleep(10);
+
+        lock (finished) Assert.Equal(["puffin", "owl", "seal"], finished);
+    }
+
+    [Fact]
+    public void Is_pending_while_a_thing_is_fetched_or_waits_and_not_after()
+    {
+        _fetcher.Gate = new SemaphoreSlim(0);
+        using var jobs = Jobs();
+        jobs.Enqueue("puffin", RealCategory.Animal);
+        jobs.Enqueue("owl", RealCategory.Animal);
+        for (var i = 0; i < 200 && jobs.Status.Fetching is null; i++) Thread.Sleep(10);
+
+        Assert.True(jobs.IsPending("puffin"));
+        Assert.True(jobs.IsPending("Owl!"));
+        Assert.False(jobs.IsPending("seal"));
+        _fetcher.Gate.Release(2);
+        Assert.True(jobs.WaitIdle(Patience));
+        Assert.False(jobs.IsPending("puffin"));
+        Assert.False(jobs.IsPending("owl"));
+    }
+
+    [Fact]
     public void Disposing_stops_the_worker_and_drops_the_queue()
     {
         _fetcher.Gate = new SemaphoreSlim(0);
