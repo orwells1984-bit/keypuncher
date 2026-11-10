@@ -1,240 +1,102 @@
 # Keypuncher
 
-A toy for an infant. Banging on the keyboard makes a persistent, slowly evolving landscape of
-shapes and sounds; every letter key shows and says its letter (by sound) and a word, in Icelandic,
-English or Bulgarian. A local LLM, running in Ollama on the family's Windows PCs, slowly turns the keys'
-invented shapes into real animals, extinct animals, plants, vehicles and objects, and chooses how they
-look and sound.
+A keyboard-and-touchscreen toy for an infant, built around a small LLM running locally on the family PC.
 
-The full architecture and tech plan is in the project's
-[plan document](https://claude.ai/artifact/HwtkxyHQZXKyvUUGjEkrNn). In short:
+Every key a baby bangs answers at once with a shape and a note. Letters are shown and said by their sound,
+in Icelandic, English or Bulgarian. Over many sessions, a local model slowly turns the toy's invented
+shapes into real animals, extinct animals, plants and vehicles, moves the landscape between real places,
+seasons and weather, and fetches real photographs that the toy cuts out and introduces step by step. The
+world is saved, so the screen a child returns to tomorrow is the one they left today.
 
-- **Reflex loop** (under 50 ms): a key press spawns something from the current palette and plays a
-  note. No model runs here.
-- **Director loop** (every 10 to 30 s): the LLM returns a JSON *recipe* (shape, colour, motion,
-  synth patch) constrained to a schema. The app renders recipes with SkiaSharp and plays them with
-  its own synth, so the model "draws" and "composes" without a diffusion model in the way.
-- **Asset loop** (minutes, desktop only): SD-Turbo backgrounds and Stable Audio Open Small loops,
-  generated ahead of time and cached.
+![Five minutes of play in test mode: a forest in Iceland, a beach in Australia, the Kruger savanna and Wadi Rum, with letters, words and the things the model picked](docs/images/play-session.jpg)
 
-## Layout
+*Twenty-five moments from five minutes of one play session, in test mode. The model moves the scene from a forest in
+Iceland to Bondi Beach, the Kruger and Wadi Rum, and turns key families into a red cabbage, a sable,
+a pterodactyl, a plesiosaur and an oak.*
 
-| Project | Purpose |
+## Why it is interesting
+
+- **A local LLM that is only allowed to say true things.** The model (qwen3:4b in Ollama, on a 6 GB
+  GTX 1060) never writes words the child sees or hears. It picks real things for the world, and every
+  pick passes three layers: a JSON schema that constrains the category and shape, rules in code
+  (no dragons or unicorns, no snow in the Sahara, no shark in a lake, no repeats), and a second, cold
+  fact-check call that has to agree independently. A reliability bench across eight models and several
+  prompt variants chose the prompts and the model; its results live in [`bench-results/`](bench-results).
+- **Hard real-time on the input path.** A key press is answered in the same frame. No model, file or
+  network work runs on that path; the model works in a background loop every half minute to few minutes,
+  and play never waits for it.
+- **A picture pipeline with no human in the loop.** For each real thing, the toy finds a photo
+  (Wikipedia, Wikidata, iNaturalist; maps, skeletons, drawings and logos are turned down), cuts the subject
+  out on the CPU with an ONNX background-removal model, records the photographer and licence, and shows
+  credits on the grown-ups' page. Gaps are drawn overnight by a local image model (Z-Image-Turbo), and a
+  vision model (gemma3) checks every picture, with the pass decided in code rather than by the model's
+  own yes or no.
+- **Designed for a baby's eyes.** Calm levels (Baby, Toddler, Big toddler) set how many things move and
+  how they are drawn: thick dark outlines, few saturated colours and large bodies for the youngest, held
+  by tests that also fail any patch of screen that flashes more than three times a second. Photos are
+  introduced over separate plays, shape to silhouette to flat colours to photo.
+- **Locked down for a child, easy for a grown-up.** A low-level keyboard hook keeps Win, Alt+Tab and
+  friends from Windows during play. Grown-ups get out with a key chord or a held key and a typed word,
+  or on a touch screen with a two-corner hold and a sequence a child cannot copy.
+
+## Tech
+
+C# on .NET 10, .NET MAUI (WinUI 3) for the Windows app, SkiaSharp for all drawing, NAudio and
+WASAPI for a small synth and mixer with a volume cap and limiter, SQLite for the world, OllamaSharp
+for the model, ONNX Runtime for picture cut-outs, stable-diffusion.cpp for image generation, and xUnit
+(400+ tests; everything except the Windows-specific pieces also runs on Linux). Warnings are errors.
+
+| Project | What it does |
 | --- | --- |
-| `src/Keypuncher.App` | The .NET MAUI app (Windows): play page, grown-ups' page, recording page |
-| `src/Keypuncher.Toy` | The reflex loop: what every key, mash and tap does; speech lookup; grown-up exit |
-| `src/Keypuncher.Core` | World model, recipes, input events, keyboard geometry, mash grouping, built-in recipes, calm levels and art styles |
-| `src/Keypuncher.Language` | Icelandic alphabet, Bulgarian phonetic key map, accent key, letter/number meanings, concept list, recording list |
-| `src/Keypuncher.Rendering` | SkiaSharp scene and recipe shapes; embeds the Andika font |
-| `src/Keypuncher.Audio` | Synth and mixer with volume cap and limiter, WAV files, recording clean-up |
-| `src/Keypuncher.Storage` | The world in SQLite, recordings as WAV files, settings |
-| `src/Keypuncher.Platform.Windows` | Keyboard hook (Icelandic layout forced), WASAPI output, microphone, Windows voices |
-| `src/Keypuncher.Director` | The director: real-things prompts, schema, rules, fact checker, loop |
-| `src/Keypuncher.Inference` | `ILanguageModel`, `IImageGenerator`, `IAudioGenerator`, `ISpeech` |
-| `src/Keypuncher.Inference.Ollama` | `ILanguageModel` over a local Ollama server with structured output |
-| `tools/Keypuncher.Preview` | Plays a scripted session with no window and writes PNG frames and a WAV |
-| `tools/Keypuncher.Bench` | Phase 0: tokens/s and valid-recipe rate per model on this PC |
-| `tools/Keypuncher.Sandbox` | Run the director against Ollama: a round of picks, or a score for the fact checker |
-| `tools/Keypuncher.KeySpike` | Phase 0: Windows low-level keyboard hook + Icelandic layout reading (Windows only) |
-| `tests/` | xUnit tests; everything except the app and the Windows pieces also runs on Linux |
+| `src/Keypuncher.App` | The MAUI app: play page, grown-ups' page, voice recording page |
+| `src/Keypuncher.Toy` | The reflex loop: what every key, mash and tap does, speech lookup, grown-up exit |
+| `src/Keypuncher.Core` | World model, recipes, input, keyboard geometry, calm levels, art style |
+| `src/Keypuncher.Director` | The model's jobs: prompts, schemas, real-thing and scene rules, fact and place checkers |
+| `src/Keypuncher.Pictures` | Photo finding, cut-out, picture checks, generation for gaps |
+| `src/Keypuncher.Rendering` | SkiaSharp scenes and shapes |
+| `src/Keypuncher.Audio` | Synth, mixer, limiter, WAV files |
+| `src/Keypuncher.Language` | Icelandic alphabet, Bulgarian phonetic key map, words |
+| `src/Keypuncher.Storage` | The world in SQLite, recordings, settings |
+| `src/Keypuncher.Platform.Windows` | Keyboard hook, audio output, microphone, Windows voices |
+| `src/Keypuncher.Inference*` | Model interfaces and the Ollama implementation |
+| `tools/` | Headless preview renderer, model benches, picture pipeline CLI |
+| `tests/` | xUnit tests |
 
-## Phase 1: the toy, no model yet
+![Every landscape at every time of day and weather, rendered headless by the preview tool](docs/images/scenes.jpg)
 
-Needs the .NET 10 SDK with the MAUI workload (`dotnet workload install maui-windows`).
+*Eleven landscapes in each kind of weather, rendered without a window by `tools/Keypuncher.Preview`.*
+
+## Running it
+
+Needs Windows, the .NET 10 SDK with the MAUI workload, and optionally [Ollama](https://ollama.com).
 
 ```powershell
+dotnet workload install maui-windows
 dotnet test
+ollama pull qwen3:4b                      # optional: without it the toy plays, but the world doesn't change
 dotnet run --project src/Keypuncher.App
 ```
 
-In VS Code, open the repo folder, install the recommended C# Dev Kit extension, and press F5
-(*Keypuncher (Windows)*): it builds the app and starts it under the debugger. Ctrl+Shift+B builds,
-and *Tasks: Run Test Task* runs the tests. The toy covers the screen and VS Code can't be reached
-while it is in front; use the grown-up exit below to get back.
+The toy covers the screen. Press **Ctrl+Shift+Q** and type the word shown to reach the grown-ups'
+page, where you can quit.
 
-- Every key answers at once: a creature or plant from that key's family (the same key always makes
-  the same family), a note whose pitch rises from left to right, and for letters and digits the
-  glyph, large. Three or more keys at once make one big burst instead.
-- Letters are said by their sound, in one language per session: Icelandic most sessions, English or
-  Bulgarian sometimes (Bulgarian through the phonetic key map). Letters show in small letters unless
-  the grown-ups' page says capitals. If the child pauses, a word starting with that letter
-  follows, with its picture. Digits make that many things and count them aloud.
-- The accent key sparkles on its own and accents the next vowel (´ then a gives Á).
-- Clicks and taps work too; three fingers make a burst. A tap on something already there wakes it with a little pop.
-- When the play time is up, the goodnight waits for the child to pause (6 s without a press, at most
-  3 minutes) and then puts things to sleep. Only play counts: time more than 20 s after the last press or
-  tap does not, so a toy left running stays awake. After a goodnight, a rest as long as the play time
-  makes the next press start a new session.
-- **Calm level** (grown-ups' page): Baby, Toddler or Big toddler sets how many things stay on screen
-  and move, and how they are drawn. Younger levels draw things bigger, with thicker dark outlines and
-  fewer, fully saturated colours, because an infant's acuity and contrast sensitivity are a fraction
-  of an adult's; see `CalmLimits` and `ArtStyle` in `Keypuncher.Core`.
-- **Grown-up exit:** Ctrl+Shift+Q, or holding Esc for 3 seconds (a small ring at the top left fills as you hold), shows a short word at the top left;
-  type it within 20 seconds to reach the grown-ups' page (languages, capitals, volume, calm level, recordings, fresh world, quit).
-  On a touch screen, hold one finger in each of two opposite corners for 3 seconds, with nothing else touching (the same ring
-  fills); six shapes appear in a row and the top left names four of them. Tap those four in that order within 20 seconds.
-  A palm or a child lying on the screen is too many touches, a slap is too short, a tap on any other shape ends the
-  challenge, and the shapes move every time, so copying where a grown-up tapped does not work. Taps keep playing meanwhile.
-- **Recording:** grown-ups' page, *Record voices*. Space starts and stops; each clip is trimmed,
-  levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
-  Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and
-  words if one is installed for that language.
-- The screen stays on during play, so a pause or the goodnight never ends at a dark screen or the sign-in;
-  the grown-ups' page and quitting hand it back to the power plan.
-- Data lives in `%LOCALAPPDATA%\Keypuncher` (`world.db`, `recordings\`, `settings.json`). Set
-  `KEYPUNCHER_DATA` to another folder to share recordings between the child's account and yours.
+To see it without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`
+writes PNG frames and a WAV of a scripted session.
 
-To look at the toy without Windows: `dotnet run --project tools/Keypuncher.Preview -- --out preview --keys "sól 3 köttur"`. Add `--calls` to write every animal noise as a WAV instead.
+The full guide, covering every feature, setting, tool and the bench's findings, is in
+[`docs/guide.md`](docs/guide.md).
 
-Realistic pictures: a cut-out PNG or WebP (transparent background) named after a real thing, such as
-`sable-antelope.png`, in `%LOCALAPPDATA%\Keypuncher\pictures` replaces that thing's stock shape step by step as the
-child meets it: three meetings as its shape, three as its silhouette in its palette colour, three in a few flat
-colours (snapped to the level's palette at Baby and Toddler), then the picture itself with a pale rim and an outline.
-A meeting is the thing appearing, at most once every 20 minutes, so the ladder is climbed over separate plays; a
-thing keeps the rung it was born at, and the next one born shows a promotion. Baby stops at flat colours. Meetings
-are kept in `meetings.json` in the same folder; delete or move a picture to put the stock shape back. Pictures are
-read and drawn on a background thread and the folder is looked at again whenever it changes, so a picture written
-during play is used by the next thing born; write it under a temporary name (no `.png`) and rename it into place.
-`--pictures DIR` makes Preview write a sheet of every picture in DIR at each stage and calm level (with a drawn
-sample when DIR is empty).
+## How it was built
 
-Pictures of real things: when the director picks a real thing, the toy fetches a photo of it in the background
-(Wikipedia's lead image, Wikidata's image, iNaturalist for animals and plants, then the next pictures in the article;
-maps, skeletons, logos, drawings and tiny files are turned down), cuts the subject out on the CPU with a small
-background-removal model (ISNet, with BiRefNet-lite as a second try), and writes `<slug>.png` into the pictures
-folder with `<slug>.json` beside it: the real name, where the photo came from, who took it and under what licence.
-Nothing leaves this computer and play never waits on the network; a thing with no picture yet simply keeps its
-stock shape, and the wanted list (`wanted.json`) remembers it. The two cut-out models (about 400 MB, in
-`%LOCALAPPDATA%\Keypuncher\models`) are only downloaded when a grown-up asks, from the grown-ups' page or with
-`dotnet run --project tools/Keypuncher.Pictures -- model`; until then photos are kept under `raw/` and cut out later.
-The grown-ups' page lists every picture with its credit and a Hide button, has a "Try another" for a wrong one, and
-a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`, `fetch`, `recut`, `hide`, `show`,
-and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
-folder of its own and writes a report of what photos cover and which things are gaps.
+A family project, made for one child and two keyboards in an Icelandic-speaking home. I set the goals,
+made the design calls and tested every change on the real hardware with the real user; much of the code
+was written with [Claude Code](https://claude.com/claude-code) as a pair programmer, which is why many
+commits are co-authored. The pull request history records each step, what was measured, and why.
 
-The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
-model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
-background but mistakes rare species for a familiar relative, so it only ever draws what the photo sources gave up on.
-It takes the graphics card for half a minute a picture, so the toy never runs it: `tools/Keypuncher.Pictures` has
-`generate`, `check` (shows every picture to gemma3 through Ollama, which first describes what it sees in a sentence and
-then answers a short count/is-it/whole verdict; the pass is decided in code from both, since the model's own yes/no
-passed "two white mice" and "a skeleton of a parasaurolophus", and forcing JSON on the first answer ruined the
-description; a failed check is flagged on the grown-ups' page, never hidden) and `nightly`, which fetches, generates and checks in turn and
-is meant for a scheduled task that stops before anything else wants the card. They refuse to start while the toy runs
-and unload whatever Ollama holds first. `sd-cli.exe` and the three weight files (about 6.7 GB: the Z-Image-Turbo GGUF,
-the Qwen3-4B text encoder GGUF and FLUX's `ae.safetensors`) live under the folder `--sd DIR` or `KEYPUNCHER_SD` names,
-`sd\` and `models\` inside it; the toy downloads none of them. A made picture's sidecar records the model, weights,
-prompt and seed, and its credit line on the grown-ups' page says so.
+## Licence
 
-## Phase 2: the director
-
-With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the
-model busy with two jobs, one request at a time. Every 2 / 1 / 0.5 minutes of play (Baby / Toddler / Big
-toddler), starting 30 s in, it turns one key family into a real thing, which appears once on its own the
-moment it is chosen and from then on whenever its key is pressed. Every 3 / 2 / 1.5 minutes it moves
-the scene a step (see below), the first a minute into play; a journey always goes somewhere that looks
-different, since the backdrop is all a journey changes. Every request and what came of it is written
-to `director.log` in the data folder, as well as listed on the grown-ups' page. **Test mode** (a switch on the grown-ups' page) runs both jobs back to back as fast as the model answers, writes the latest choice at the top of the screen, fades scenes in over 3 s and skips the goodnight. The twelve invented families at the front of the palette
-(puffbird, petalpop and so on) go first, one by one; a family keeps its kind, so a plant key stays a plant
-key, and the real animals after them never change. A thing that really grows into something (tadpole,
-caterpillar, acorn) later becomes it. Without Ollama nothing changes and the toy plays as before.
-
-Only real things are allowed, and that is held in three layers:
-
-1. **Prompt and schema.** Each request names one category (animal, extinct animal, plant, vehicle,
-   object) and a place drawn at random (a pond, the Ice Age, a building site). The schema allows only that
-   category and the shapes it could be. The model gives an ordinary English name and one fact before it draws.
-2. **Rules** (`RealThingRules`): story words (dragon, unicorn, fairy, monster and so on, with real
-   exceptions such as komodo dragon and gila monster), group words (dinosaur, flower), names that are not plain English, a shape that cannot
-   be the thing (a dinosaur-shaped bus, a T. rex-shaped crocodile), a plant in a creature family, and
-   repeats are refused. Names with their own drawing (cow, woolly mammoth) always get it. Faces only go on
-   animals.
-3. **Fact check** (`FactChecker`): a second, cold call that sees only the name and life-stage claim, says
-   whether it is real ("unsure" is a no) and names its kind itself (alive today, extinct, plant, vehicle,
-   object), which must match the pick, so a puffin offered as an extinct animal is refused. It is the same
-   small model, so the check is not independent; the grown-ups' page lists every pick with its fact so a
-   person can spot what gets through.
-
-### The scene
-
-The backdrop is a `Scene`: a real place (named for grown-ups, such as "Reynisfjara, Iceland"), one of eleven
-landscapes (meadow, farm, forest, jungle, mountains, beach, lake, desert, savanna, snowy hills, lava field),
-a time of day (dawn to evening; the goodnight is the only night, and each play session starts at the hour the clock shows) and the weather (clear, cloudy, rain, snow,
-fog, a rainbow). The loop chooses the kind of step (a journey from the starting meadow and after three steps at one place, otherwise mostly a weather change or the time moving on; a small model left to choose only moves the clock) and the model chooses the weather or where to go. Each step is held to the real world:
-
-1. **Prompt and schema.** The time of day may only stay or move on; a rainbow is offered only after rain.
-   A weather step must change the weather, a journey must go somewhere new that looks different (a new landscape). Half of the later requests for an animal or plant ask for one really found at the scene's place.
-2. **Rules** (`SceneRules`): no snow in deserts, jungles or the savanna, a new landscape needs a new place,
-   not all three things at once, no going back to one of the last eight places.
-   A journey offers five well-known real places with another landscape than here (Icelandic and Bulgarian ones among them, `KnownPlace.All`); if all three tries miss, it goes to one of them. A kind of country with a country after it ("Savannah, Botswana") is not a place.
-3. **Place check** (`PlaceChecker`): a new place goes to a second, cold call that sees only its name, must
-   say it is real, lists the landscapes found there itself (the claimed one must be among them) and, for
-   snow, must say snow falls there.
-
-Every scene keeps the brightness of the calm level's own sky and hills and only takes on their hue
-(`SceneGround`), so the Art Rules' contrast holds in all of them; the weather is drawn still, and a new
-scene fades in over 30 / 20 / 15 s. `dotnet run --project tools/Keypuncher.Preview -- --scenes` writes a
-contact sheet of every landscape per calm level.
-
-The names and facts are never shown or said to the child; the child's words still come only from the concept
-list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`
-another server.
-
-### What the bench chose (5-6 Nov 2026)
-
-The reliability bench (`dotnet run --project tools/Keypuncher.Sandbox -- bench`, steps in
-`tools/Keypuncher.Sandbox/Run-Bench.ps1`, summaries in `bench-results/`) settled these:
-
-- **The author is shown three example answers** (variant A2, now part of `PromptVariant.Baseline`; `plain` is the
-  prompt without them). On qwen3:4b the checker agreed with 65% of its picks against 51% before, at about half the
-  time a pick (3.7 s median against 6.8 s). Putting the schema in the prompt (A1), a gentler checker (A4), orders in
-  the user prompt (A8) and all of them together scored 44-53%.
-- **The checker prompt is unchanged.** It is right on 96% of the labelled names and lets 7% of made-up ones through;
-  the gentler one refused 7 in 100 real things. Its one steady blind spot was "unsure" on ordinary vehicles and Ice
-  Age animals (a jeep, a hydrofoil, a woolly rhinoceros), so those names pass unasked (`RealThingRules.WellKnownKind`),
-  and a vehicle and an everyday object count as each other, since the checker calls a boat either.
-- **A place in a name is kept.** The bench's first reading was to strip "slovenian" or "lake bled" from a pick;
-  hand-checking the picks showed many such names are real kinds (iceland poppy, icelandic horse, desert rose), and
-  the child never sees the name. The place comes off only for the repeat check (`RealThingRules.PlaceKey`).
-- **qwen3:4b stays the one model.** It is the best checker that fits the 1060's 6 GB. qwen3:8b checks better (97%)
-  and llama3.1:8b picks well, but neither fits and both take 9-16 s a pick. llama3.2:3b writes better picks (79-81%
-  with qwen3:4b judging) but checks worse (23% of made-up names let through), and Ollama will not keep it and
-  qwen3:4b loaded together on this card, so splitting author and checker would reload a model on every request.
-  phi4-mini and gemma3 refuse most real names as checkers.
-- **Thinking stays off.** With it, qwen3:4b's checker went from 96% to 97% right but from 1.8 s to 23 s a call.
-- **The habitat question moved into code.** Asked whether a thing is found at a place, every model and prompt let
-  41% or more of wrong pairs through (a shark at Lake Bled): they answer about continents and climates. The model is
-  now also asked whether the thing lives in the sea, in fresh water, on land or in the air, and `Habitat` holds that
-  against the scene's landscape; the toy's own sea shapes settle it without asking.
-
-```powershell
-dotnet run --project tools/Keypuncher.Sandbox -- picks qwen3:4b 12   # restyle all twelve families, print each try
-dotnet run --project tools/Keypuncher.Sandbox -- check qwen3:4b      # score the checker on real and made-up names
-dotnet run --project tools/Keypuncher.Sandbox -- scenes qwen3:4b 12  # walk the scene through twelve steps
-dotnet run --project tools/Keypuncher.Sandbox -- places qwen3:4b     # score the place checker on real and made-up places
-```
-
-## Phase 0 on the desktop
-
-Needs the .NET 10 SDK, [Ollama](https://ollama.com) and the Icelandic keyboard layout installed.
-
-```powershell
-ollama pull gemma3:4b
-ollama pull qwen3:4b
-ollama pull llama3.1:8b          # tight on 6 GB; worth measuring
-
-dotnet test
-dotnet run --project tools/Keypuncher.Bench -- --models gemma3:4b,qwen3:4b,llama3.1:8b --runs 5
-dotnet run --project tools/Keypuncher.Sandbox -- recipe gemma3:4b "a round sleepy cat"
-dotnet run --project tools/Keypuncher.KeySpike
-```
-
-The bench writes a Markdown table to `bench-results/`; commit it so the numbers live with the code.
-
-Phase 0 gates, from the plan:
-
-- [ ] The desktop returns a valid recipe in under 5 s median (`Keypuncher.Bench`).
-- [ ] Every key on the Icelandic layout reports the right character, including Ð Þ Æ Ö and the
-      accent dead key, and Win / Alt+Tab / Alt+F4 are swallowed (`Keypuncher.KeySpike`).
-- [ ] SD-Turbo timing on the GTX 1060 (not yet scripted; see the plan).
-- [ ] Piper's Icelandic voice (Salka) runs offline; check whether Windows offers a Bulgarian voice.
+The code is under the [MIT licence](LICENSE). The bundled Andika font is © SIL International under the
+[SIL Open Font License](src/Keypuncher.Rendering/Fonts/OFL.txt). Photos the toy fetches at run time keep
+their own licences, which it records beside each picture and shows on the grown-ups' page. The cut-out
+models (ISNet, BiRefNet) and image model (Z-Image-Turbo) are downloaded separately and are not part of
+this repository.
