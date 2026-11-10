@@ -52,6 +52,10 @@ public sealed class PictureJobs : IDisposable
     /// <summary>Raised on the worker thread with the name of a thing whose picture has just landed.</summary>
     public event Action<string>? Landed;
 
+    /// <summary>Raised on the worker thread with the name of a thing whose fetch has just finished, whatever it came
+    /// to, so a page showing the pictures can refresh. Not raised for a fetch stopped because the toy is closing.</summary>
+    public event Action<string>? Finished;
+
     public PictureJobsStatus Status
     {
         get { lock (_lock) return new PictureJobsStatus(_queue.Count, _fetching, _finished, _pictured, _last); }
@@ -61,6 +65,13 @@ public sealed class PictureJobs : IDisposable
     public bool Busy
     {
         get { lock (_lock) return _fetching is not null || _queue.Count > 0; }
+    }
+
+    /// <summary>Whether a fetch for this thing is running or waiting its turn.</summary>
+    public bool IsPending(string name)
+    {
+        var slug = Slugs.For(name);
+        lock (_lock) return (_fetching is { } f && Slugs.For(f) == slug) || _queue.Any(q => Slugs.For(q.Name) == slug);
     }
 
     /// <summary>Asks for a picture of a thing. Nothing happens when it has one already and nobody asked for another,
@@ -177,6 +188,8 @@ public sealed class PictureJobs : IDisposable
             }
             _note?.Invoke($"picture of {job.Name}: {outcome}");
             Log.Info("pictures", $"picture of {job.Name} ({job.Category}): {outcome} after {started.Elapsed.TotalSeconds:0.0} s");
+            try { Finished?.Invoke(job.Name); }
+            catch (Exception e) { Log.Warn("pictures", $"telling the page that {job.Name} finished failed", e); }
         }
     }
 
