@@ -80,6 +80,22 @@ public sealed class PictureChecksTests : IDisposable
     }
 
     [Fact]
+    public async Task A_picture_a_grown_up_added_from_their_own_files_stays_in_play_when_it_fails()
+    {
+        using (var sample = Keypuncher.Rendering.SamplePicture.Draw())
+        using (var data = sample.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100))
+            Assert.Equal(HandOutcome.Added, HandPictures.Add(_folder, _cutOut, "fish", RealCategory.Animal, data.ToArray(), ".png", _now).Outcome);
+        _checker.Passed = false;
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.False(check!.Passed);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.Check!.Passed);
+        Assert.Null(_folder.Wanted.Get("fish"));
+    }
+
+    [Fact]
     public async Task A_choice_of_another_picture_does_not_spare_the_one_in_play()
     {
         await Fetcher().FetchAsync("fish", RealCategory.Animal);

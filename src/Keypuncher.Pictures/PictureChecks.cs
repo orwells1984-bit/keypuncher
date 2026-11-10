@@ -72,7 +72,7 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}");
             return check;
         }
-        if (folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
+        if (current.Source == PictureSource.Hand || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
         {
             // A grown-up looked at this picture and chose it; the checker's doubt is shown to them, and that is all.
             Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
