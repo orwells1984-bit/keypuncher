@@ -64,7 +64,7 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
         using var bitmap = PhotoFetcher.Decode(image.Png);
         if (bitmap is null) { Note($"{name}: the model's picture could not be read"); return MakeOutcome.Failed; }
 
-        var sidecar = new PictureSidecar(slug, name, category, PictureSource.Generated, now) { Generated = image.Provenance };
+        var sidecar = new PictureSidecar(slug, name, category, PictureSource.Generated, now) { Id = folder.NextId(slug), Generated = image.Provenance };
         folder.WriteRaw(slug, ".png", image.Png);
         folder.WriteSidecar(sidecar);
         var result = cutOut.Cut(bitmap);

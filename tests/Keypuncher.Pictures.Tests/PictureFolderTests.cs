@@ -180,4 +180,69 @@ public sealed class PictureFolderTests : IDisposable
         Assert.Equal("CC BY NC, via iNaturalist", (Sidecar("x", _now) with { Source = PictureSource.Photo, Photo = inat }).CreditLine);
         Assert.Equal("put here by hand", Sidecar("x", _now).CreditLine);
     }
+
+    [Fact]
+    public void Keeping_a_picture_copies_it_with_its_story_photo_and_thumbnail_under_its_number()
+    {
+        using var cutOut = SamplePicture.Draw();
+        _folder.WriteSidecar(Sidecar("sable antelope", _now) with { Id = 2 });
+        _folder.WritePicture("sable-antelope", cutOut);
+        _folder.WriteRaw("sable-antelope", ".jpg", [1, 2, 3]);
+        Assert.Empty(_folder.Kept("sable-antelope"));
+        Assert.Equal(3, _folder.NextId("sable-antelope"));
+
+        var id = _folder.Keep("sable-antelope");
+
+        var more = Path.Combine(_folder.Root, "more", "sable-antelope");
+        Assert.Equal(2, id);
+        Assert.Equal(File.ReadAllBytes(_folder.PicturePath("sable-antelope")), File.ReadAllBytes(Path.Combine(more, "2.png")));
+        Assert.Equal(File.ReadAllBytes(_folder.ThumbPath("sable-antelope")), File.ReadAllBytes(Path.Combine(more, "thumbs", "2.png")));
+        Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(more, "raw", "2.jpg")));
+        var kept = Assert.Single(_folder.Kept("sable-antelope"));
+        Assert.Equal((2, "sable antelope"), (kept.Id, kept.Name));
+        Assert.True(_folder.HasPicture("sable-antelope"));
+        Assert.Equal(3, _folder.NextId("sable-antelope"));
+        Assert.Single(_folder.All());
+        Assert.Empty(Directory.GetFiles(_folder.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void A_hidden_picture_is_kept_too_and_its_kept_copy_is_not_hidden()
+    {
+        using var cutOut = SamplePicture.Draw();
+        _folder.WriteSidecar(Sidecar("sable antelope", _now));
+        _folder.WritePicture("sable-antelope", cutOut);
+        _folder.Hide("sable-antelope");
+
+        Assert.Equal(1, _folder.Keep("sable-antelope"));
+
+        Assert.False(Assert.Single(_folder.Kept("sable-antelope")).Hidden);
+        Assert.Equal(2, _folder.NextId("sable-antelope"));
+    }
+
+    [Fact]
+    public void There_is_nothing_to_keep_without_a_picture_and_the_first_number_is_one()
+    {
+        _folder.WriteSidecar(Sidecar("sable antelope", _now));
+
+        Assert.Null(_folder.Keep("sable-antelope"));
+        Assert.Null(_folder.Keep("no-such-thing"));
+        Assert.Equal(1, _folder.NextId("sable-antelope"));
+        Assert.Null(_folder.PathOf("sable-antelope", 1));
+    }
+
+    [Fact]
+    public void A_picture_is_found_by_its_number_in_play_or_kept()
+    {
+        using var cutOut = SamplePicture.Draw();
+        _folder.WriteSidecar(Sidecar("sable antelope", _now));
+        _folder.WritePicture("sable-antelope", cutOut);
+        _folder.Keep("sable-antelope");
+        _folder.WriteSidecar(Sidecar("sable antelope", _now) with { Id = 2 });
+        _folder.WritePicture("sable-antelope", cutOut);
+
+        Assert.Equal(_folder.KeptPicturePath("sable-antelope", 1), _folder.PathOf("sable-antelope", 1));
+        Assert.Equal(_folder.PicturePath("sable-antelope"), _folder.PathOf("sable-antelope", 2));
+        Assert.Null(_folder.PathOf("sable-antelope", 3));
+    }
 }

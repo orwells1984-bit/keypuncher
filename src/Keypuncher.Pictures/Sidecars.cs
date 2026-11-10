@@ -24,6 +24,9 @@ public sealed record PictureSidecar(
     [property: JsonPropertyName("source")] PictureSource Source,
     [property: JsonPropertyName("madeAt")] DateTime MadeAt)
 {
+    /// <summary>The picture's number among the thing's pictures, which it keeps when another takes its place and it
+    /// moves under <c>more/</c>; a grown-up's choice of a picture for a rung names it by this. The first is 1.</summary>
+    [JsonPropertyName("id")] public int Id { get; init; } = 1;
     [JsonPropertyName("hidden")] public bool Hidden { get; init; }
     [JsonPropertyName("photo")] public PhotoProvenance? Photo { get; init; }
     [JsonPropertyName("generated")] public GenerationProvenance? Generated { get; init; }

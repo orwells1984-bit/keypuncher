@@ -1,3 +1,4 @@
+using Keypuncher.Core;
 using Keypuncher.Director;
 using Keypuncher.Pictures;
 
@@ -58,6 +59,54 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Equal(PictureChecks.FailedCheck, wanted.Reason);
         Assert.Equal(["File:Maldives Surgeonfish.jpg"], wanted.Exclude);
         Assert.Contains(_log, l => l.Contains("looks WRONG") && l.Contains("taken out of play"));
+    }
+
+    [Fact]
+    public async Task A_picture_a_grown_up_chose_for_a_rung_stays_in_play_when_it_fails_and_keeps_its_verdict()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        var card = new ThingCard("fish", "fish");
+        _folder.Cards.Save(card with { Rungs = card.Rungs.With(PictureStage.Photo, RungChoice.OfPicture(1)) }, _now);
+        _checker.Passed = false;
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.False(check!.Passed);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.IsHidden("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.Check!.Passed);
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Contains(_log, l => l.Contains("looks WRONG") && l.Contains("a grown-up chose this picture"));
+    }
+
+    [Fact]
+    public async Task A_choice_of_another_picture_does_not_spare_the_one_in_play()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        var card = new ThingCard("fish", "fish");
+        _folder.Cards.Save(card with { Rungs = card.Rungs.With(PictureStage.Flat, RungChoice.OfPicture(2)) }, _now);
+        _checker.Passed = false;
+
+        await Checks().CheckAsync("fish");
+
+        Assert.True(_folder.IsHidden("fish"));
+        Assert.NotNull(_folder.Wanted.Get("fish"));
+    }
+
+    [Fact]
+    public async Task A_failed_picture_is_kept_under_its_number_when_another_takes_its_place()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        var kept = Assert.Single(_folder.Kept("fish"));
+        Assert.Equal((1, "File:Maldives Surgeonfish.jpg", false), (kept.Id, kept.Photo!.FileTitle, kept.Check!.Passed));
+        Assert.False(kept.Hidden);
+        Assert.Equal(2, _folder.ReadSidecar("fish")!.Id);
     }
 
     [Fact]

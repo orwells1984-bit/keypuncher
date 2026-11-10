@@ -61,6 +61,13 @@ public sealed class PhotoFetcher : IPictureFetcher
     {
         var slug = Slugs.For(name);
         var now = _clock();
+        // The director files some things wrongly (a sailboat as an animal), and the search is steered by the kind:
+        // where a grown-up has set it, theirs is used.
+        if (_folder.Cards.Get(slug)?.Category is { } set && set != category)
+        {
+            Note($"{name}: looked for as {set}, as a grown-up set, not {category}");
+            category = set;
+        }
         var wanted = _folder.Wanted.Get(slug);
         var asked = wanted?.Exclude ?? [];
         var inPlay = _folder.HasPicture(slug) || _folder.IsHidden(slug);
@@ -118,6 +125,7 @@ public sealed class PhotoFetcher : IPictureFetcher
         var mime = got.Mime is { } m && m.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? m : photo.Provenance.Mime;
         var fresh = new PictureSidecar(slug, name, category, PictureSource.Photo, now)
         {
+            Id = _folder.NextId(slug),
             Photo = photo.Provenance with { Mime = mime },
             Alternatives = exclude,
             CutOut = photo.Doubt is { } doubt ? $"taken with doubt: {doubt}" : null,
@@ -165,7 +173,12 @@ public sealed class PhotoFetcher : IPictureFetcher
         using (picture)
         {
             var covers = ((int)Math.Round(result.Coverage * 100)).ToString(CultureInfo.InvariantCulture);
-            if (pending is { } raw) _folder.WriteRaw(sidecar.Slug, raw.Extension, raw.Bytes);
+            if (pending is { } raw)
+            {
+                // The picture this one takes the place of is kept, for a grown-up to choose from or go back to.
+                if (_folder.Keep(sidecar.Slug) is { } kept) Note($"{sidecar.Name}: the picture before this one is kept as number {kept}");
+                _folder.WriteRaw(sidecar.Slug, raw.Extension, raw.Bytes);
+            }
             _folder.WriteSidecar(sidecar with { Hidden = false, CutOut = $"{result.Model}, covers {covers}% of the photo" });
             _folder.WritePicture(sidecar.Slug, picture);
         }

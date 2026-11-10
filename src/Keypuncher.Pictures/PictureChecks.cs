@@ -9,7 +9,8 @@ namespace Keypuncher.Pictures;
 /// fails (a school of fish for "fish", a mare and foal for "horse", the plaid cloth from a photo of coconut sellers
 /// for "coconut") is taken out of play at once, so the toy draws its own shape again, and the thing goes back on
 /// the wanted list with that photo turned down, so the next fetch brings another photo. A grown-up can put a
-/// wrongly failed picture back from the grown-ups' page; that also stops the search for another.
+/// wrongly failed picture back from the grown-ups' page; that also stops the search for another. A picture a
+/// grown-up chose for one of the thing's rungs is never taken out: its verdict is recorded and shown, no more.
 /// </summary>
 /// <remarks>Until November 2026 a failed check only flagged. On the family desktop gemma3 flagged about 30 of 158
 /// pictures, two of them wrongly, and the toy went on showing the 28 bad ones. A wrong flag costs one good photo,
@@ -45,7 +46,7 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     /// <summary>As <see cref="CheckAsync(string, CancellationToken)"/>, for a picture just written whose PNG is at hand.</summary>
     public async Task<VisionCheck?> CheckAsync(PictureSidecar sidecar, byte[] png, CancellationToken ct = default)
     {
-        var (real, realCategory) = ToyNames.LookUp(sidecar.Name, sidecar.Category);
+        var (real, realCategory) = ToyNames.LookUp(sidecar.Name, folder.Cards.Get(sidecar.Slug)?.Category ?? sidecar.Category);
         var now = (clock ?? (() => DateTime.Now))();
         VisionCheck? check;
         if (CutOutChain.ZoomedTooLittle(sidecar.CutOut))
@@ -64,10 +65,17 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             }
             if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }
         }
-        folder.WriteSidecar((folder.ReadSidecar(sidecar.Slug) ?? sidecar) with { Check = check });
+        var current = folder.ReadSidecar(sidecar.Slug) ?? sidecar;
+        folder.WriteSidecar(current with { Check = check });
         if (check.Passed)
         {
             Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}");
+            return check;
+        }
+        if (folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
+        {
+            // A grown-up looked at this picture and chose it; the checker's doubt is shown to them, and that is all.
+            Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
             return check;
         }
         folder.Hide(sidecar.Slug);
