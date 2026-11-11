@@ -148,8 +148,15 @@ a box to type it in, saved to the card when the box is left, and Record, play an
 is trimmed, levelled, saved and played back as on the recording page. The clip is
 `recordings\<lang>\words\<slug>.wav`, so a starter thing's earlier recording is the same file; for a starter thing
 the toy's own word shows until a grown-up writes another. The recording page's list (`ClipCatalog.For` with the
-cards' words) includes these words too, for recording many in one sitting. Showing and saying a real thing's word
-in play comes with the next change.
+cards' words) includes these words too, for recording many in one sitting.
+
+Play uses these words (`ToyEngine.ThingWords`, fed from the cards through an in-memory `WordBook` that is read again
+when the grown-ups' page closes). A real thing with a word in the session's language is named the first time it
+appears in a session: when the director shows it, at once; when a key or a tap makes it, after the same short pause
+a letter's word waits, in place of that letter's word. The word is shown by the thing and said, in the grown-ups'
+recording if there is one. A letter can also bring the word of a real thing some key makes now, with that thing as
+its picture. The "Show and say your words" switch (`SayThingWords`) turns both off. A word written for one of the
+starter things is a correction to the toy's own and always counts.
 
 The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white

@@ -176,3 +176,44 @@ public sealed class ChoiceBook : IDisposable
         Changed?.Invoke(slug);
     }
 }
+
+/// <summary>The grown-ups' words for things held in memory, by language, for play, which asks on every press and
+/// must not wait on a file. Read from the cards once and again whenever a card is saved or removed through the
+/// same <see cref="ThingCards"/>; <see cref="Reload"/> picks up changes made by another program. Safe from
+/// several threads: each reading is a new set of dictionaries that is never changed afterwards.</summary>
+public sealed class WordBook : IDisposable
+{
+    private static readonly IReadOnlyDictionary<string, string> None = new Dictionary<string, string>();
+    private readonly ThingCards _cards;
+    private volatile Dictionary<string, Dictionary<string, string>> _words = [];
+
+    public WordBook(ThingCards cards)
+    {
+        _cards = cards;
+        _cards.Changed += OnChanged;
+        Reload();
+    }
+
+    /// <summary>The words in one language, by the thing's slug; empty when there are none.</summary>
+    public IReadOnlyDictionary<string, string> In(string languageTag) => _words.GetValueOrDefault(languageTag) ?? None;
+
+    /// <summary>Reads every card again.</summary>
+    public void Reload()
+    {
+        var fresh = new Dictionary<string, Dictionary<string, string>>();
+        foreach (var card in _cards.All())
+        {
+            foreach (var tag in card.Words.Keys)
+            {
+                if (card.WordIn(tag) is not { } word) continue;
+                if (!fresh.TryGetValue(tag, out var words)) fresh[tag] = words = [];
+                words[card.Slug] = word;
+            }
+        }
+        _words = fresh;
+    }
+
+    public void Dispose() => _cards.Changed -= OnChanged;
+
+    private void OnChanged(string slug) => Reload();
+}

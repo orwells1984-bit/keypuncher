@@ -54,6 +54,28 @@ public sealed class ThingCardsTests : IDisposable
     }
 
     [Fact]
+    public void The_word_book_holds_the_words_by_language_and_follows_the_cards()
+    {
+        _folder.Cards.Save(new ThingCard("puffin", "puffin").WithWord("is", "lundi").WithWord("en", "puffin"), _now);
+        using var book = new WordBook(_folder.Cards);
+        Assert.Equal("lundi", book.In("is")["puffin"]);
+        Assert.Equal("puffin", book.In("en")["puffin"]);
+        Assert.Empty(book.In("bg"));
+
+        _folder.Cards.Save(new ThingCard("teapot", "teapot").WithWord("bg", "чайник"), _now);
+        Assert.Equal("чайник", book.In("bg")["teapot"]);
+        _folder.Cards.Save(_folder.Cards.Get("puffin")!.WithWord("is", null), _now);
+        Assert.Empty(book.In("is"));
+        Assert.Single(book.In("en"));
+
+        // A card written by another program (the console tool) shows after a reload.
+        new PictureFolder(_folder.Root).Cards.Save(new ThingCard("kite", "kite").WithWord("is", "flugdreki"), _now);
+        Assert.Empty(book.In("is"));
+        book.Reload();
+        Assert.Equal("flugdreki", book.In("is")["kite"]);
+    }
+
+    [Fact]
     public void A_saved_card_comes_back_whole_from_another_look_at_the_folder()
     {
         var card = new ThingCard("octopus", "octopus")

@@ -375,6 +375,115 @@ public sealed class ToyEngineTests : IDisposable
         if (q.Recipe!.Kind != RecipeKind.Plant && digit.Recipe!.Kind != RecipeKind.Plant) Assert.True(digit.Y < q.Y + 0.05);
     }
 
+    private void ThingWords(params (string Slug, string Word)[] words)
+    {
+        IReadOnlyDictionary<string, string> icelandic = words.ToDictionary(w => w.Slug, w => w.Word);
+        IReadOnlyDictionary<string, string> none = new Dictionary<string, string>();
+        _engine.ThingWords = language => language == "is" ? icelandic : none;
+    }
+
+    /// <summary>Makes the key with this scan code make puffins, as if the director had chosen them.</summary>
+    private Recipe PuffinOn(int scan)
+    {
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin" };
+        var slot = _world.Families.SlotOf((uint)scan);
+        Assert.True(_world.Families.Restyle(slot, puffin, 1), $"the key {scan:X} is one of the keys the director may restyle");
+        return puffin;
+    }
+
+    /// <summary>A letter key whose family the director may restyle.</summary>
+    private int RestylableKey() => Enumerable.Range(0x10, 10).Concat(Enumerable.Range(0x1E, 9)).First(s => KeyFamilies.CanRestyle(_world.Families.SlotOf((uint)s)));
+
+    [Fact]
+    public void A_thing_with_a_word_of_the_grown_ups_is_named_when_the_director_shows_it()
+    {
+        ThingWords(("puffin", "lundi"));
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "Puffin" };
+
+        _engine.Show(puffin);
+
+        var thing = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.Equal("lundi", word.Text);
+        Assert.InRange(word.X, thing.X - 0.001, thing.X + 0.001);
+
+        // A thing without a word comes as before, with no label.
+        _engine.Show(BuiltInRecipes.Palette[1] with { Name = "hedgehog" });
+        Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+    }
+
+    [Fact]
+    public void A_thing_is_not_named_when_such_words_are_switched_off_or_the_session_is_in_another_language()
+    {
+        ThingWords(("puffin", "lundi"));
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin" };
+        _engine.Settings = _engine.Settings with { SayThingWords = false };
+        _engine.Show(puffin);
+        Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
+
+        _engine.Settings = _engine.Settings with { SayThingWords = true, LanguageWeights = new() { ["en"] = 1 } };
+        Assert.Equal("en", _engine.SessionLanguage);
+        _engine.Show(puffin);
+        Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
+    }
+
+    [Fact]
+    public void A_keys_thing_is_named_after_a_pause_the_first_time_it_appears_in_a_session()
+    {
+        ThingWords(("puffin", "lundi"));
+        var key = RestylableKey();
+        PuffinOn(key);
+
+        Press(key, "s");           // s has words of its own (sól, ský, stjarna); the puffin's goes first
+        Step(0.5);
+        Assert.DoesNotContain(_world.Live, e => e.Role == EntityRole.Word);
+        Step(0.6);
+        Assert.Equal("lundi", Assert.Single(_world.Live, e => e.Role == EntityRole.Word).Text);
+
+        // Named once: the next press brings the letter's own word again.
+        Step(5);
+        Press(key, "s");
+        Step(1.2);
+        var word = Assert.Single(_world.Live, e => e.Role == EntityRole.Word);
+        Assert.StartsWith("s", word.Text);
+
+        // A new session names it again.
+        Step(5);
+        _engine.StartSession();
+        Press(key, "s");
+        Step(1.2);
+        Assert.Equal("lundi", Assert.Single(_world.Live, e => e.Role == EntityRole.Word).Text);
+    }
+
+    [Fact]
+    public void A_letter_can_bring_a_grown_ups_word_for_a_thing_a_key_makes()
+    {
+        // No Icelandic starter word begins with a, so the monkey's word is the only one a can bring.
+        var other = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).First(slot => slot != _world.Families.SlotOf(0x1E));
+        var monkey = BuiltInRecipes.Palette[0] with { Name = "monkey" };
+        Assert.True(_world.Families.Restyle(other, monkey, 1));
+        ThingWords(("monkey", "api"), ("teapot", "askja"));   // no key makes a teapot, so there is nothing to draw for it
+
+        Press(0x1E, "a");
+        Step(1.2);
+
+        Assert.Equal("api", Assert.Single(_world.Live, e => e.Role == EntityRole.Word).Text);
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Thing && e.Recipe == monkey);
+    }
+
+    [Fact]
+    public void A_grown_ups_word_for_a_starter_thing_takes_the_place_of_the_toys()
+    {
+        ThingWords(("cat", "alda"));
+        _engine.Settings = _engine.Settings with { SayThingWords = false };   // a correction to a starter word always counts
+
+        Press(0x1E, "a");
+        Step(1.2);
+
+        Assert.Equal("alda", Assert.Single(_world.Live, e => e.Role == EntityRole.Word).Text);
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Thing && e.Recipe == BuiltInRecipes.Concepts["cat"]);
+    }
+
     [Fact]
     public void A_words_picture_comes_up_above_its_letters_key()
     {
@@ -657,6 +766,7 @@ public sealed class ToyEngineTests : IDisposable
         Assert.Null(loaded.SessionMinutes);
         Assert.False(loaded.UpperCase);
         Assert.True(loaded.RecordPlay);   // settings saved before the switch existed record play
+        Assert.True(loaded.SayThingWords);
 
         var store = new SettingsStore(path);
         store.Save(loaded with { Calm = CalmLevel.Baby, SessionMinutes = 0 });

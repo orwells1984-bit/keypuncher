@@ -78,6 +78,10 @@ public sealed class ToyEngine
     private double _played;
     private double _lastInput;
     private double? _windDownSince, _asleepSince;
+    private static readonly IReadOnlyDictionary<string, string> NoWords = new Dictionary<string, string>();
+    /// <summary>The things (by slug) whose word the grown-ups wrote has been shown and said this session; each is
+    /// named once a session, the first time it appears, so a key pressed over and over does not keep saying it.</summary>
+    private readonly HashSet<string> _named = [];
 
     /// <param name="callRandom">Decides when animals make their noise; kept apart from <paramref name="random"/> so
     /// noises never change what appears.</param>
@@ -115,6 +119,12 @@ public sealed class ToyEngine
     /// <summary>Every letter, number and word in a session uses this one language, so a key keeps one sound.
     /// It is drawn from the language weights when the session starts.</summary>
     public string SessionLanguage { get; private set; } = KeyMeanings.Icelandic;
+
+    /// <summary>The words the grown-ups wrote for things in a language (the thing's slug to its word); none by
+    /// default. Asked on every press that makes a thing, so it must answer from memory. A word for one of the
+    /// starter things takes the place of the toy's own; a word for any other thing is shown and said when the
+    /// thing first appears in a session and can follow its first letter, while <see cref="ToySettings.SayThingWords"/> is on.</summary>
+    public Func<string, IReadOnlyDictionary<string, string>> ThingWords { get; set; } = _ => NoWords;
 
     /// <summary>Raised when the grown-up challenge is answered.</summary>
     public event Action? GrownUpRequested;
@@ -154,6 +164,7 @@ public sealed class ToyEngine
         _lastInput = _world.Time;
         SessionLanguage = _mix.Pick(_random);
         _windDownSince = _asleepSince = null;
+        _named.Clear();
         _world.Night = 0;
         _world.Quiet = false;
         // The sky agrees with the window when play starts; the director moves it on from there. SetScene fades it,
@@ -251,9 +262,10 @@ public sealed class ToyEngine
         var spot = (uint)((int)(x * 6) + (6 * (int)(y * 4)));
         _world.Families.Use(spot);
         var recipe = _world.Families.For(spot);
-        SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
+        var made = SpawnOrWake(recipe, x, y, 1, DateTimeOffset.Now);
         PlayNote(recipe.Voice, Notes.Degree("pentatonic", LowestKeyMidi, (int)(x * 13)), 0.7, x);
         MaybeCall(recipe, x, CallChance);
+        if (made is not null) ScheduleThingWord(made);
     }
 
     /// <summary>The longest step <see cref="Update"/> is given, so nothing jumps.</summary>
@@ -336,6 +348,70 @@ public sealed class ToyEngine
         var thing = SpawnThing(recipe, 0.2 + (_random.NextDouble() * 0.6), 0.4, 1.2);
         SpawnEffect(BuiltInRecipes.Burst, thing.X, thing.Y, 0.5, 1.2);
         if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
+        // Nobody pressed anything, so its word, if the grown-ups wrote one, comes with it and not after a pause.
+        if (WordOfThing(recipe) is { } word)
+        {
+            CancelWord();
+            _pendingCall = null;
+            NameThing(thing, word, SessionLanguage);
+        }
+    }
+
+    /// <summary>The word the grown-ups wrote, in the session's language, for a thing that is not one of the toy's
+    /// starter things; null when there is none or such words are switched off.</summary>
+    private string? WordOfThing(Recipe recipe)
+    {
+        if (!_settings.SayThingWords) return null;
+        var words = ThingWords(SessionLanguage);
+        if (words.Count == 0) return null;
+        var slug = Slugs.For(recipe.Name);
+        return !BuiltInRecipes.Concepts.ContainsKey(slug) && words.TryGetValue(slug, out var word) && !string.IsNullOrWhiteSpace(word) ? word : null;
+    }
+
+    /// <summary>After the pause a letter's word waits, names a thing that has just appeared, if the grown-ups
+    /// wrote a word for it and it was not named this session yet. Returns whether its word is now waiting, in
+    /// the place a letter's word would take.</summary>
+    private bool ScheduleThingWord(Entity thing)
+    {
+        if (thing.Recipe is not { } recipe || WordOfThing(recipe) is not { } word) return false;
+        var slug = Slugs.For(recipe.Name);
+        if (_named.Contains(slug)) return false;
+        var language = SessionLanguage;
+        _speech.TryGet(ClipCatalog.ThingClip(language, slug), word); // start loading now so it is ready when the pause comes
+        _pendingCall = null;
+        _unsaidWord = null;
+        _pendingWord = (_world.Time + WordDelay, () =>
+        {
+            NameThing(thing, word, language);
+            MaybeCall(recipe, thing.X, WordCallChance);
+        });
+        return true;
+    }
+
+    /// <summary>Shows a thing's word by it and says it, and counts the thing as named this session.</summary>
+    private void NameThing(Entity thing, string word, string language)
+    {
+        var slug = Slugs.For(thing.Recipe!.Name);
+        _named.Add(slug);
+        var spot = Math.Clamp(thing.X, 0.15, 0.85);
+        ShowWord(word, spot, thing.Y);
+        SayWord(ClipCatalog.ThingClip(language, slug), word, spot);
+    }
+
+    /// <summary>A word's label by its picture: under it, or over it when the picture is low (plants grow from the ground).</summary>
+    private void ShowWord(string word, double x, double pictureY) =>
+        _world.Add(new Entity
+        {
+            Id = _world.NextId(), Role = EntityRole.Word, Text = KeyMeanings.ApplyCase(word, upperCase: false),
+            X = x, Y = pictureY + WordLabelGap <= MaxWordLabelY ? pictureY + WordLabelGap : pictureY - WordLabelGap,
+            Born = _world.Time, Lifetime = 3.5,
+        });
+
+    /// <summary>Says a word, or, when its voice is still being made, keeps trying for a little while.</summary>
+    private void SayWord(ClipId clip, string word, double x)
+    {
+        if (_speech.TryGet(clip, word) is { } samples) _mixer.Speak(samples, (x * 2) - 1);
+        else _unsaidWord = (clip, word, x, _world.Time + WordVoiceWait);
     }
 
     private void Respond(InputEvent ev, bool speak)
@@ -356,15 +432,18 @@ public sealed class ToyEngine
         }
 
         PlayNote(recipe.Voice, midi, speak ? 0.8 : 0.45, ev.X);
-        SpawnOrWake(recipe, ev.X, ev.Y, speak ? 1 : 0.7, ev.Timestamp);
+        var made = SpawnOrWake(recipe, ev.X, ev.Y, speak ? 1 : 0.7, ev.Timestamp);
         if (speak) MaybeCall(recipe, ev.X, CallChance);
+        // A real thing with a word of the grown-ups' is named the first time it appears; the letter's own word
+        // gives way to it that once.
+        var named = speak && made is not null && ScheduleThingWord(made);
         if (meaning is null) return;
 
         ShowGlyph(meaning.Display, ev.X);
         if (!speak || meaning.Clip is null) return;
 
         Say(meaning.Clip, meaning.FallbackText, ev.X);
-        if (_settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X, ev.Y);
+        if (!named && _settings.SayWords && meaning.Letter is { } letter) ScheduleWord(language, letter, ev.X, ev.Y);
     }
 
     /// <summary>Now and then, an animal that has just appeared makes its noise, once speech is done. Only one
@@ -423,14 +502,14 @@ public sealed class ToyEngine
 
     private void ScheduleWord(string language, char letter, double x, double y)
     {
-        var candidates = StarterConcepts.StartingWith(language, letter).ToList();
+        var pool = WordPool(language);
+        var candidates = pool.Where(c => char.ToUpperInvariant(c.Word[0]) == char.ToUpperInvariant(letter)).ToList();
         if (candidates.Count == 0 && NeverStartsAWord.Contains(letter))
-            candidates = StarterConcepts.Containing(language, letter).ToList();
+            candidates = [.. pool.Where(c => c.Word.Contains(letter, StringComparison.InvariantCultureIgnoreCase))];
         if (candidates.Count == 0) return;
 
-        var concept = candidates[_random.Next(candidates.Count)];
-        var word = concept.WordIn(language)!;
-        var clip = new ClipId(language, ClipKind.Word, concept.Id);
+        var (id, word, recipe) = candidates[_random.Next(candidates.Count)];
+        var clip = ClipCatalog.ThingClip(language, id);
         _speech.TryGet(clip, word); // start loading now so it is ready when the pause comes
 
         // The word brings its own picture; a noise from the key's thing would not match it.
@@ -439,22 +518,37 @@ public sealed class ToyEngine
         _pendingWord = (_world.Time + WordDelay, () =>
         {
             var spot = Math.Clamp(x, 0.15, 0.85);
-            var recipe = BuiltInRecipes.ForConcept(concept.Id);
-            // The word's picture comes up where the letter's key is; its label sits under it, or over it when
-            // the picture is low (plants grow from the ground).
+            // The word's picture comes up where the letter's key is, with its label by it.
             var picture = SpawnThing(recipe, spot, y, 1.8);
-            _world.Add(new Entity
-            {
-                Id = _world.NextId(), Role = EntityRole.Word, Text = KeyMeanings.ApplyCase(word, upperCase: false),
-                X = spot, Y = picture.Y + WordLabelGap <= MaxWordLabelY ? picture.Y + WordLabelGap : picture.Y - WordLabelGap,
-                Born = _world.Time, Lifetime = 3.5,
-            });
+            ShowWord(word, spot, picture.Y);
+            _named.Add(id);
             PlayNote(recipe.Voice, Notes.Parse(recipe.Voice.Root), 0.6, spot);
             // A voice made on the fly can take longer than the pause the first time; say it once it is ready.
-            if (_speech.TryGet(clip, word) is { } samples) _mixer.Speak(samples, (spot * 2) - 1);
-            else _unsaidWord = (clip, word, spot, _world.Time + WordVoiceWait);
+            SayWord(clip, word, spot);
             MaybeCall(recipe, spot, WordCallChance);
         });
+    }
+
+    /// <summary>Every word a letter can bring in a language, each with the thing it names and the recipe that
+    /// draws it: the starter words in their order, a grown-up's word for a starter thing in place of the toy's,
+    /// then (while such words are on) the grown-ups' words for the real things a key makes now, by slug.</summary>
+    private List<(string Id, string Word, Recipe Recipe)> WordPool(string language)
+    {
+        var words = ThingWords(language);
+        var pool = new List<(string Id, string Word, Recipe Recipe)>();
+        foreach (var concept in StarterConcepts.All)
+        {
+            var word = words.TryGetValue(concept.Id, out var byHand) && !string.IsNullOrWhiteSpace(byHand) ? byHand : concept.WordIn(language);
+            if (!string.IsNullOrEmpty(word)) pool.Add((concept.Id, word, BuiltInRecipes.ForConcept(concept.Id)));
+        }
+        if (words.Count == 0 || !_settings.SayThingWords) return pool;
+        foreach (var recipe in _world.Families.All)
+        {
+            var slug = Slugs.For(recipe.Name);
+            if (BuiltInRecipes.Concepts.ContainsKey(slug) || pool.Any(c => c.Id == slug)) continue;
+            if (words.TryGetValue(slug, out var word) && !string.IsNullOrWhiteSpace(word)) pool.Add((slug, word, recipe));
+        }
+        return pool;
     }
 
     /// <summary>One soft burst and one chord; a burst too soon after the last gets a single note instead.</summary>
@@ -491,17 +585,19 @@ public sealed class ToyEngine
     /// <summary>A new thing while the calm level's rate allows; otherwise the thing nearest the key's place wakes
     /// up (one of the same family if there is one close by), or, with nothing close, a small sparkle shows there.
     /// Either way every press gets a visible answer where the key is, without adding to the crowd.</summary>
-    private void SpawnOrWake(Recipe recipe, double x, double y, double scale, DateTimeOffset at)
+    /// <returns>The new thing, or null when none was made.</returns>
+    private Entity? SpawnOrWake(Recipe recipe, double x, double y, double scale, DateTimeOffset at)
     {
         if (_limiter.TryTake(at))
         {
-            SpawnThing(recipe, x, y, scale);
+            var thing = SpawnThing(recipe, x, y, scale);
             if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
-            return;
+            return thing;
         }
         var placeY = PlaceY(recipe, y);
         if (_world.Nearest(x, placeY, WakeRadius, recipe) is { } existing) _world.Wake(existing);
         else SpawnEffect(BuiltInRecipes.Sparkle, x, placeY, 0.6, 1.0);
+        return null;
     }
 
     /// <summary>The height a thing of <paramref name="recipe"/> made at key height <paramref name="y"/> is placed at,

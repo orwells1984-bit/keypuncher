@@ -13,7 +13,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _noises, _director, _directorTest, _recordPlay, _pictures;
+    private readonly Switch _upper, _words, _thingWords, _noises, _director, _directorTest, _recordPlay, _pictures;
     private readonly Label _pictureStatus = new() { FontSize = 13 };
     private readonly Label _lockStatus = new();
     private readonly Button _lockButton;
@@ -66,6 +66,9 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Capital letters", _upper));
         _words = new Switch { IsToggled = s.SayWords };
         layout.Add(Row("Say a word after a letter", _words));
+        _thingWords = new Switch { IsToggled = s.SayThingWords };
+        layout.Add(Row("Show and say your words", _thingWords));
+        layout.Add(new Label { Text = "A real thing with a word you wrote for it under Pictures, in the language of the play session, is named the first time it appears in a session: the word is shown by it and said, in your recording if there is one. A letter can also bring such a word. Off, the child only meets the toy's own starter words.", FontSize = 13 });
         _noises = new Switch { IsToggled = s.AnimalNoises };
         layout.Add(Row("Animals sometimes make their noise", _noises));
         _volume = new Slider(0, Mixer.MaxVolume, s.Volume) { WidthRequest = 300 };
@@ -79,7 +82,7 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Goodnight after", _session));
 
         layout.Add(Heading("Real things"));
-        layout.Add(new Label { Text = $"Every {Minutes(s.Limits.RestyleMinutes)} of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Each new thing appears once on its own the moment it is chosen, and from then on whenever its key is pressed. Every {Minutes(s.Limits.SceneMinutes)} it also moves the scene a step: the weather changes, the time of day moves on, or the world travels to a new real place that looks different, fading in slowly. Each new thing and place is checked by a second question to the model, and story creatures and places are turned away. Names and facts below are for grown-ups only: the child never sees or hears them." });
+        layout.Add(new Label { Text = $"Every {Minutes(s.Limits.RestyleMinutes)} of play, the local model turns one key's thing into a real animal, extinct animal, plant, vehicle or object; a thing that really grows into something (a tadpole) later becomes it. Each new thing appears once on its own the moment it is chosen, and from then on whenever its key is pressed. Every {Minutes(s.Limits.SceneMinutes)} it also moves the scene a step: the weather changes, the time of day moves on, or the world travels to a new real place that looks different, fading in slowly. Each new thing and place is checked by a second question to the model, and story creatures and places are turned away. Names and facts below are for grown-ups only: the child never sees or hears them, only a word you wrote for the thing yourself." });
         _director = new Switch { IsToggled = s.Director };
         layout.Add(Row("Let the model change things", _director));
         _directorTest = new Switch { IsToggled = s.DirectorTest };
@@ -147,11 +150,12 @@ public sealed class ParentPage : ContentPage
         _pictureList.Close();
         // Choices made with the console tool while this page was open are picked up before play goes on.
         _host.Choices.Reload();
+        _host.Words.Reload();
         _host.SaveSettings(new ToySettings(
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled));
+            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled));
         base.OnDisappearing();
     }
 
