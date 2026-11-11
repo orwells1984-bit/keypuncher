@@ -44,7 +44,7 @@ public sealed class ParentPage : ContentPage
         _lockButton = Button("Let Keypuncher turn off Win+L (asks for admin once)", AskToTurnOffLock);
         // The list asks the controls below what they say now; it is first drawn after they are made.
         _pictureList = new PicturesPanel(host,
-            () => CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level,
+            () => CalmChoices[Math.Max(0, _calm!.SelectedIndex)].Level,
             tag => _weights.TryGetValue(tag, out var weight) ? weight.Value : 0);
         var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 1040 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
