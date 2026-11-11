@@ -32,7 +32,7 @@ public sealed record ThingCard(
     [JsonIgnore]
     public ThingChoices? Choices => Climb == ClimbChoice.Auto && !Rungs.AnyByHand ? null : new ThingChoices(Climb, Rungs);
 
-    public string? WordIn(string languageTag) => Words.TryGetValue(languageTag, out var w) && !string.IsNullOrWhiteSpace(w) ? w : null;
+    public string? WordIn(string languageTag) => Words.TryGetValue(languageTag, out var w) && !string.IsNullOrWhiteSpace(w) ? w.Trim() : null;
 
     /// <summary>This card with the word in one language set, trimmed; a blank word takes the language's word away.</summary>
     public ThingCard WithWord(string languageTag, string? word)
@@ -74,7 +74,7 @@ public sealed class ThingCards
             try
             {
                 var path = PathFor(slug);
-                return File.Exists(path) ? JsonSerializer.Deserialize<ThingCard>(File.ReadAllText(path), Json) : null;
+                return File.Exists(path) ? Whole(JsonSerializer.Deserialize<ThingCard>(File.ReadAllText(path), Json), slug) : null;
             }
             catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -82,6 +82,20 @@ public sealed class ThingCards
                 return null;
             }
         }
+    }
+
+    /// <summary>A card as read, with the parts a hand-edited file left out or set to null filled in, so nothing that
+    /// uses it meets a null: the slug is the file's, the name falls back to the slug, and no rungs or words mean none chosen.</summary>
+    private static ThingCard? Whole(ThingCard? read, string slug)
+    {
+        if (read is null) return null;
+        return read with
+        {
+            Slug = slug,
+            Name = string.IsNullOrWhiteSpace(read.Name) ? slug : read.Name,
+            Rungs = read.Rungs ?? new RungChoices(),
+            Words = read.Words is null ? new Dictionary<string, string>() : read.Words.Where(w => w.Value is not null).ToDictionary(w => w.Key, w => w.Value),
+        };
     }
 
     /// <summary>The thing's card, or a new one that says nothing yet.</summary>
@@ -100,9 +114,20 @@ public sealed class ThingCards
         }
     }
 
-    /// <summary>Writes a card, stamped with the time; a card that says nothing is removed instead.</summary>
+    /// <summary>Writes a card, stamped with the time; a card that says nothing is removed instead. A card on disk
+    /// that cannot be read (damaged, or written by a later version) reads as none, so a save would wipe whatever
+    /// it held: it is first copied beside itself as <c>&lt;slug&gt;.json.unreadable</c>, for a grown-up to mend.</summary>
     public void Save(ThingCard card, DateTime now)
     {
+        lock (_lock)
+        {
+            var path = PathFor(card.Slug);
+            if (File.Exists(path) && Get(card.Slug) is null)
+            {
+                File.Copy(path, path + ".unreadable", overwrite: true);
+                Log.Warn("pictures", $"the card for {card.Slug} could not be read and is about to be written anew; the old file is kept as {path}.unreadable");
+            }
+        }
         if (card.IsEmpty) { Remove(card.Slug); return; }
         lock (_lock)
         {

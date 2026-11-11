@@ -227,6 +227,31 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Null(await Checks().CheckAsync("no-such-thing"));
     }
 
+    /// <summary>The check takes its time; a fetch or a grown-up's own picture can land while it looks.</summary>
+    [Fact]
+    public async Task A_verdict_on_a_picture_that_was_replaced_meanwhile_is_dropped()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        _checker.OnCheck = () =>
+        {
+            using var sample = Keypuncher.Rendering.SamplePicture.Draw();
+            using var data = sample.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+            HandPictures.Add(_folder, _cutOut, "fish", RealCategory.Animal, data.ToArray(), ".png", _now);
+        };
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.Null(check);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.IsHidden("fish"));
+        var sidecar = _folder.ReadSidecar("fish")!;
+        Assert.Equal((2, PictureSource.Hand), (sidecar.Id, sidecar.Source));
+        Assert.Null(sidecar.Check);
+        Assert.Null(_folder.Wanted.Get("fish"));
+        Assert.Contains(_log, l => l.Contains("the verdict is dropped"));
+    }
+
     [Fact]
     public async Task The_checker_is_asked_about_the_real_name_of_a_nursery_name()
     {
@@ -243,11 +268,14 @@ public sealed class PictureChecksTests : IDisposable
         public string Saw { get; set; } = "one blue fish";
         public List<(string Name, RealCategory Category)> Asked { get; } = [];
         public List<byte[]?> Photos { get; } = [];
+        /// <summary>Something that happens to the folder while the checker is looking.</summary>
+        public Action? OnCheck { get; set; }
 
         public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
         {
             Asked.Add((name, category));
             Photos.Add(photo);
+            OnCheck?.Invoke();
             return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 1 : 0, Saw, new DateTime(2026, 11, 8, 16, 1, 0)) : null);
         }
     }

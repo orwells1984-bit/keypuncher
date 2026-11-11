@@ -79,6 +79,31 @@ public sealed class PictureMakerTests : IDisposable
     }
 
     [Fact]
+    public async Task The_picture_that_failed_is_kept_under_its_number_when_another_is_drawn()
+    {
+        await Maker().MakeAsync("ball", RealCategory.Object);
+        _checker.Passed = false;
+        await Maker(_checker).CheckAsync("ball");
+
+        // A try whose cut-out fails leaves the hidden picture and its story as they were.
+        _cutOut.FailWith = "touches three edges";
+        Assert.Equal(MakeOutcome.CutOutFailed, await Maker().MakeAsync("ball", RealCategory.Object));
+        Assert.Empty(_folder.Kept("ball"));
+        Assert.Equal((1, 1L), (_folder.ReadSidecar("ball")!.Id, _folder.ReadSidecar("ball")!.Generated!.Seed));
+        Assert.True(_folder.IsHidden("ball"));
+
+        _cutOut.FailWith = null;
+        Assert.Equal(MakeOutcome.Made, await Maker().MakeAsync("ball", RealCategory.Object));
+
+        var kept = Assert.Single(_folder.Kept("ball"));
+        Assert.Equal((1, 1L, false), (kept.Id, kept.Generated!.Seed, kept.Check!.Passed));
+        Assert.False(kept.Hidden);
+        Assert.Equal(2, _folder.ReadSidecar("ball")!.Id);
+        Assert.NotEqual(1L, _folder.ReadSidecar("ball")!.Generated!.Seed);
+        Assert.True(_folder.HasPicture("ball"));
+    }
+
+    [Fact]
     public async Task A_model_that_fails_is_not_counted_as_a_try()
     {
         _model.FailWith = "out of memory on the card";

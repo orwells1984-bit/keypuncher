@@ -22,8 +22,9 @@ public sealed record ThingEntry(string Slug, string Name, PictureSidecar? Pictur
     public IReadOnlyList<PictureSidecar> Choosable => [.. (InPlay && Picture is not null ? new[] { Picture } : []).Concat(Kept).OrderBy(p => p.Id)];
 
     /// <summary>When the thing last got a picture or was first wanted, for putting the newest first; null for a
-    /// starter thing nothing has happened to.</summary>
-    public DateTime? Touched => Picture?.MadeAt ?? Wanted?.Since ?? Card?.UpdatedAt;
+    /// thing with neither. A choice or a word saved for it does not count: the list must not jump under the
+    /// grown-up who has just made one.</summary>
+    public DateTime? Touched => Picture?.MadeAt ?? Wanted?.Since;
 
     /// <summary>Whether a grown-up should look at it: its picture failed the check and is still the one drawn, it
     /// is hidden, or it is wanted and has no picture in play.</summary>
