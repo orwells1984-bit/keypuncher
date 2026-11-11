@@ -474,14 +474,14 @@ public sealed class ToyEngineTests : IDisposable
     [Fact]
     public void A_grown_ups_word_for_a_starter_thing_takes_the_place_of_the_toys()
     {
-        ThingWords(("sun", "alda"));
+        ThingWords(("cat", "alda"));
         _engine.Settings = _engine.Settings with { SayThingWords = false };   // a correction to a starter word always counts
 
         Press(0x1E, "a");
         Step(1.2);
 
         Assert.Equal("alda", Assert.Single(_world.Live, e => e.Role == EntityRole.Word).Text);
-        Assert.Contains(_world.Live, e => e.Role == EntityRole.Thing && e.Recipe == BuiltInRecipes.Concepts["sun"]);
+        Assert.Contains(_world.Live, e => e.Role == EntityRole.Thing && e.Recipe == BuiltInRecipes.Concepts["cat"]);
     }
 
     [Fact]
