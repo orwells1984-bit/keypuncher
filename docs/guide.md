@@ -234,6 +234,14 @@ The names and facts are never shown or said to the child; the child's words stil
 list. Settings: the grown-ups' page has a switch, `KEYPUNCHER_MODEL` picks another model and `OLLAMA_HOST`
 another server.
 
+**The models must be in Ollama.** When the toy starts it asks Ollama which models it has (`OllamaModels`). If
+the model for real things or the one that checks pictures is missing, a page before play says so and offers to
+download it through Ollama (`/api/pull`, the same as `ollama pull`), or to play without. Under **Models** on
+the grown-ups' page either model can be changed to any other Ollama has (the picture checker's list only shows
+models that can see); the choice is saved in `settings.json` and wins over `KEYPUNCHER_MODEL`. A missing model
+is listed there with a download button too. Before this, a play after both models had been removed from Ollama
+got 404 on every request and only the log said so.
+
 ### What the bench chose (5-6 Nov 2026)
 
 The reliability bench (`dotnet run --project tools/Keypuncher.Sandbox -- bench`, steps in

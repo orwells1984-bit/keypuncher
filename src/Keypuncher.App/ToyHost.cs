@@ -21,8 +21,10 @@ public enum HostMode { Play, Parent, Recording }
 /// <remarks>
 /// Data lives in %LOCALAPPDATA%\Keypuncher, or in the folder named by the KEYPUNCHER_DATA environment
 /// variable, so the child's account and a parent's account can share one set of recordings.
-/// The director talks to Ollama at OLLAMA_HOST (default http://localhost:11434) with the model named by
-/// KEYPUNCHER_MODEL (default qwen3:4b); with no Ollama running, the built-in families simply stay.
+/// The director talks to Ollama at OLLAMA_HOST (default http://localhost:11434) with the model a grown-up chose on
+/// their page, else the one named by KEYPUNCHER_MODEL, else qwen3:4b; with no Ollama running, the built-in families
+/// simply stay. At start-up it asks Ollama whether its models are there (<see cref="ModelsChecked"/>), and the app
+/// offers to download a missing one before play.
 /// </remarks>
 public sealed class ToyHost : IDisposable
 {
@@ -32,7 +34,8 @@ public sealed class ToyHost : IDisposable
     private readonly LockShortcut _lock;
     private readonly KeepAwake _keepAwake = new();
     private readonly OnnxCutOut[] _cutOuts;
-    private readonly OllamaLanguageModel _author;
+    private readonly OllamaLanguageModel _author, _checker;
+    private readonly HttpClient _ollamaHttp;
     private readonly CancellationTokenSource _stopChecks = new();
     private Task? _checking;
     private volatile bool _quitting;
@@ -87,20 +90,25 @@ public sealed class ToyHost : IDisposable
         var ollama = new Uri(Environment.GetEnvironmentVariable("OLLAMA_HOST") is { Length: > 0 } host
             ? (host.Contains("://") ? host : "http://" + host)
             : "http://localhost:11434");
-        var model = Environment.GetEnvironmentVariable("KEYPUNCHER_MODEL") is { Length: > 0 } m ? m : DefaultModel;
+        var model = PreferredDirectorModel(settings);
         var author = new OllamaLanguageModel(ollama, model, role: "author");
         var checker = new OllamaLanguageModel(ollama, model, temperature: 0, role: "checker");
+        (_author, _checker) = (author, checker);
         Director = new DirectorLoop(
             new RealThingDirector(author, new FactChecker(checker)),
             scenes: new SceneDirector(author, new PlaceChecker(checker)));
         OllamaAddress = ollama;
+        // Downloads take minutes, so this client has no timeout of its own; the short calls bring theirs.
+        _ollamaHttp = new HttpClient { BaseAddress = ollama, Timeout = Timeout.InfiniteTimeSpan };
+        Ollama = new OllamaModels(_ollamaHttp);
+        // Asked once now, before the window exists, so the app can offer a download instead of a play without the model.
+        ModelsChecked = Task.Run(() => CheckModelsAsync());
         Director.Noted += WriteDirectorLog;
         // A new thing appears once on its own as soon as it is chosen; before, it waited for its key, and a whole
         // play could pass without that key being pressed again.
         Director.Restyled += (_, recipe) => Engine.Show(recipe);
-        Story($"started; model {model} at {ollama}");
-        _author = author;
-        if (Engine.Settings.Director) Task.Run(() => WarmUpAsync(author)).LogFailures("ollama", "warming up the model");
+        Story($"started; model {model} at {ollama}; pictures checked by {PictureCheckModel}");
+        if (Engine.Settings.Director) Task.Run(() => WarmUpAsync(author, ModelsChecked)).LogFailures("ollama", "warming up the model");
         else Log.Info("director", "model changes are off in the settings; the model is not loaded");
 
         // Pictures of real things: fetched in the background as the director picks them, cut out on the CPU, and
@@ -142,6 +150,107 @@ public sealed class ToyHost : IDisposable
     }
 
     public const string DefaultModel = "qwen3:4b";
+
+    /// <summary>The model for real things: the grown-ups' choice, else KEYPUNCHER_MODEL, else <see cref="DefaultModel"/>.</summary>
+    public static string PreferredDirectorModel(ToySettings settings) =>
+        settings.DirectorModel is { Length: > 0 } chosen ? chosen
+        : Environment.GetEnvironmentVariable("KEYPUNCHER_MODEL") is { Length: > 0 } m ? m : DefaultModel;
+
+    /// <summary>The model that looks at pictures: the grown-ups' choice, else gemma3:4b.</summary>
+    public static string PreferredPictureCheckModel(ToySettings settings) =>
+        settings.PictureCheckModel is { Length: > 0 } chosen ? chosen : OllamaVision.DefaultModel;
+
+    /// <summary>Ollama's models on this computer, and downloading one.</summary>
+    public OllamaModels Ollama { get; }
+
+    /// <summary>The newest look at Ollama's models (the first is started with the toy); never fails.</summary>
+    public Task<ModelCheck> ModelsChecked
+    {
+        get => _modelsChecked;
+        private set => _modelsChecked = value;
+    }
+
+    private volatile Task<ModelCheck> _modelsChecked = Task.FromResult(ModelCheck.Unreachable);
+
+    /// <summary>The models the start-up look found missing, waiting at most <paramref name="wait"/> for it; none when
+    /// Ollama has not answered by then, since play must not wait on it.</summary>
+    public IReadOnlyList<string> MissingModelsAtStart(TimeSpan wait)
+    {
+        var looking = ModelsChecked;
+        try { return looking.Wait(wait) ? looking.Result.Missing : []; }
+        catch (AggregateException e)
+        {
+            Log.Warn("ollama", "the start-up look at Ollama's models failed", e);
+            return [];
+        }
+    }
+
+    /// <summary>Roughly how big a model the toy knows is to download, for the offer; null for any other.</summary>
+    public static string? DownloadSize(string model) =>
+        OllamaModels.Same(model, DefaultModel) ? "about 2.5 GB"
+        : OllamaModels.Same(model, OllamaVision.DefaultModel) ? "about 3.3 GB" : null;
+
+    /// <summary>The model that picks and checks real things now.</summary>
+    public string DirectorModel => _author.ModelName;
+
+    /// <summary>The model that looks at new pictures now.</summary>
+    public string PictureCheckModel => PreferredPictureCheckModel(Engine.Settings);
+
+    /// <summary>The models the toy needs for what is switched on: the director's, and the picture checker's when
+    /// pictures are fetched. With model changes off it needs none.</summary>
+    public IReadOnlyList<string> WantedModels =>
+        !Engine.Settings.Director ? []
+        : Engine.Settings.Pictures ? [DirectorModel, PictureCheckModel] : [DirectorModel];
+
+    /// <summary>Asks Ollama which models it has and which of the toy's are missing, and writes it to the log. Never throws.</summary>
+    public async Task<ModelCheck> CheckModelsAsync(bool withCapabilities = false)
+    {
+        var wanted = WantedModels;
+        var check = await Ollama.CheckAsync(wanted, withCapabilities).ConfigureAwait(false);
+        if (!check.Reachable) Story($"Ollama did not answer at {OllamaAddress}, so the toy cannot tell whether its models are there");
+        else if (check.Missing.Count > 0) Story($"NOT installed in Ollama: {string.Join(", ", check.Missing)}. Ollama has: {(check.Installed.Count == 0 ? "no models" : string.Join(", ", check.Installed.Select(m => m.Name)))}. The grown-ups' page can download them.");
+        else Log.Info("ollama", $"models wanted ({string.Join(", ", wanted)}) are installed; Ollama has {string.Join(", ", check.Installed.Select(m => m.Name))}");
+        ModelsChecked = Task.FromResult(check);
+        return check;
+    }
+
+    /// <summary>Downloads a model through Ollama, then looks again at what is there; when it is the director's, it is
+    /// loaded so the next play does not wait. Throws what <see cref="OllamaModels.PullAsync"/> throws.</summary>
+    public async Task DownloadModelAsync(string name, IProgress<PullProgress>? progress = null, CancellationToken ct = default)
+    {
+        Story($"downloading {name} through Ollama");
+        try { await Ollama.PullAsync(name, progress, ct).ConfigureAwait(false); }
+        catch (Exception e)
+        {
+            Story($"downloading {name} did not finish: {e.GetBaseException().Message}", e);
+            throw;
+        }
+        Story($"{name} downloaded");
+        var check = await CheckModelsAsync().ConfigureAwait(false);
+        if (Engine.Settings.Director && OllamaModels.Same(name, DirectorModel))
+            Task.Run(() => WarmUpAsync(_author, Task.FromResult(check))).LogFailures("ollama", "loading the downloaded model");
+    }
+
+    /// <summary>A grown-up chose the model for real things: used from the next request on, remembered in the
+    /// settings, and loaded now if it is installed (Ollama drops the one before, as it holds one at a time).</summary>
+    public void ChooseDirectorModel(string name)
+    {
+        if (OllamaModels.Same(name, DirectorModel) && Engine.Settings.DirectorModel is not null) return;
+        Story($"a grown-up chose {name} for real things (was {DirectorModel})");
+        _author.ModelName = name;
+        _checker.ModelName = name;
+        SaveSettings(Engine.Settings with { DirectorModel = name });
+        if (Engine.Settings.Director)
+            Task.Run(async () => await WarmUpAsync(_author, CheckModelsAsync()).ConfigureAwait(false)).LogFailures("ollama", "loading the chosen model");
+    }
+
+    /// <summary>A grown-up chose the model that looks at pictures: used from the next check on.</summary>
+    public void ChoosePictureCheckModel(string name)
+    {
+        if (OllamaModels.Same(name, PictureCheckModel) && Engine.Settings.PictureCheckModel is not null) return;
+        Story($"a grown-up chose {name} to check pictures (was {PictureCheckModel})");
+        SaveSettings(Engine.Settings with { PictureCheckModel = name });
+    }
     public const string DirectorLogName = "director.log";
     /// <summary>The folder of realistic cut-out pictures of real things, one per name; see <c>PictureLibrary</c>.</summary>
     public const string PicturesName = "pictures";
@@ -229,9 +338,16 @@ public sealed class ToyHost : IDisposable
     private async Task CheckNewPicturesAsync(CancellationToken ct)
     {
         using var http = new HttpClient { BaseAddress = OllamaAddress, Timeout = TimeSpan.FromMinutes(3) };
-        var checks = new PictureChecks(PictureFolder, new OllamaVision(http), note: NotePicture);
+        var checks = new PictureChecks(PictureFolder, new OllamaVision(http, PictureCheckModel), note: NotePicture);
         var todo = checks.Unchecked();
         if (todo.Count == 0) return;
+        // A checker that is not installed answers nothing; said once here rather than as two pictures "not answered".
+        var models = await Ollama.CheckAsync([checks.Model], cancellationToken: ct).ConfigureAwait(false);
+        if (models.Reachable && models.Missing.Count > 0)
+        {
+            Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {checks.Model} is not installed in Ollama (the grown-ups' page can download it)");
+            return;
+        }
         Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
         int passed = 0, failed = 0, silent = 0;
         try
@@ -259,6 +375,7 @@ public sealed class ToyHost : IDisposable
         }
         Story($"picture check done: {passed} looked right, {failed} taken out of play, {todo.Count - passed - failed} not checked");
         if (ct.IsCancellationRequested || _quitting) return;
+        if (ModelsChecked is { IsCompletedSuccessfully: true, Result: { Reachable: true } known } && !OllamaModels.Has(known.Installed, DirectorModel)) return;
         try { await _author.WarmUpAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception e) { Log.Warn("ollama", "loading the director's model again after the picture check failed; the next pick loads it", e); }
@@ -315,6 +432,7 @@ public sealed class ToyHost : IDisposable
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
         Log.Safely("app", "stopping the director", Director.Dispose);
+        Log.Safely("ollama", "closing the connection to Ollama", _ollamaHttp.Dispose);
         // The cut-out models are closed only once the worker has stopped: a cut it is still running cannot be
         // interrupted, so closing under it would hold the window; the process ending reclaims them instead.
         Log.Safely("app", "stopping the picture worker", () =>
@@ -337,8 +455,15 @@ public sealed class ToyHost : IDisposable
     /// <remarks>Around the load it also logs Ollama's version, the card's free memory before and after, and how much
     /// of the model ended up on the card: a model that spills to the CPU, or a card another job is holding, is the
     /// usual reason for slow or missing picks.</remarks>
-    private async Task WarmUpAsync(OllamaLanguageModel model)
+    private async Task WarmUpAsync(OllamaLanguageModel model, Task<ModelCheck> models)
     {
+        // A model that is not installed cannot load; the look at Ollama's list has already said so in the log.
+        var check = await models.ConfigureAwait(false);
+        if (check.Reachable && !OllamaModels.Has(check.Installed, model.ModelName))
+        {
+            Story($"the model {model.ModelName} is not installed in Ollama, so nothing is loaded; the toy plays with what it has until it is downloaded");
+            return;
+        }
         try { Log.Info("ollama", $"Ollama {await model.ServerVersionAsync().ConfigureAwait(false) ?? "(version unknown)"} at {OllamaAddress}"); }
         catch (Exception e) { Log.Warn("ollama", $"Ollama did not answer at {OllamaAddress}; is it running?", e); }
         LogFreeVram("before loading the model");

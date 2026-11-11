@@ -1,5 +1,6 @@
 using Keypuncher.Audio;
 using Keypuncher.Core;
+using Keypuncher.Inference.Ollama;
 using Keypuncher.Language;
 using Keypuncher.Pictures;
 using Keypuncher.Platform.Windows;
@@ -22,6 +23,13 @@ public sealed class ParentPage : ContentPage
     private readonly Slider _volume;
     private readonly Picker _calm, _session;
     private readonly Action<string> _fetchFinished;
+    private readonly Picker _directorModel, _checkModel;
+    private readonly List<string> _directorModels = [], _checkModels = [];
+    private readonly Label _modelStatus = new() { FontSize = 13 };
+    private readonly Button _modelDownload;
+    private IReadOnlyList<string> _modelsMissing = [];
+    private bool _fillingModels;
+    private CancellationTokenSource? _modelDownloading;
 
     private static readonly (CalmLevel Level, string Name)[] CalmChoices =
     [
@@ -100,6 +108,19 @@ public sealed class ParentPage : ContentPage
         layout.Add(new Label { Text = $"Each play session is saved as a small video (4 frames a second, stamped with the time the log uses) in {Path.Combine(host.DataFolder, ToyHost.VideosName)}, so a problem can be looked at afterwards; test mode is always recorded. Nothing leaves this computer, and the oldest videos are deleted past 4 GB. When play starts and ends, the goodnight and how many keys were pressed go in {Path.Combine(host.DataFolder, ToyHost.DirectorLogName)}.", FontSize = 13 });
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
+        layout.Add(Heading("Models"));
+        layout.Add(new Label { Text = $"The toy's models run on this computer through Ollama at {host.OllamaAddress}. One chooses and checks the real things and places (the toy was tuned with {ToyHost.DefaultModel}); one that can see looks at each new picture ({OllamaVision.DefaultModel}). Any model Ollama has can be chosen here; a change is used from the next request on and is remembered. A bigger model that does not fit on the graphics card answers several times slower." });
+        _directorModel = ChoicePicker([host.DirectorModel], 0);
+        _directorModel.SelectedIndexChanged += (_, _) => ModelChosen(_directorModel, _directorModels, host.ChooseDirectorModel);
+        layout.Add(Row("Model for real things", _directorModel));
+        _checkModel = ChoicePicker([host.PictureCheckModel], 0);
+        _checkModel.SelectedIndexChanged += (_, _) => ModelChosen(_checkModel, _checkModels, host.ChoosePictureCheckModel);
+        layout.Add(Row("Model that checks pictures", _checkModel));
+        layout.Add(_modelStatus);
+        _modelDownload = Button("Download", DownloadOllamaModels);
+        _modelDownload.IsVisible = false;
+        layout.Add(_modelDownload);
+
         layout.Add(Heading("Pictures"));
         layout.Add(new Label { Text = $"Each real thing the model picks gets a photo of the real thing, fetched in the background from Wikipedia (Wikidata and iNaturalist as backups), cut out on this computer and kept in {host.PictureFolder.Root} with its credit beside it. The toy draws it step by step as the child meets the thing: shape, silhouette, a few flat colours, then the photo. Nothing is shown before it is cut out, and play never waits on the internet. The cut-out needs two model files (about 400 MB) that are only downloaded from here." });
         _pictures = new Switch { IsToggled = s.Pictures };
@@ -145,6 +166,7 @@ public sealed class ParentPage : ContentPage
         _host.Mode = HostMode.Parent;
         _host.PictureJobs.Finished += _fetchFinished;
         RefreshPictures();
+        RefreshModels();
         // Play has stopped and the director does not choose on this page, so the card is free for the vision model.
         // Grown-ups usually end play here rather than waiting for the goodnight (both plays on 2026-11-08 did), and
         // the check used to run only after a goodnight, so new pictures went unchecked.
@@ -154,6 +176,8 @@ public sealed class ParentPage : ContentPage
     protected override void OnDisappearing()
     {
         _host.PictureJobs.Finished -= _fetchFinished;
+        // A model download under way is stopped; Ollama keeps what it has and goes on from there next time.
+        _modelDownloading?.Cancel();
         _pictureList.Close();
         // Choices made with the console tool while this page was open are picked up before play goes on.
         _host.Choices.Reload();
@@ -162,7 +186,9 @@ public sealed class ParentPage : ContentPage
             _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
             _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled));
+            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled,
+            // The models are saved the moment they are chosen; carried over here.
+            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel));
         base.OnDisappearing();
     }
 
@@ -202,6 +228,110 @@ public sealed class ParentPage : ContentPage
             return;
         }
         RefreshPictures();
+    }
+
+    /// <summary>Asks Ollama what it has, fills the two model lists from it and says what is missing.</summary>
+    /// <param name="first">Something to say before it, such as why a download stopped.</param>
+    private async void RefreshModels(string? first = null)
+    {
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        try
+        {
+            var check = await _host.CheckModelsAsync(withCapabilities: true);
+            _fillingModels = true;
+            try
+            {
+                Fill(_directorModel, _directorModels, check, _host.DirectorModel, ToyHost.DefaultModel, m => m.Writes);
+                Fill(_checkModel, _checkModels, check, _host.PictureCheckModel, OllamaVision.DefaultModel, m => m.Sees);
+            }
+            finally { _fillingModels = false; }
+
+            // Both are listed here whatever is switched on, so a model can be fetched before its switch is turned on.
+            _modelsMissing = !check.Reachable ? []
+                : [.. new[] { _host.DirectorModel, _host.PictureCheckModel }.Where(m => !OllamaModels.Has(check.Installed, m)).Distinct(StringComparer.OrdinalIgnoreCase)];
+            if (_modelDownloading is not null) return;
+            _modelStatus.Text = (first is null ? "" : first + " ") + (!check.Reachable ? $"Ollama is not answering at {_host.OllamaAddress}, so its models cannot be listed. Start Ollama and come back to this page."
+                : _modelsMissing.Count == 0 ? "Both models are installed."
+                : "NOT installed: " + string.Join("; ", _modelsMissing.Select(m => ModelsPage.Describe(_host, m))) + ". Until then that part of the toy does nothing. Download below, or choose a model that is installed.");
+            _modelDownload.IsVisible = _modelsMissing.Count > 0;
+            _modelDownload.IsEnabled = true;
+            _modelDownload.Text = "Download " + string.Join(" and ", _modelsMissing);
+        }
+        catch (Exception e)
+        {
+            Log.Error("ollama", "listing Ollama's models for the grown-ups' page failed", e);
+            _modelStatus.Text = $"Ollama's models could not be listed: {e.GetBaseException().Message}";
+        }
+    }
+
+    /// <summary>Fills a model list: what Ollama has that can do the job, plus the toy's own choice and the one in use
+    /// even when they are not installed (marked so), with the one in use selected.</summary>
+    private static void Fill(Picker picker, List<string> names, ModelCheck check, string current, string toyDefault, Func<InstalledModel, bool> fits)
+    {
+        names.Clear();
+        names.AddRange(check.Installed.Where(fits).Select(m => m.Name).Order(StringComparer.OrdinalIgnoreCase));
+        foreach (var extra in new[] { toyDefault, current })
+            if (!names.Any(n => OllamaModels.Same(n, extra))) names.Add(extra);
+        picker.Items.Clear();
+        foreach (var name in names)
+        {
+            var installed = check.Installed.FirstOrDefault(m => OllamaModels.Same(m.Name, name));
+            picker.Items.Add(installed is not null ? $"{name}  ({installed.Size / 1e9:0.0} GB)"
+                : check.Reachable ? $"{name}  (not installed)" : name);
+        }
+        picker.SelectedIndex = names.FindIndex(n => OllamaModels.Same(n, current));
+    }
+
+    /// <summary>A grown-up picked a model from a list (not the list being filled).</summary>
+    private void ModelChosen(Picker picker, List<string> names, Action<string> choose)
+    {
+        if (_fillingModels || picker.SelectedIndex < 0 || picker.SelectedIndex >= names.Count) return;
+        try
+        {
+            choose(names[picker.SelectedIndex]);
+        }
+        catch (Exception e)
+        {
+            Log.Error("ollama", "changing the model failed", e);
+            _modelStatus.Text = $"The model could not be changed: {e.GetBaseException().Message}";
+            return;
+        }
+        RefreshModels();
+    }
+
+    /// <summary>Downloads the chosen models Ollama lacks, with a running line of progress.</summary>
+    private async void DownloadOllamaModels()
+    {
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        if (_modelDownloading is not null) return;
+        var stop = _modelDownloading = new CancellationTokenSource();
+        try
+        {
+            _modelDownload.IsEnabled = false;
+            var progress = new Progress<PullProgress>(p => _modelStatus.Text = ModelsPage.ProgressLine(p));
+            foreach (var model in _modelsMissing.ToList())
+            {
+                _modelStatus.Text = $"Asking Ollama for {model}...";
+                await _host.DownloadModelAsync(model, progress, stop.Token);
+            }
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception e)
+        {
+            Log.Error("ollama", "downloading a model from the grown-ups' page did not finish", e);
+            _modelDownloading = null;
+            RefreshModels($"The download did not finish: {e.GetBaseException().Message}.");
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(_modelDownloading, stop)) _modelDownloading = null;
+            stop.Dispose();
+        }
+        RefreshModels();
     }
 
     /// <summary>Says whether Win+L is off, and offers the one-time admin step when Windows refused it.</summary>

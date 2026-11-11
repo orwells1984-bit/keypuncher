@@ -38,7 +38,12 @@ public sealed class ToyApp : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        var window = new Window(new PlayPage(_host)) { Title = "Keypuncher" };
+        // A model the toy wants and Ollama does not have is offered as a download before play, to the grown-up who
+        // started the toy. The look at Ollama began with the host and has usually answered by now; play does not
+        // wait long for it.
+        var missing = _host.MissingModelsAtStart(TimeSpan.FromSeconds(3));
+        Page first = missing.Count > 0 ? new ModelsPage(_host, missing) : new PlayPage(_host);
+        var window = new Window(first) { Title = "Keypuncher" };
         window.Destroying += (_, _) => _host.Dispose();
         Log.Info("app", "window created");
         return window;
