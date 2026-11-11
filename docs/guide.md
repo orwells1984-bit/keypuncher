@@ -143,6 +143,14 @@ whether it climbs, and "Add from a file": a grown-up's own picture, taken as it 
 clear and cut out by the same models otherwise, put in play with the picture it replaces kept. A picture added this
 way (`"source": "Hand"` in its sidecar) is, like a chosen one, never taken out of play by the check.
 
+Beside the rungs each row has the thing's word in every language play uses (a language with weight 0 is left out):
+a box to type it in, saved to the card when the box is left, and Record, play and Delete for the spoken word, which
+is trimmed, levelled, saved and played back as on the recording page. The clip is
+`recordings\<lang>\words\<slug>.wav`, so a starter thing's earlier recording is the same file; for a starter thing
+the toy's own word shows until a grown-up writes another. The recording page's list (`ClipCatalog.For` with the
+cards' words) includes these words too, for recording many in one sitting. Showing and saying a real thing's word
+in play comes with the next change.
+
 The gaps (about one thing in sixteen: a ball, a sailboat, a plant with no photo on Commons) are drawn by a local image
 model, Z-Image-Turbo through stable-diffusion.cpp, which the bench showed draws common things cleanly on a white
 background but mistakes rare species for a familiar relative, so it only ever draws what the photo sources gave up on.

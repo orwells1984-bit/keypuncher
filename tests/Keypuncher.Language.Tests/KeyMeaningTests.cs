@@ -87,4 +87,24 @@ public class KeyMeaningTests
         Assert.Equal(26, ClipCatalog.For("en").Count(e => e.Id.Kind == ClipKind.Letter));
         Assert.Equal(icelandic.Count, icelandic.Select(e => e.Id).Distinct().Count());
     }
+
+    [Fact]
+    public void Recording_list_takes_the_grown_ups_words_for_things()
+    {
+        var words = new Dictionary<string, string> { ["cat"] = "kisa", ["plastic-straw"] = "rör", ["sable-antelope"] = "antilópa", ["teapot"] = " " };
+
+        var listed = ClipCatalog.For("is", words).Where(e => e.Id.Kind == ClipKind.Word).ToList();
+
+        // A starter thing keeps its clip and its place, with the grown-ups' word to say.
+        var cat = listed.Single(e => e.Id.Key == "cat");
+        Assert.Equal("kisa", cat.Prompt);
+        Assert.Equal(new ClipId("is", ClipKind.Word, "cat"), cat.Id);
+        Assert.Equal("sól", listed.Single(e => e.Id.Key == "sun").Prompt);
+        // Other things follow the starter words, by word; a blank word is no word.
+        Assert.Equal(StarterConcepts.All.Count + 2, listed.Count);
+        Assert.Equal(["sable-antelope", "plastic-straw"], listed.TakeLast(2).Select(e => e.Id.Key));
+        Assert.Equal(ClipCatalog.ThingClip("is", "sable-antelope"), listed[^2].Id);
+        Assert.Equal(listed.Count, listed.Select(e => e.Id).Distinct().Count());
+        Assert.Equal(ClipCatalog.For("is").Count(), ClipCatalog.For("is", new Dictionary<string, string>()).Count());
+    }
 }
