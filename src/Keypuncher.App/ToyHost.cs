@@ -112,6 +112,9 @@ public sealed class ToyHost : IDisposable
         Pictures.Choices = Choices.Get;
         Pictures.PictureFile = PictureFolder.PathOf;
         Choices.Changed += slug => MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(slug));
+        // The grown-ups' words for things, which play shows and says.
+        Words = new WordBook(PictureFolder.Cards);
+        Engine.ThingWords = Words.In;
         Models = new ModelStore(DataFolder);
         _cutOuts = [new OnnxCutOut(OnnxCutOut.ISNet, Models.Folder), new OnnxCutOut(OnnxCutOut.BiRefNetLite, Models.Folder)];
         CutOut = new CutOutChain(_cutOuts);
@@ -171,6 +174,8 @@ public sealed class ToyHost : IDisposable
     public PictureFolder PictureFolder { get; }
     /// <summary>What the grown-ups chose about how each thing is drawn, held in memory for the renderer.</summary>
     public ChoiceBook Choices { get; }
+    /// <summary>The words the grown-ups wrote for things, held in memory for play.</summary>
+    public WordBook Words { get; }
     /// <summary>The cut-out models on this computer, and where to get them.</summary>
     public ModelStore Models { get; }
     /// <summary>The cut-out models the fetcher uses, for a picture a grown-up adds from their own files.</summary>
@@ -321,6 +326,7 @@ public sealed class ToyHost : IDisposable
         Log.Safely("world", "closing world.db", WorldStore.Dispose);
         Log.Safely("pictures", "closing the pictures", Pictures.Dispose);
         Log.Safely("pictures", "letting go of the choices", Choices.Dispose);
+        Log.Safely("pictures", "letting go of the words", Words.Dispose);
         Log.Safely("audio", "closing the sound card", () => Audio?.Dispose());
         Story("stopped");
         Log.Flush();

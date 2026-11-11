@@ -20,6 +20,8 @@ namespace Keypuncher.Storage;
 /// happened alongside the log. Test mode is always recorded.</param>
 /// <param name="Pictures">Fetch a photo of each real thing the director picks from the internet, in the background,
 /// and cut it out for the toy to draw; off, the things are only noted as wanted.</param>
+/// <param name="SayThingWords">Show and say the word a grown-up wrote for a real thing when the thing appears, and
+/// let a letter bring such a word; off, the child only meets the toy's starter words.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -31,7 +33,8 @@ public sealed record ToySettings(
     bool Director = true,
     bool DirectorTest = false,
     bool RecordPlay = true,
-    bool Pictures = true)
+    bool Pictures = true,
+    bool SayThingWords = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 
