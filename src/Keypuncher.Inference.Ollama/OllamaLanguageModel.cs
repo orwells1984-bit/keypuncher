@@ -44,14 +44,23 @@ public sealed class OllamaLanguageModel : ILanguageModel
         _think = think;
     }
 
-    public string ModelName { get; }
+    /// <summary>The model every call from now on asks for. A grown-up can change it while the toy runs; a call
+    /// already under way finishes with the model it started with.</summary>
+    public string ModelName
+    {
+        get => _modelName;
+        set => _modelName = value;
+    }
+
+    private volatile string _modelName = "";
 
     public async Task<GenerationResult> GenerateJsonAsync(
         string systemPrompt, string userPrompt, JsonElement jsonSchema, CancellationToken cancellationToken = default)
     {
+        var modelName = ModelName;
         var request = new GenerateRequest
         {
-            Model = ModelName,
+            Model = modelName,
             System = systemPrompt,
             Prompt = userPrompt,
             Format = jsonSchema,
@@ -63,7 +72,7 @@ public sealed class OllamaLanguageModel : ILanguageModel
             Options = new RequestOptions { NumCtx = _numCtx, Temperature = _temperature },
         };
 
-        var call = $"#{Interlocked.Increment(ref _calls)} {_role} ({ModelName})";
+        var call = $"#{Interlocked.Increment(ref _calls)} {_role} ({modelName})";
         Log.Info("ollama", $"{call} asking: system prompt {systemPrompt.Length} chars, prompt {userPrompt.Length} chars, temperature {_temperature}, think {(_think ? "on" : "off")}");
         // The system prompts are the same every time; each is logged in full once per run, the prompt every time.
         bool firstSystem;
@@ -132,19 +141,20 @@ public sealed class OllamaLanguageModel : ILanguageModel
     public async Task<TimeSpan> WarmUpAsync(CancellationToken cancellationToken = default)
     {
         var started = Stopwatch.StartNew();
-        Log.Info("ollama", $"loading {ModelName} at {_http.BaseAddress} (context {_numCtx}, keep_alive {KeepAlive})");
+        var modelName = ModelName;
+        Log.Info("ollama", $"loading {modelName} at {_http.BaseAddress} (context {_numCtx}, keep_alive {KeepAlive})");
         // The same context size as the real calls, or Ollama loads it once now and again on the first call.
-        var request = new GenerateRequest { Model = ModelName, Prompt = "", Stream = true, KeepAlive = KeepAlive, Options = new RequestOptions { NumCtx = _numCtx } };
+        var request = new GenerateRequest { Model = modelName, Prompt = "", Stream = true, KeepAlive = KeepAlive, Options = new RequestOptions { NumCtx = _numCtx } };
         try
         {
             await foreach (var _ in _client.GenerateAsync(request, cancellationToken)) { }
         }
         catch (Exception e)
         {
-            Log.Error("ollama", $"loading {ModelName} failed after {started.Elapsed.TotalSeconds:0.0} s", e);
+            Log.Error("ollama", $"loading {modelName} failed after {started.Elapsed.TotalSeconds:0.0} s", e);
             throw;
         }
-        Log.Info("ollama", $"{ModelName} loaded in {started.Elapsed.TotalSeconds:0.0} s");
+        Log.Info("ollama", $"{modelName} loaded in {started.Elapsed.TotalSeconds:0.0} s");
         return started.Elapsed;
     }
 

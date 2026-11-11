@@ -22,6 +22,10 @@ namespace Keypuncher.Storage;
 /// and cut it out for the toy to draw; off, the things are only noted as wanted.</param>
 /// <param name="SayThingWords">Show and say the word a grown-up wrote for a real thing when the thing appears, and
 /// let a letter bring such a word; off, the child only meets the toy's starter words.</param>
+/// <param name="DirectorModel">The Ollama model that picks and checks real things, as a grown-up chose it; null for
+/// the toy's own choice.</param>
+/// <param name="PictureCheckModel">The Ollama model that looks at new pictures, as a grown-up chose it; null for the
+/// toy's own choice.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -34,7 +38,9 @@ public sealed record ToySettings(
     bool DirectorTest = false,
     bool RecordPlay = true,
     bool Pictures = true,
-    bool SayThingWords = true)
+    bool SayThingWords = true,
+    string? DirectorModel = null,
+    string? PictureCheckModel = null)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 

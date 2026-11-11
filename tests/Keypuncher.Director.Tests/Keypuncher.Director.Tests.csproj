@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Keypuncher.Director\Keypuncher.Director.csproj" />
+    <ProjectReference Include="..\..\src\Keypuncher.Inference.Ollama\Keypuncher.Inference.Ollama.csproj" />
   </ItemGroup>
 
 </Project>
