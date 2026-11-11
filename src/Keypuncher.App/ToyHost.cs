@@ -136,7 +136,7 @@ public sealed class ToyHost : IDisposable
             PictureJobs.Enqueue(animal.Name, ToyNames.LookUp(animal.Name, RealCategory.Animal).Category);
         PictureJobs.RetryWanted();
 
-        Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(tag => ClipCatalog.For(tag, PictureFolder.Cards.WordsIn(tag))).Select(e => e.Id)).LogFailures("speech", "loading the recordings");
+        Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(tag => ClipCatalog.For(tag, Words.In(tag))).Select(e => e.Id)).LogFailures("speech", "loading the recordings");
         Log.Info("app", $"ready in {starting.ElapsedMilliseconds} ms; {PictureFolder.Wanted.All().Count} pictures wanted, "
             + $"cut-out models {(_cutOuts.Any(c => c.IsAvailable) ? "present" : "missing")}");
     }

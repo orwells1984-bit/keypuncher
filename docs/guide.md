@@ -112,8 +112,8 @@ a switch that turns fetching off. `tools/Keypuncher.Pictures` also has `wanted`,
 and `dryrun`, which runs every real thing in `world.db` and the director's bench sets through the fetcher into a
 folder of its own and writes a report of what photos cover and which things are gaps.
 
-A thing can have more pictures than the one in play. When another photo takes a picture's place ("Try another", or a
-refetch after a failed check), the old one is kept under `more\<slug>\` by its number (`1.png`, `1.json`, `raw\1.jpg`,
+A thing can have more pictures than the one in play. When another picture takes a picture's place ("Try another", a
+refetch or a redraw by the image model after a failed check, or a grown-up's own file), the old one is kept under `more\<slug>\` by its number (`1.png`, `1.json`, `raw\1.jpg`,
 `thumbs\1.png`); the number is in each picture's sidecar (`id`) and never changes. What the grown-ups chose for a
 thing is kept in its card, `things\<slug>.json`: what is drawn on each rung of the realism ladder (`auto`, `shape`,
 `skip` or `picture:N`; the photo rung takes only `auto` or a picture), whether it climbs the ladder (`auto`, `ladder`,
@@ -121,7 +121,10 @@ thing is kept in its card, `things\<slug>.json`: what is drawn on each rung of t
 language. A thing with no card is treated as before, and the cards live with the pictures rather than in `world.db`
 so that a fresh world does not clear them. A picture a grown-up chose for a rung is never taken out of play by the
 check, only flagged. `tools/Keypuncher.Pictures` has `things [slug]` to list pictures and choices, and
-`choose <slug> <rung> <choice>`, `choose <slug> climb ...` and `choose <slug> category ...` to set them.
+`choose <slug> <rung> <choice>`, `choose <slug> climb ...` and `choose <slug> category ...` to set them; the thing
+can be given by its name as well as its slug. A card that cannot be read (damaged, or edited by hand into something
+that is not JSON) counts as none, and is copied to `things\<slug>.json.unreadable` before a save writes a new one;
+parts a hand-edited card leaves out or sets to null read as nothing chosen.
 
 Play draws by the cards. The rung is found as before (meetings, or the photo at once for a thing that does not
 climb, capped by the calm level, which no choice can lift), then the card is applied: a skipped rung is passed over
@@ -135,24 +138,29 @@ page. `tools/Keypuncher.Preview --pictures` draws its sheets by the same cards a
 The grown-ups' page shows all of this as one list (`PicturesPanel`): a row for each thing with a picture, a kept
 picture, a wanted entry or a card, and for each of the toy's starter things, newest first, with a filter ("needs a
 look": failed the check, hidden, or no picture yet) and a search by name or word. Each row draws the four rungs as
-the child sees them at the calm level set, with a green edge on the rung drawn now and the rungs the level does not
+the child sees them at the calm level the page's picker shows (the list follows the picker and the language sliders
+at once, before they are saved), with a green edge on the rung drawn now and the rungs the level does not
 reach shown pale. Tapping a rung opens a strip under the row with everything that can be drawn there, each as it
 would look: left to the toy, each of the thing's pictures, the drawn shape, or the rung skipped; the choice is
 written to the card at once. The row also has "Try another" (or "Find a picture"), Hide or Show, the thing's kind,
 whether it climbs, and "Add from a file": a grown-up's own picture, taken as it is when its background is already
-clear and cut out by the same models otherwise, put in play with the picture it replaces kept. A picture added this
+clear (at least a tenth of it see-through, and half of its edge) and cut out by the same models otherwise, put in
+play with the picture it replaces kept. "Try another" and "Add from a file" wait for each other, and a check's
+verdict is dropped when another picture took the place of the one it looked at. A picture added this
 way (`"source": "Hand"` in its sidecar) is, like a chosen one, never taken out of play by the check.
 
 Beside the rungs each row has the thing's word in every language play uses (a language with weight 0 is left out):
-a box to type it in, saved to the card when the box is left, and Record, play and Delete for the spoken word, which
+a box to type it in, saved to the card when the box is left (a fetch that lands while a word is being typed redraws
+the list only once the box is left), and Record, play and Delete for the spoken word, which
 is trimmed, levelled, saved and played back as on the recording page. The clip is
 `recordings\<lang>\words\<slug>.wav`, so a starter thing's earlier recording is the same file; for a starter thing
-the toy's own word shows until a grown-up writes another. The recording page's list (`ClipCatalog.For` with the
+the toy's own word shows until a grown-up writes another. Changing a word leaves its recording alone and says so,
+since only a grown-up can tell whether it still fits. The recording page's list (`ClipCatalog.For` with the
 cards' words) includes these words too, for recording many in one sitting.
 
 Play uses these words (`ToyEngine.ThingWords`, fed from the cards through an in-memory `WordBook` that is read again
 when the grown-ups' page closes). A real thing with a word in the session's language is named the first time it
-appears in a session: when the director shows it, at once; when a key or a tap makes it, after the same short pause
+appears in a session, and once more if the session's language changes: when the director shows it, at once; when a key or a tap makes it, after the same short pause
 a letter's word waits, in place of that letter's word. The word is shown by the thing and said, in the grown-ups'
 recording if there is one. A letter can also bring the word of a real thing some key makes now, with that thing as
 its picture. The "Show and say your words" switch (`SayThingWords`) turns both off. A word written for one of the

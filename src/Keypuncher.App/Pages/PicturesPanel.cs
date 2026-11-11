@@ -18,7 +18,9 @@ namespace Keypuncher.App.Pages;
 /// What is chosen or typed is written to the thing's card at once (see <see cref="ThingCards"/>); a recording is
 /// kept with the other clips, named by the thing (see <see cref="ClipCatalog.ThingClip"/>).
 /// </summary>
-/// <remarks>The rungs are drawn on a background thread, one at a time, and kept as PNG bytes by picture file, rung and
+/// <remarks>The calm level and the languages are asked of the page's own controls, not of the settings in force:
+/// those are only saved when the page is left, and the list has to show what the grown-up has just set.
+/// The rungs are drawn on a background thread, one at a time, and kept as PNG bytes by picture file, rung and
 /// calm level, so a list drawn again (after a choice, or a search) shows at once. Everything else runs on the UI thread.</remarks>
 public sealed class PicturesPanel : ContentView
 {
@@ -42,6 +44,8 @@ public sealed class PicturesPanel : ContentView
     ];
 
     private readonly ToyHost _host;
+    private readonly Func<CalmLevel> _calm;
+    private readonly Func<string, double> _weight;
     private readonly Picker _filter;
     private readonly Entry _search = new() { Placeholder = "Search by name or word", WidthRequest = 240, TextColor = Ink, BackgroundColor = Colors.White };
     private readonly Label _count = new() { FontSize = 13 };
@@ -59,10 +63,19 @@ public sealed class PicturesPanel : ContentView
     private int _shown = PageSize;
     private (string Slug, PictureStage Stage)? _open;
     private int _generation;
+    /// <summary>Saves the word box being typed in, while one is; a list about to be drawn again saves it first.</summary>
+    private Action? _commit;
+    /// <summary>Whether the folder changed (a fetch landed) while a word was being typed: the list is drawn again
+    /// once the box is left, not under the grown-up's hands.</summary>
+    private bool _stale;
 
-    public PicturesPanel(ToyHost host)
+    /// <param name="calm">The calm level as the page's picker has it now.</param>
+    /// <param name="weight">A language's weight as the page's slider has it now, by its tag.</param>
+    public PicturesPanel(ToyHost host, Func<CalmLevel> calm, Func<string, double> weight)
     {
         _host = host;
+        _calm = calm;
+        _weight = weight;
         _filter = new Picker { WidthRequest = 360, TextColor = Ink, BackgroundColor = Colors.White };
         foreach (var (_, name) in Filters) _filter.Items.Add(name);
         _filter.SelectedIndex = 0;
@@ -83,11 +96,28 @@ public sealed class PicturesPanel : ContentView
         };
     }
 
-    /// <summary>Reads the pictures folder again and draws the list from it.</summary>
+    /// <summary>Reads the pictures folder again and draws the list from it; while a word is being typed, only
+    /// once its box is left, so a fetch that lands meanwhile does not take the box away.</summary>
     public void Reload()
     {
+        if (_commit is not null) { _stale = true; return; }
+        Refresh();
+    }
+
+    /// <summary>Reads and draws at once, for something the grown-up has just pressed. A word being typed is saved first.</summary>
+    private void Refresh()
+    {
+        Commit();
+        _stale = false;
         Read();
         Render();
+    }
+
+    private void Commit()
+    {
+        if (_commit is not { } commit) return;
+        _commit = null;
+        commit();
     }
 
     /// <summary>Stops a recording in progress without keeping it: for when the page is left.</summary>
@@ -115,6 +145,8 @@ public sealed class PicturesPanel : ContentView
     /// <summary>Draws the rows the filter and the search leave, from the things as last read.</summary>
     private void Render()
     {
+        // The rows are about to go, and a word half typed in one of them with them: it is saved first.
+        Commit();
         // Rungs still being drawn for the rows about to go are dropped; the ones already drawn are remembered.
         var generation = Interlocked.Increment(ref _generation);
         var filter = Filters[Math.Max(0, _filter.SelectedIndex)].Filter;
@@ -132,7 +164,7 @@ public sealed class PicturesPanel : ContentView
     private Border ThingRow(ThingEntry thing, List<RenderJob> jobs)
     {
         var host = _host;
-        var style = host.Engine.Settings.Style;
+        var style = ArtStyle.For(_calm());
         var recipe = RecipeFor(thing);
         var rungs = thing.Card?.Rungs ?? new RungChoices();
         var meetings = host.Pictures.Meetings(thing.Name);
@@ -156,7 +188,7 @@ public sealed class PicturesPanel : ContentView
             if (stage > cap || choice.Kind == RungKind.Skip) image.Opacity = 0.3;
             var caption = StageName(stage) + "\n" + (choice.Kind == RungKind.Skip ? "skipped" : stage > cap ? "not at this calm level" : ChoiceName(choice));
             var open = _open == (thing.Slug, stage);
-            cells.Add(Cell(image, caption, stage == now && choice.Kind != RungKind.Skip ? Chosen : open ? Ink : Faint, stage == now || open ? 3 : 1, () =>
+            cells.Add(Cell(image, caption, stage == now && (choice.Kind != RungKind.Skip || !hasPicture) ? Chosen : open ? Ink : Faint, stage == now || open ? 3 : 1, () =>
             {
                 _open = open ? null : (thing.Slug, stage);
                 Render();
@@ -169,13 +201,14 @@ public sealed class PicturesPanel : ContentView
         // While a fetch for this thing is running or waiting, the button waits too. Each press turns down the photo
         // in play, so pressing again before the list showed the new picture used to turn the new one down as well
         // (the octopus on 2026-11-10: four presses, the good second photo excluded by the third).
+        // A fetch and a picture from a file would each put a picture in the same place: one at a time.
         var looking = host.PictureJobs.IsPending(thing.Name);
-        var another = Press(looking ? "Looking..." : thing.Picture is null ? "Find a picture" : "Try another", () => TryAnother(thing, recipe));
-        another.IsEnabled = !looking;
-        buttons.Add(another);
         var adding = _adding.Contains(thing.Slug);
+        var another = Press(looking ? "Looking..." : thing.Picture is null ? "Find a picture" : "Try another", () => TryAnother(thing, recipe));
+        another.IsEnabled = !looking && !adding;
+        buttons.Add(another);
         var add = Press(adding ? "Adding..." : "Add from a file...", () => AddFromFile(thing, recipe));
-        add.IsEnabled = !adding;
+        add.IsEnabled = !adding && !looking;
         buttons.Add(add);
         if (thing.InPlay || thing.Hidden)
         {
@@ -184,7 +217,7 @@ public sealed class PicturesPanel : ContentView
                 if (thing.Hidden) host.PictureFolder.Unhide(thing.Slug);
                 else host.PictureFolder.Hide(thing.Slug);
                 host.Pictures.Invalidate(thing.Name);
-                Reload();
+                Refresh();
             }));
         }
         left.Add(buttons);
@@ -258,16 +291,24 @@ public sealed class PicturesPanel : ContentView
         var panel = new VerticalStackLayout { Spacing = 4, WidthRequest = 360 };
         panel.Add(new Label { Text = "Its word, written and spoken", FontSize = 13, FontAttributes = FontAttributes.Bold, TextColor = Ink });
         var starter = StarterConcepts.All.FirstOrDefault(c => c.Id == thing.Slug);
-        var weights = _host.Engine.Settings.LanguageWeights;
+        var anyInUse = LanguageNames.Any(l => _weight(l.Tag) > 0);
         foreach (var (tag, name) in LanguageNames)
         {
             // A language never picked for play needs no word; all three show when none has a weight.
-            if (weights.GetValueOrDefault(tag) <= 0 && weights.Values.Any(w => w > 0)) continue;
+            if (_weight(tag) <= 0 && anyInUse) continue;
             var toyWord = starter?.WordIn(tag);
             var id = ClipCatalog.ThingClip(tag, thing.Slug);
             var word = new Entry { Text = thing.Card?.WordIn(tag) ?? toyWord ?? "", Placeholder = name, WidthRequest = 120, FontSize = 14, TextColor = Ink, BackgroundColor = Colors.White };
-            word.Completed += (_, _) => SaveWord(thing, tag, word.Text, toyWord);
-            word.Unfocused += (_, _) => SaveWord(thing, tag, word.Text, toyWord);
+            Action save = () => SaveWord(thing, tag, name, word.Text, toyWord);
+            word.Completed += (_, _) => save();
+            word.Focused += (_, _) => _commit = save;
+            word.Unfocused += (_, _) =>
+            {
+                save();
+                if (ReferenceEquals(_commit, save)) _commit = null;
+                // What landed while the box was being typed in is shown now, after this event has returned.
+                if (_stale && _commit is null) Dispatcher.Dispatch(Reload);
+            };
             var record = Small("● Record");
             var play = Small("▶");
             var delete = Small("Delete");
@@ -316,8 +357,8 @@ public sealed class PicturesPanel : ContentView
 
     /// <summary>Writes the word typed for a thing to its card, when it differs from what the card has. The toy's
     /// own word for a starter thing, typed back, is no word of the grown-ups'. The list is not drawn again, so
-    /// the box being typed in keeps its place.</summary>
-    private void SaveWord(ThingEntry thing, string tag, string? text, string? toyWord)
+    /// the box being typed in keeps its place. A recording made for the word before is left alone, and said to be.</summary>
+    private void SaveWord(ThingEntry thing, string tag, string language, string? text, string? toyWord)
     {
         var word = string.IsNullOrWhiteSpace(text) || text.Trim() == toyWord ? null : text.Trim();
         try
@@ -327,6 +368,9 @@ public sealed class PicturesPanel : ContentView
             if (card.WordIn(tag) == word) return;
             cards.Save(card.WithWord(tag, word), DateTime.Now);
             Log.Info("pictures", $"a grown-up wrote the {tag} word for {thing.Name}: {word ?? "(none)"}");
+            // The recording says the word as it was; only a grown-up can tell whether it still fits.
+            if ((word ?? toyWord) is { } said && _host.Clips.Exists(ClipCatalog.ThingClip(tag, thing.Slug)))
+                Say($"The {language} recording for {thing.Name} was made for the word before. If it does not say \"{said}\", record it again or delete it.");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -436,14 +480,14 @@ public sealed class PicturesPanel : ContentView
         }
         Say(null);
         _host.Pictures.Invalidate(thing.Name);
-        Reload();
+        Refresh();
     }
 
     /// <summary>Asks for another photo of the thing, turning down the one in play; the old one is kept to choose from.</summary>
     private void TryAnother(ThingEntry thing, Recipe recipe)
     {
         var host = _host;
-        if (host.PictureJobs.IsPending(thing.Name)) return;
+        if (host.PictureJobs.IsPending(thing.Name) || _adding.Contains(thing.Slug)) return;
         var category = thing.Category ?? ToyHost.CategoryOf(recipe);
         var now = DateTime.Now;
         try
@@ -460,17 +504,23 @@ public sealed class PicturesPanel : ContentView
         }
         Say(host.PictureJobs.Enqueue(thing.Name, category, again: true) || host.PictureJobs.IsPending(thing.Name) ? null
             : $"{thing.Name} is on the wanted list, but nothing is being fetched: fetching pictures from the internet is switched off (the switch above counts once this page has been closed).");
-        Reload();
+        Refresh();
     }
 
     /// <summary>Lets a grown-up pick a picture file for the thing; it is cut out if it has a background and put in play.</summary>
     private async void AddFromFile(ThingEntry thing, Recipe recipe)
     {
+        if (_adding.Contains(thing.Slug) || _host.PictureJobs.IsPending(thing.Name)) return;
         // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
         try
         {
             var file = await Microsoft.Maui.Storage.FilePicker.Default.PickAsync(new Microsoft.Maui.Storage.PickOptions { PickerTitle = $"A picture of {thing.Name}", FileTypes = Microsoft.Maui.Storage.FilePickerFileType.Images });
             if (file is null) return;
+            if (_host.PictureJobs.IsPending(thing.Name))
+            {
+                Say($"A picture of {thing.Name} is being fetched just now. Add yours once it has landed.");
+                return;
+            }
             _adding.Add(thing.Slug);
             Say(null);
             Render();
@@ -551,7 +601,7 @@ public sealed class PicturesPanel : ContentView
         var image = new Image { WidthRequest = CellSide, HeightRequest = CellSide, Aspect = Aspect.AspectFit };
         // The file's time is in the key: a picture keeps its name when another takes its place.
         var stamp = file is null ? 0 : File.GetLastWriteTimeUtc(file).Ticks;
-        var key = $"{file}|{stamp}|{stage}|{_host.Engine.Settings.Calm}|{recipe.Name}|{recipe.Body.Hue}";
+        var key = $"{file}|{stamp}|{stage}|{_calm()}|{recipe.Name}|{recipe.Body.Hue}";
         if (_rendered.TryGetValue(key, out var png))
         {
             byte[] bytes = png;

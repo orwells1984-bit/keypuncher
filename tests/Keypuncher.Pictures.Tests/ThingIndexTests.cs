@@ -45,7 +45,8 @@ public sealed class ThingIndexTests : IDisposable
 
         var things = ThingIndex.Build(_folder, ["sun", "cat"]);
 
-        Assert.Equal(["plastic straw", "cat", "Sable antelope", "teapot", "sun"], things.Select(t => t.Name));
+        // A thing with only a card has no date: a choice or a word saved for it must not move it up the list.
+        Assert.Equal(["plastic straw", "cat", "Sable antelope", "sun", "teapot"], things.Select(t => t.Name));
         var cat = things.Single(t => t.Slug == "cat");
         Assert.True(cat.Starter && cat.InPlay && cat.Picture is not null);
         Assert.Equal(RealCategory.Object, things[0].Category);

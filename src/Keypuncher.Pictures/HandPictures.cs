@@ -26,8 +26,11 @@ public sealed record HandResult(HandOutcome Outcome, int? Id = null, string? Rea
 /// takes the place of is kept, as with a fetched one. The check never takes a grown-up's own picture out of play.</summary>
 public static class HandPictures
 {
-    /// <summary>A picture counts as cut out already when at least this share of it is see-through.</summary>
-    public const double TransparentShare = 0.02;
+    /// <summary>A picture counts as cut out already when at least this share of it is see-through, and at least
+    /// <see cref="TransparentEdgeShare"/> of its edge: a thing cut out stands clear of most of its frame, while a
+    /// photo with rounded corners or a logo with a hole in it does not.</summary>
+    public const double TransparentShare = 0.1;
+    public const double TransparentEdgeShare = 0.5;
 
     /// <summary>Blocking, and slow when the picture needs cutting out: call it off the UI thread.</summary>
     /// <param name="extension">The file's extension, with its dot, for the copy kept under <c>raw/</c>.</param>
@@ -70,14 +73,22 @@ public static class HandPictures
     public static bool IsCutOut(SKBitmap rgba)
     {
         var pixels = rgba.GetPixelSpan();
-        int clear = 0, seen = 0;
+        int clear = 0, seen = 0, clearEdge = 0, edge = 0;
         // Every fourth pixel of every fourth row is plenty to tell a background from none.
         for (var y = 0; y < rgba.Height; y += 4)
         {
             var row = y * rgba.RowBytes;
             for (var x = 0; x < rgba.Width; x += 4, seen++)
-                if (pixels[row + (x * 4) + 3] < 16) clear++;
+            {
+                var isClear = pixels[row + (x * 4) + 3] < 16;
+                if (isClear) clear++;
+                if (y < 4 || x < 4 || y >= rgba.Height - 4 || x >= rgba.Width - 4)
+                {
+                    edge++;
+                    if (isClear) clearEdge++;
+                }
+            }
         }
-        return seen > 0 && clear >= seen * TransparentShare;
+        return seen > 0 && clear >= seen * TransparentShare && clearEdge >= edge * TransparentEdgeShare;
     }
 }

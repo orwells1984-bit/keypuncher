@@ -152,7 +152,12 @@ public sealed class ToyEngine
             _world.Limits = value.Limits;
             _world.Style = value.Style;
             _ = AnimalCalls.Warm(value.Limits.GentleCalls);
-            if (value.LanguageWeights.GetValueOrDefault(SessionLanguage) <= 0) SessionLanguage = _mix.Pick(_random);
+            if (value.LanguageWeights.GetValueOrDefault(SessionLanguage) <= 0)
+            {
+                SessionLanguage = _mix.Pick(_random);
+                // Things were named in the language that has just gone; in the new one they have not been.
+                _named.Clear();
+            }
         }
     }
 
@@ -348,8 +353,9 @@ public sealed class ToyEngine
         var thing = SpawnThing(recipe, 0.2 + (_random.NextDouble() * 0.6), 0.4, 1.2);
         SpawnEffect(BuiltInRecipes.Burst, thing.X, thing.Y, 0.5, 1.2);
         if (_world.Families.RestyledSlot(recipe) is { } slot) RestyledShown?.Invoke(slot, recipe);
-        // Nobody pressed anything, so its word, if the grown-ups wrote one, comes with it and not after a pause.
-        if (WordOfThing(recipe) is { } word)
+        // Nobody pressed anything, so its word, if the grown-ups wrote one, comes with it and not after a pause:
+        // once a session, like a key's thing, however often the director comes back to it.
+        if (WordOfThing(recipe) is { } word && !_named.Contains(Slugs.For(recipe.Name)))
         {
             CancelWord();
             _pendingCall = null;

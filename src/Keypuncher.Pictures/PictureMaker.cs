@@ -65,16 +65,27 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
         if (bitmap is null) { Note($"{name}: the model's picture could not be read"); return MakeOutcome.Failed; }
 
         var sidecar = new PictureSidecar(slug, name, category, PictureSource.Generated, now) { Id = folder.NextId(slug), Generated = image.Provenance };
-        folder.WriteRaw(slug, ".png", image.Png);
-        folder.WriteSidecar(sidecar);
+        // A hidden picture this one is drawn in place of is kept to choose from, as a fetched photo keeps it. Its
+        // files are left alone until the new cut-out is there, so a try that fails does not mix the two up.
+        var replacing = folder.IsHidden(slug);
+        if (!replacing)
+        {
+            folder.WriteRaw(slug, ".png", image.Png);
+            folder.WriteSidecar(sidecar);
+        }
         var result = cutOut.Cut(bitmap);
         if (result.Picture is not { } picture)
         {
             var why = result.Reason ?? "no matte";
-            folder.WriteSidecar(sidecar with { CutOut = $"{result.Model} failed: {why}" });
+            if (!replacing) folder.WriteSidecar(sidecar with { CutOut = $"{result.Model} failed: {why}" });
             folder.Wanted.Bump(slug, $"cut-out failed: {why}", now);
             Note($"{name}: cut-out by {result.Model} failed: {why}");
             return MakeOutcome.CutOutFailed;
+        }
+        if (replacing)
+        {
+            if (folder.Keep(slug) is { } kept) Note($"{name}: the picture before this one is kept as number {kept}");
+            folder.WriteRaw(slug, ".png", image.Png);
         }
         byte[] cutPng;
         using (picture)

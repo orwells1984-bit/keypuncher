@@ -66,6 +66,13 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }
         }
         var current = folder.ReadSidecar(sidecar.Slug) ?? sidecar;
+        if (current.Id != sidecar.Id)
+        {
+            // Another picture took its place while the checker was looking (a fetch landed, a grown-up added their
+            // own): the verdict is about a picture that is no longer the one in play, and must not hide the new one.
+            Note($"{sidecar.Name}: picture {sidecar.Id} was replaced by picture {current.Id} while it was being checked; the verdict is dropped");
+            return null;
+        }
         folder.WriteSidecar(current with { Check = check });
         if (check.Passed)
         {

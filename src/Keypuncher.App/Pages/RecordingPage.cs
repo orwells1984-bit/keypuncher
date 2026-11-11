@@ -112,7 +112,7 @@ public sealed class RecordingPage : ContentPage
     private void LoadLanguage()
     {
         // With the words the grown-ups wrote for things on their page, so those can be recorded here in one go too.
-        _rows = [.. ClipCatalog.For(Language, _host.PictureFolder.Cards.WordsIn(Language)).Select(e => new Row(e, _host.Clips.Exists(e.Id)))];
+        _rows = [.. ClipCatalog.For(Language, _host.Words.In(Language)).Select(e => new Row(e, _host.Clips.Exists(e.Id)))];
         _list.ItemsSource = _rows;
         var firstMissing = _rows.FindIndex(r => !r.Recorded && !r.Entry.Optional);
         Select(firstMissing < 0 ? 0 : firstMissing, scroll: true);

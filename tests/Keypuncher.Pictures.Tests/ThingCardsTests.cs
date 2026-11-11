@@ -127,6 +127,42 @@ public sealed class ThingCardsTests : IDisposable
     }
 
     [Fact]
+    public void A_damaged_card_is_set_aside_before_a_save_writes_over_it()
+    {
+        Directory.CreateDirectory(_folder.Cards.Folder);
+        File.WriteAllText(_folder.Cards.PathFor("octopus"), "{ \"words\": { \"is\": \"kolkrabbi\" } not json");
+
+        _folder.Cards.Save(new ThingCard("octopus", "octopus") { Climb = ClimbChoice.Real }, _now);
+
+        Assert.Equal(ClimbChoice.Real, _folder.Cards.Get("octopus")!.Climb);
+        Assert.Contains("kolkrabbi", File.ReadAllText(_folder.Cards.PathFor("octopus") + ".unreadable"));
+        // The copy set aside is not taken for a card, and a readable card is not set aside.
+        Assert.Equal("octopus", Assert.Single(_folder.Cards.All()).Slug);
+        _folder.Cards.Save(new ThingCard("teapot", "teapot") { Climb = ClimbChoice.Real }, _now);
+        _folder.Cards.Save(new ThingCard("teapot", "teapot") { Climb = ClimbChoice.Ladder }, _now);
+        Assert.False(File.Exists(_folder.Cards.PathFor("teapot") + ".unreadable"));
+    }
+
+    [Fact]
+    public void A_card_written_by_hand_with_parts_missing_or_null_reads_whole()
+    {
+        Directory.CreateDirectory(_folder.Cards.Folder);
+        File.WriteAllText(_folder.Cards.PathFor("octopus"), "{ \"climb\": \"Real\", \"rungs\": null, \"words\": null }");
+        File.WriteAllText(_folder.Cards.PathFor("puffin"), "{ \"slug\": \"lundi\", \"name\": \"puffin\", \"words\": { \"is\": \" lundi \", \"en\": null } }");
+
+        var octopus = _folder.Cards.Get("octopus")!;
+        Assert.Equal(("octopus", "octopus", ClimbChoice.Real), (octopus.Slug, octopus.Name, octopus.Climb));
+        Assert.False(octopus.Rungs.AnyByHand);
+        Assert.Empty(octopus.Words);
+        var puffin = _folder.Cards.Get("puffin")!;
+        Assert.Equal(("puffin", "lundi"), (puffin.Slug, puffin.WordIn("is")));
+        Assert.Null(puffin.WordIn("en"));
+        Assert.Equal("lundi", _folder.Cards.WordsIn("is")["puffin"]);
+        using var book = new WordBook(_folder.Cards);
+        Assert.Equal("lundi", book.In("is")["puffin"]);
+    }
+
+    [Fact]
     public void Cards_are_not_mistaken_for_pictures()
     {
         _folder.Cards.Save(new ThingCard("octopus", "octopus") { Climb = ClimbChoice.Real }, _now);

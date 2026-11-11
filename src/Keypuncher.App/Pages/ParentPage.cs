@@ -42,7 +42,10 @@ public sealed class ParentPage : ContentPage
         BackgroundColor = Color.FromArgb("#FFF8EC");
 
         _lockButton = Button("Let Keypuncher turn off Win+L (asks for admin once)", AskToTurnOffLock);
-        _pictureList = new PicturesPanel(host);
+        // The list asks the controls below what they say now; it is first drawn after they are made.
+        _pictureList = new PicturesPanel(host,
+            () => CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level,
+            tag => _weights.TryGetValue(tag, out var weight) ? weight.Value : 0);
         var layout = new VerticalStackLayout { Padding = 40, Spacing = 14, MaximumWidthRequest = 1040 };
         layout.Add(new Label { Text = "Keypuncher, for grown-ups", FontSize = 32, FontAttributes = FontAttributes.Bold });
 
@@ -59,6 +62,8 @@ public sealed class ParentPage : ContentPage
         {
             var slider = new Slider(0, 1, s.LanguageWeights.GetValueOrDefault(tag)) { WidthRequest = 300 };
             _weights[tag] = slider;
+            // A language coming into use or going out of it changes which word boxes the list of things shows.
+            slider.ValueChanged += (_, e) => { if ((e.OldValue > 0) != (e.NewValue > 0)) _pictureList.Reload(); };
             layout.Add(Row(name, slider));
         }
 
@@ -77,6 +82,8 @@ public sealed class ParentPage : ContentPage
         layout.Add(Heading("Calm"));
         layout.Add(new Label { Text = "How busy the screen may get. Calmer levels keep fewer things on screen, let fewer move, draw them bigger and bolder in fewer colours, and end play sooner with a goodnight." });
         _calm = ChoicePicker(CalmChoices.Select(c => c.Name), Array.FindIndex(CalmChoices, c => c.Level == s.Calm));
+        // The calm level decides how far up its ladder each thing in the list below is drawn.
+        _calm.SelectedIndexChanged += (_, _) => _pictureList.Reload();
         layout.Add(Row("Calm level", _calm));
         _session = ChoicePicker(SessionChoices.Select(SessionName), Math.Max(0, Array.IndexOf(SessionChoices, s.SessionMinutes)));
         layout.Add(Row("Goodnight after", _session));
@@ -108,7 +115,7 @@ public sealed class ParentPage : ContentPage
 
         layout.Add(Heading("Voices"));
         var recorded = KeyMeanings.Languages
-            .Select(tag => (Tag: tag, Clips: ClipCatalog.For(tag, host.PictureFolder.Cards.WordsIn(tag)).ToList()))
+            .Select(tag => (Tag: tag, Clips: ClipCatalog.For(tag, host.Words.In(tag)).ToList()))
             .Select(l => $"{l.Tag}: {l.Clips.Count(e => host.Clips.Exists(e.Id))} of {l.Clips.Count(e => !e.Optional)} recorded");
         layout.Add(new Label { Text = string.Join("    ", recorded) });
         layout.Add(new Label { Text = "Windows voices installed: " + string.Join(", ", SafeVoices()) + ". Used only for numbers and words that are not recorded yet." });

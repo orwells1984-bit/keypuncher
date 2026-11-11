@@ -413,6 +413,30 @@ public sealed class ToyEngineTests : IDisposable
     }
 
     [Fact]
+    public void A_thing_the_director_shows_again_is_named_once_a_session_and_again_in_another_language()
+    {
+        ThingWords(("puffin", "lundi"));
+        var puffin = BuiltInRecipes.Animals.Bird with { Name = "puffin" };
+        int Words() => _world.Live.Count(e => e.Role == EntityRole.Word);
+
+        _engine.Show(puffin);
+        _engine.Show(puffin);
+        Assert.Equal(1, Words());
+
+        // The session moves to English and back: what was named in the language that went counts no longer.
+        _engine.Settings = _engine.Settings with { LanguageWeights = new() { ["en"] = 1 } };
+        _engine.Settings = _engine.Settings with { LanguageWeights = new() { ["is"] = 1 } };
+        Assert.Equal("is", _engine.SessionLanguage);
+        _engine.Show(puffin);
+        Assert.Equal(2, Words());
+
+        _engine.StartSession();
+        var before = Words();
+        _engine.Show(puffin);
+        Assert.Equal(before + 1, Words());
+    }
+
+    [Fact]
     public void A_thing_is_not_named_when_such_words_are_switched_off_or_the_session_is_in_another_language()
     {
         ThingWords(("puffin", "lundi"));

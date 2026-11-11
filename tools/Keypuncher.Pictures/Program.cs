@@ -248,7 +248,7 @@ int Things(string? only)
 {
     var pictures = folder.All().ToDictionary(p => p.Slug);
     var cards = folder.Cards.All().ToDictionary(c => c.Slug);
-    var slugs = only is { } one ? [one] : pictures.Keys.Concat(cards.Keys).Distinct().Order(StringComparer.Ordinal).ToList();
+    var slugs = only is { } one ? [Slugs.For(one)] : pictures.Keys.Concat(cards.Keys).Distinct().Order(StringComparer.Ordinal).ToList();
     if (slugs.Count == 0) { Console.WriteLine("No pictures and no cards yet."); return 0; }
     foreach (var slug in slugs)
     {
@@ -274,7 +274,8 @@ int Choose(string[] words)
 {
     const string usage = "choose <slug> <shape|silhouette|flat|photo> <auto|shape|skip|picture:N>, or choose <slug> climb <auto|ladder|real>, or choose <slug> category <auto|kind>";
     if (words.Length != 3) { Console.WriteLine(usage); return 1; }
-    var (slug, what, value) = (words[0], words[1].ToLowerInvariant(), words[2]);
+    // The thing may be given as its name ("Cat", "sable antelope" in quotes) or its slug; cards are kept by slug.
+    var (slug, what, value) = (Slugs.For(words[0]), words[1].ToLowerInvariant(), words[2]);
     var name = folder.ReadSidecar(slug)?.Name ?? folder.Kept(slug).FirstOrDefault()?.Name ?? folder.Wanted.Get(slug)?.Name;
     var card = folder.Cards.Get(slug) ?? (name is not null ? new ThingCard(slug, name) : null);
     if (card is null) { Console.WriteLine($"{slug}: no such thing (no picture, kept picture or wanted entry under that slug)"); return 1; }

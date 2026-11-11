@@ -144,4 +144,33 @@ public sealed class HandPicturesTests : IDisposable
         Assert.True(HandPictures.IsCutOut(clear));
         Assert.False(HandPictures.IsCutOut(solid));
     }
+
+    /// <summary>A photo saved with rounded corners, or a picture with a see-through hole in it, has some clear
+    /// pixels but still has its background: it is cut out like any photo.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_photo_with_only_clear_corners_or_a_clear_hole_is_still_cut_out(bool corners)
+    {
+        using var photo = new SKBitmap(new SKImageInfo(800, 600, SKColorType.Rgba8888, SKAlphaType.Premul));
+        using (var c = new SKCanvas(photo))
+        using (var green = new SKPaint { Color = SKColors.ForestGreen })
+        using (var hole = new SKPaint { BlendMode = SKBlendMode.Clear })
+        {
+            c.Clear(SKColors.Transparent);
+            if (corners) c.DrawRoundRect(new SKRect(0, 0, 800, 600), 160, 160, green);
+            else
+            {
+                c.DrawRect(new SKRect(0, 0, 800, 600), green);
+                c.DrawCircle(400, 300, 200, hole);
+            }
+        }
+        Assert.False(HandPictures.IsCutOut(photo));
+        using var data = photo.Encode(SKEncodedImageFormat.Png, 100);
+
+        var result = HandPictures.Add(_folder, _cutOut, "meadow", RealCategory.Plant, data.ToArray(), ".png", _now);
+
+        Assert.Equal(HandOutcome.Added, result.Outcome);
+        Assert.Equal(1, _cutOut.Calls);
+    }
 }
