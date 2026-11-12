@@ -100,7 +100,8 @@ async Task Picks(int count, bool extinctOnly = false)
         {
             tries++;
             var detail = a.Refused is null ? a.Fact : a.Check is { } k ? $"checker: {k.Verdict}, \"{k.WhatItIs}\"" : a.Fact;
-            Console.WriteLine($"| {i + 1} | {request.Slot} | {asked} | {a.Subject} | {a.Refused ?? "used"} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
+            var result = a.Refused ?? $"used as {outcome.Recipe?.Category}{(a.Note is { } note ? $" ({note})" : "")}";
+            Console.WriteLine($"| {i + 1} | {request.Slot} | {asked} | {a.Subject} | {result.Replace("|", "/")} | {detail?.Replace("|", "/")} | {outcome.Took.TotalSeconds:0.0} |");
         }
         if (outcome.Recipe is { } r)
         {
