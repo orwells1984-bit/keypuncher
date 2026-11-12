@@ -392,7 +392,11 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         static bool SameWord(string a, string b) => a == b || a == b + "s" || b == a + "s" || a == b + "es" || b == a + "es";
         var wanted = Words(name).Where(w => w.Length >= 3).ToList();
         if (wanted.Count == 0) wanted = Words(name).ToList();
-        if (Words(title).Any(t => wanted.Any(w => SameWord(t, w)))) return true;
+        // A title that is only some of the name's words is a broader thing: "Berry" for "beach berry" brought a
+        // barberry, "Thyme" for "arctic thyme" would bring any thyme. Only the snippet saying the name whole saves it.
+        var own = Words(Parenthesis().Replace(title, " "));
+        var broader = wanted.Count >= 2 && own.Length > 0 && own.All(t => wanted.Any(w => SameWord(t, w))) && !wanted.All(w => own.Any(t => SameWord(t, w)));
+        if (!broader && Words(title).Any(t => wanted.Any(w => SameWord(t, w)))) return true;
         if (Plain(snippet) is not { } text) return false;
         var said = Words(text);
         var all = Words(name);
@@ -465,6 +469,9 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
 
     [GeneratedRegex(@"\s*(?:See the original file here|Original uploader was .+?|This file was derived from:?.*?)\.?(?=\s|$)", RegexOptions.IgnoreCase)]
     private static partial Regex Boilerplate();
+
+    [GeneratedRegex(@"\([^)]*\)")]
+    private static partial Regex Parenthesis();
 
     [GeneratedRegex("<[^>]+>")]
     private static partial Regex Tags();

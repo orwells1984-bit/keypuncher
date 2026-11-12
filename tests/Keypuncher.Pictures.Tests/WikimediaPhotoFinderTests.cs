@@ -74,9 +74,9 @@ public sealed class WikimediaPhotoFinderTests
             .Json(Summary, "summary-no-image.json")
             .Json(Entity, "wikidata-skeleton-only.json")
             .ImageInfo("Sable antelope skeleton.jpg", "imageinfo-960.json")
-            .Text("iiurlwidth=960", """{"batchcomplete":true,"query":{"pages":[{"pageid":52215,"ns":6,"title":"File:Sable antelope calf.jpg","imageinfo":[{"thumburl":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_calf.jpg/960px-Sable_antelope_calf.jpg","thumbwidth":960,"thumbheight":640,"url":"https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_calf.jpg","descriptionurl":"https://commons.wikimedia.org/wiki/File:Sable_antelope_calf.jpg"}]}]}}"""));
+            .Text("iiurlwidth=960", """{"batchcomplete":true,"query":{"pages":[{"pageid":52215,"ns":6,"title":"File:Sable antelope grazing.jpg","imageinfo":[{"thumburl":"https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_grazing.jpg/960px-Sable_antelope_grazing.jpg","thumbwidth":960,"thumbheight":640,"url":"https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_grazing.jpg","descriptionurl":"https://commons.wikimedia.org/wiki/File:Sable_antelope_grazing.jpg"}]}]}}"""));
 
-        Assert.Equal("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_calf.jpg/960px-Sable_antelope_calf.jpg", search.Photo!.DownloadUrl);
+        Assert.Equal("https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Sable_antelope_grazing.jpg/960px-Sable_antelope_grazing.jpg", search.Photo!.DownloadUrl);
         Assert.Equal(1000, search.Photo.Provenance.Width);
     }
 
@@ -272,6 +272,13 @@ public sealed class WikimediaPhotoFinderTests
     [InlineData("Thymus praecox", "found in the arctic, where thyme is rare", "arctic thyme", false)]
     [InlineData("Sealing wax", "wax for seals", "seal", true)]
     [InlineData("Ox", "a draught animal", "ox", true)]
+    [InlineData("Berry", "A berry is a small, pulpy, and often edible fruit", "beach berry", false)]
+    [InlineData("Berry (botany)", "a fruit", "beach berry", false)]
+    [InlineData("Thyme", "an aromatic herb", "arctic thyme", false)]
+    [InlineData("Berry", "the beach berry grows on dunes", "beach berry", true)]
+    [InlineData("Fennec fox", null, "fennec fox", true)]
+    [InlineData("Sea lion", null, "sea lion", true)]
+    [InlineData("Coconut crab", null, "coconut palm", true)]
     public void A_search_hit_is_about_the_name_or_is_not(string title, string? snippet, string name, bool named) =>
         Assert.Equal(named, WikimediaPhotoFinder.Named(title, snippet, name));
 

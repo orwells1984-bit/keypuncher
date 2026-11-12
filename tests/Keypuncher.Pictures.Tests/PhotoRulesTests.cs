@@ -147,4 +147,32 @@ public sealed class PhotoRulesTests
     [Fact]
     public void Words_split_a_file_name_on_what_commons_uses() =>
         Assert.Equal(["sable", "antelope", "hippotragus", "niger", "male", "jpg"], PhotoRules.Words("File:Sable_antelope-(Hippotragus niger), male.jpg"));
+
+    [Theory]
+    [InlineData("File:Flock of sheep.jpg", "sheep")]
+    [InlineData("File:Anas platyrhynchos (mixed pair) (32428014687).jpg", "duck")]
+    [InlineData("File:Eubalaena glacialis with calf.jpg", "whale")]
+    [InlineData("File:Kangaroo and joey03.jpg", "brown kangaroo")]
+    [InlineData("File:Bird Diversity 2011.png", "bird")]
+    [InlineData("File:Leaf Varieties (15 sp).png", "serrated leaf")]
+    [InlineData("File:Mangos - single and halved.jpg", "mango")]
+    [InlineData("File:Zebras in Etosha.jpg", "zebra")]
+    [InlineData("File:Coconut seller in Goa.jpg", "coconut")]
+    public void A_photo_of_several_or_of_the_thing_with_people_is_turned_down(string title, string name)
+    {
+        var verdict = PhotoRules.Vet(Facts(title), RealCategory.Animal, name);
+        Assert.Equal(Rejection.Hard, verdict!.Value.Kind);
+    }
+
+    [Theory]
+    [InlineData("File:Sheep on a hill.jpg", "sheep")]
+    [InlineData("File:Mango Maya.jpg", "mango")]
+    [InlineData("File:Cyanea capillata no.JPG", "jellyfish")]
+    [InlineData("File:Grass snake.jpg", "grass snake")]
+    public void A_photo_of_one_passes_the_group_rule(string title, string name) =>
+        Assert.Null(PhotoRules.Vet(Facts(title), RealCategory.Animal, name));
+
+    [Fact]
+    public void A_category_of_groups_is_turned_down() =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Sheep 12.jpg", categories: "Category:Flocks of sheep in Wales"), RealCategory.Animal, "sheep")!.Value.Kind);
 }
