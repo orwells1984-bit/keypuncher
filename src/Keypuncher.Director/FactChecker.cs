@@ -12,11 +12,13 @@ namespace Keypuncher.Director;
 /// <param name="Kind">What kind of thing the checker says it is, as a <see cref="RealCategory"/> name or "None";
 /// the checker is not told what the pick claims, so this is its own call, compared with the claim afterwards.</param>
 /// <param name="GrowsInto">"true", "false" or "none" for the pick's growsInto claim.</param>
+/// <param name="Spelling">The name as the checker would spell it; see <see cref="FactChecker.Respelt"/>.</param>
 public sealed record FactCheck(
     [property: JsonPropertyName("whatItIs")] string WhatItIs,
     [property: JsonPropertyName("verdict")] string Verdict,
     [property: JsonPropertyName("kind")] string Kind,
-    [property: JsonPropertyName("growsInto")] string GrowsInto)
+    [property: JsonPropertyName("growsInto")] string GrowsInto,
+    [property: JsonPropertyName("spelling")] string? Spelling = null)
 {
     /// <summary>Only a sure "real" of the claimed kind passes; "unsure" counts as no, and so does a puffin
     /// offered as an extinct animal. A vehicle and an everyday object count as each other: the bench found the
@@ -58,9 +60,10 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["whatItIs", "verdict", "kind", "growsInto"],
+          "required": ["whatItIs", "spelling", "verdict", "kind", "growsInto"],
           "properties": {
             "whatItIs": { "type": "string", "maxLength": 80 },
+            "spelling": { "type": "string", "maxLength": 30 },
             "verdict": { "type": "string", "enum": ["real", "fictional", "unsure"] },
             "kind": { "type": "string", "enum": ["Animal", "ExtinctAnimal", "Plant", "Vehicle", "Object", "None"] },
             "growsInto": { "type": "string", "enum": ["true", "false", "none"] }
@@ -71,12 +74,47 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
     private static readonly JsonElement Schema = JsonDocument.Parse(SchemaJson).RootElement.Clone();
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 
+    /// <summary>The line every first or second look carries for <see cref="FactCheck.Spelling"/>.</summary>
+    public const string SpellingLine = "spelling: the name as it is usually spelt in English, in small letters; the same name if it is already right.";
+
+    /// <summary>The checker's spelling of <paramref name="subject"/>, when it is a near miss worth using: a letter or
+    /// two different (a run offered "lilly pillay" for the lilly pilly, and its picture was never found), but not a
+    /// different name, which would be the checker swapping in a thing of its own. Null to keep the author's.</summary>
+    public static string? Respelt(string subject, string? spelling)
+    {
+        if (string.IsNullOrWhiteSpace(spelling)) return null;
+        var tidy = RealThingRules.Tidy(spelling);
+        if (tidy == subject || RealThingRules.SameThing(tidy, subject) || RealThingRules.NameProblem(tidy) is not null) return null;
+        // A letter in five at most, and none in a short name, where one letter makes another word (cat, bat).
+        var most = Math.Min(3, subject.Length / 5);
+        return most > 0 && EditDistance(subject, tidy) <= most ? tidy : null;
+    }
+
+    /// <summary>How many single letters must be added, dropped or changed to turn one word into the other.</summary>
+    public static int EditDistance(string a, string b)
+    {
+        var row = Enumerable.Range(0, b.Length + 1).ToArray();
+        for (var i = 1; i <= a.Length; i++)
+        {
+            var diagonal = row[0];
+            row[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var above = row[j];
+                row[j] = Math.Min(Math.Min(row[j] + 1, row[j - 1] + 1), diagonal + (a[i - 1] == b[j - 1] ? 0 : 1));
+                diagonal = above;
+            }
+        }
+        return row[b.Length];
+    }
+
     public static string Prompt(string subject, string? growsInto) =>
         $"""
         Name: "{subject}"
         Said to grow or turn into: {(growsInto is null ? "nothing" : $"\"{growsInto}\"")}
 
         whatItIs: say in a few plain words what this is, or "unknown".
+        {SpellingLine}
         verdict: "real" only if it is a real kind of animal, plant, vehicle or everyday object that exists today,
         or an animal known from fossils or history. "fictional" if it comes from myths, fairy tales, stories,
         films, cartoons, games or toys, if it is a character or a brand, or if the name is made up or blends two
@@ -166,6 +204,7 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
         Is this a real kind of {(claimed == RealCategory.Plant ? "plant, flower, tree, fruit or vegetable" : "animal")}, living somewhere in the world today or known from fossils?
 
         whatItIs: say in a few plain words what it is, or "unknown".
+        {SpellingLine}
         verdict: "real" if you recognise the name as a real kind of {(claimed == RealCategory.Plant ? "plant" : "animal")}, even a little-known one;
         "fictional" if it comes from myths, stories, films, games or toys, is a character or a brand, or is a
         made-up or blended name; "unsure" only if you have never heard of it.
@@ -181,6 +220,7 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
         Said to grow or turn into: {(growsInto is null ? "nothing" : $"\"{growsInto}\"")}
 
         whatItIs: say in a few plain words what this is, or "unknown".
+        {SpellingLine}
         verdict: "real" if you recognise the name as a real kind of animal, plant, vehicle or everyday object, even a
         little-known one, or an animal known from fossils or history; "fictional" if it comes from myths, fairy
         tales, stories, films, cartoons, games or toys, is a character or a brand, or is a made-up or blended name;
@@ -204,7 +244,7 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
     {
         // A well-known name of the kind claimed needs no call; a growth claim on it is not confirmed, so it is dropped.
         if (TrustWellKnown && claimed is { } c && RealThingRules.WellKnownKind(subject) is { } known && FactCheck.SameKind(known, c))
-            return new FactCheck("well known", "real", known.ToString(), growsInto is null ? "none" : "false");
+            return new FactCheck("well known", "real", known.ToString(), growsInto is null ? "none" : "false", subject);
         var (system, user) = FirstLook(subject, growsInto);
         var first = await AskAsync(system, user, cancellationToken);
         if (_variant.GentleChecker) return first;

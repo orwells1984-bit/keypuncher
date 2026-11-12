@@ -81,11 +81,18 @@ public sealed class PictureJobs : IDisposable
         var slug = Slugs.For(name);
         try
         {
-            if (_folder.Wanted.Get(slug) is null)
+            // A guess gives way to what is known: the kind a grown-up chose, or one the director said before. Every start
+            // used to queue the world's things by guess and fetch a plastic straw and a safari jeep as animals.
+            var wanted = _folder.Wanted.Get(slug);
+            if (categoryGuessed && (_folder.Cards.Get(slug)?.Category ?? (wanted is { CategoryGuessed: false } ? wanted.Category : (RealCategory?)null)) is { } known)
+                (category, categoryGuessed) = (known, false);
+            if (wanted is null)
             {
                 if (_folder.HasPicture(slug) || _folder.IsHidden(slug)) return false;
                 _folder.Wanted.Add(name, category, _clock(), categoryGuessed);
             }
+            else if (!categoryGuessed)
+                _folder.Wanted.Add(name, category, _clock());
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

@@ -303,14 +303,21 @@ public sealed class WantedList
         lock (_lock) return Entries().GetValueOrDefault(slug);
     }
 
-    /// <summary>Adds a thing unless it is listed already; returns the entry.</summary>
+    /// <summary>Adds a thing unless it is listed already; returns the entry. A known category replaces a listed one
+    /// that was guessed or differs; a guess never replaces anything.</summary>
     public WantedEntry Add(string name, RealCategory category, DateTime now, bool categoryGuessed = false)
     {
         lock (_lock)
         {
             var slug = Slugs.For(name);
             var entries = Entries();
-            if (entries.TryGetValue(slug, out var had)) return had;
+            if (entries.TryGetValue(slug, out var had))
+            {
+                if (categoryGuessed || (!had.CategoryGuessed && had.Category == category)) return had;
+                entries[slug] = had = had with { Category = category, CategoryGuessed = false };
+                Save();
+                return had;
+            }
             var entry = new WantedEntry(slug, name, category, now) { CategoryGuessed = categoryGuessed };
             entries[slug] = entry;
             Save();

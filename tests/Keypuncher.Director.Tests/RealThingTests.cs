@@ -16,7 +16,7 @@ public class RealThingTests
     public void Schema_asks_what_the_thing_is_before_how_it_looks()
     {
         var order = RealThingSchema.Element.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
-        Assert.Equal(["subject", "category", "fact"], order.Take(3));
+        Assert.Equal(["ideas", "subject", "category", "fact"], order.Take(4));
         Assert.DoesNotContain("Burst", RealThingSchema.Element.GetProperty("properties").GetProperty("motion").ToString());
     }
 
