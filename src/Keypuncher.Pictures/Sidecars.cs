@@ -28,6 +28,9 @@ public sealed record PictureSidecar(
     /// moves under <c>more/</c>; a grown-up's choice of a picture for a rung names it by this. The first is 1.</summary>
     [JsonPropertyName("id")] public int Id { get; init; } = 1;
     [JsonPropertyName("hidden")] public bool Hidden { get; init; }
+    /// <summary>Whether a grown-up put this picture back after it was taken out of play: the checker's verdict on it is
+    /// then shown and no more, as for a picture a grown-up chose.</summary>
+    [JsonPropertyName("shownByGrownUp")] public bool ShownByGrownUp { get; init; }
     [JsonPropertyName("photo")] public PhotoProvenance? Photo { get; init; }
     [JsonPropertyName("generated")] public GenerationProvenance? Generated { get; init; }
     [JsonPropertyName("check")] public VisionCheck? Check { get; init; }
@@ -83,7 +86,12 @@ public sealed record VisionCheck(
     [property: JsonPropertyName("passed")] bool Passed,
     [property: JsonPropertyName("confidence")] double Confidence,
     [property: JsonPropertyName("saw")] string Saw,
-    [property: JsonPropertyName("at")] DateTime At);
+    [property: JsonPropertyName("at")] DateTime At)
+{
+    /// <summary>Which rules the verdict was made under (<see cref="PictureChecks.Rules"/>); 0 for a verdict from before
+    /// they were numbered. A picture checked under older rules is checked again.</summary>
+    [JsonPropertyName("rules")] public int Rules { get; init; }
+}
 
 /// <summary>A real thing the toy would like a picture of, and why it has none yet.</summary>
 public sealed record WantedEntry(

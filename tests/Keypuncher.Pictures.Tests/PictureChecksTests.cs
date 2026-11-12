@@ -260,6 +260,54 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Equal(("Tyrannosaurus", RealCategory.ExtinctAnimal), _checker.Asked.Single());
     }
 
+    [Fact]
+    public async Task A_picture_checked_under_older_rules_is_checked_again()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Checks().CheckAsync("fish");
+        Assert.Equal(PictureChecks.Rules, _folder.ReadSidecar("fish")!.Check!.Rules);
+        Assert.Empty(Checks().Unchecked());
+
+        // A verdict from before the rules were numbered, as on the family desktop: a school of fish passed as one.
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+
+        Assert.Equal("fish", Assert.Single(Checks().Unchecked()).Slug);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        Assert.False(_folder.HasPicture("fish"));
+        Assert.True(_folder.IsHidden("fish"));
+    }
+
+    [Fact]
+    public async Task A_picture_a_grown_up_put_back_stays_in_play_when_checked_again()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _folder.Unhide("fish");
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+
+        await Checks().CheckAsync("fish");
+
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.Check!.Passed);
+    }
+
+    [Fact]
+    public async Task Pictures_never_checked_come_before_those_checked_under_older_rules()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Checks().CheckAsync("fish");
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("trout", RealCategory.Animal);
+
+        Assert.Equal(["trout", "fish"], Checks().Unchecked().Select(p => p.Slug));
+    }
+
     private sealed class Checker : IVisionChecker
     {
         public string Model => "gemma3:4b";

@@ -278,7 +278,9 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 var word = words[i];
                 if (Negations.Contains(word)) break;
                 if (own.Contains(word)) continue;
-                if (category == RealCategory.ExtinctAnimal && Art.Contains(word)) continue;
+                if (category == RealCategory.ExtinctAnimal && (Art.Contains(word) || Made.Contains(word))) continue;
+                if (Made.Contains(word)) return word;
+                if (category != RealCategory.Object && Cloth.Contains(word)) return word;
                 if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
                 if (word is "skull" && !(i > 0 && words[i - 1] is "and")) return word;
                 if (category is RealCategory.Vehicle or RealCategory.Object && Living.Contains(word)) return word;
@@ -338,6 +340,11 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "crate", "basket", "dish",
         "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
     ];
+    /// <summary>Words that say the picture is a made copy of the thing, not the thing: the plaid cloth that was "a coconut
+    /// palm, depicted as a 3D model" passed before these counted. A model is how an extinct animal is shown, so not for it.</summary>
+    private static readonly HashSet<string> Made = ["model", "models", "figurine", "figurines", "replica", "toy", "toys", "plush", "render", "rendered", "rendering", "cgi", "sculpture"];
+    /// <summary>Words that say a living thing or a vehicle is in fact cloth (the coconut sellers' plaid cloth); an object may be cloth.</summary>
+    private static readonly HashSet<string> Cloth = ["fabric", "cloth", "textile", "plaid", "tartan", "blanket", "quilt"];
     /// <summary>Words that say a vehicle or an object is in fact a living thing (the "paddle boat" that was a duck).</summary>
     private static readonly HashSet<string> Living = ["animal", "creature", "bird", "mammal", "reptile", "insect", "fur", "feathers", "beak", "paws", "snout", "whiskers"];
     private static readonly HashSet<string> PlantPart = ["branch", "twig", "sprig"];

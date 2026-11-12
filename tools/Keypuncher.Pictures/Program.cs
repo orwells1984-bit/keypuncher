@@ -112,7 +112,7 @@ async Task<int> CheckAsync(string? slug)
     if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
     var checker = Checker();
     var checks = new PictureChecks(folder, checker, note: line => Console.WriteLine("  " + line));
-    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || p.Check is null).Select(p => p.Slug).ToList();
+    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || PictureChecks.Stale(p.Check)).Select(p => p.Slug).ToList();
     Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
     int passed = 0, flagged = 0, silent = 0;
     foreach (var s in slugs)

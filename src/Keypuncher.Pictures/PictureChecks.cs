@@ -27,11 +27,20 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     /// <summary>The "model" recorded on a check the cut-out floor made without asking the checker.</summary>
     public const string CutOutRule = "cut-out rule";
 
+    /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
+    /// enough that old verdicts should not stand: 1 (November 2026) added the count of the thing in the photo itself
+    /// and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.</summary>
+    public const int Rules = 1;
+
     public string Model => checker.Model;
 
-    /// <summary>The pictures in play the checker has not seen yet, newest first: what a play has just fetched.</summary>
+    /// <summary>The pictures in play the checker has not seen yet, or saw under older rules, newest first: what a play
+    /// has just fetched, then what the old rules let through.</summary>
     public IReadOnlyList<PictureSidecar> Unchecked() =>
-        [.. folder.All().Where(p => p.Check is null && folder.HasPicture(p.Slug))];
+        [.. folder.All().Where(p => Stale(p.Check) && folder.HasPicture(p.Slug)).OrderBy(p => p.Check is null ? 0 : 1)];
+
+    /// <summary>Whether a verdict is missing or was made under older rules.</summary>
+    public static bool Stale(VisionCheck? check) => check is null || check.Rules < Rules;
 
     /// <summary>Shows a picture (in play or hidden) to the checker, records its verdict and, on a fail, takes it out of
     /// play and asks for another. Null when there is no such picture or the checker did not answer.</summary>
@@ -65,6 +74,7 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             }
             if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }
         }
+        check = check with { Rules = Rules };
         var current = folder.ReadSidecar(sidecar.Slug) ?? sidecar;
         if (current.Id != sidecar.Id)
         {
@@ -79,9 +89,9 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}");
             return check;
         }
-        if (current.Source == PictureSource.Hand || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
+        if (current.Source == PictureSource.Hand || current.ShownByGrownUp || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
         {
-            // A grown-up looked at this picture and chose it; the checker's doubt is shown to them, and that is all.
+            // A grown-up looked at this picture and chose it, or put it back; the checker's doubt is shown to them, and that is all.
             Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
             return check;
         }

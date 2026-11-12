@@ -326,6 +326,10 @@ public sealed class OllamaVisionTests
     [InlineData("a detailed drawing of a paddle boat from an older document", "paddle boat", RealCategory.Vehicle, "drawing")]
     [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
+    [InlineData("a single, complete coconut palm, depicted as a 3D model with a blue and red plaid texture", "coconut palm", RealCategory.Plant, "model")]
+    [InlineData("a whole, unblemished coconut, appearing to be a realistic model", "coconut", RealCategory.Plant, "model")]
+    [InlineData("a folded blue and red plaid cloth", "coconut", RealCategory.Plant, "plaid")]
+    [InlineData("a plastic toy giraffe", "giraffe", RealCategory.Animal, "toy")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
     {
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
@@ -358,6 +362,9 @@ public sealed class OllamaVisionTests
     [InlineData("a wooden rowing boat with two oars", "rowing boat", RealCategory.Vehicle)]
     [InlineData("a black and white drawing of a single, complete great auk", "great auk", RealCategory.ExtinctAnimal)]
     [InlineData("a watercolor painting of one brachiosaurus dinosaur", "brachiosaurus", RealCategory.ExtinctAnimal)]
+    [InlineData("a realistic-looking cut-out model of a single, complete ankylosaurus dinosaur", "ankylosaurus", RealCategory.ExtinctAnimal)]
+    [InlineData("a stack of folded cotton towels, soft fabric", "beach towel", RealCategory.Object)]
+    [InlineData("a single cow, not a toy or a model", "cow", RealCategory.Animal)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
