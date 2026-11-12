@@ -108,6 +108,44 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return check with { Passed = false, Confidence = 0, Saw = $"{check.Saw} [{what}not all of the {name} in the photo]" };
     }
 
+    /// <summary>The count asked of the photo itself (not the cut-out): how many of the thing it shows. On the family
+    /// desktop gemma3, shown a cut-out, called a school of surgeonfish "a single blue tang", eight merged sheep "a single
+    /// sheep" and two whales "one complete whale"; a photo of a herd or a mother with her young is what makes those
+    /// cut-outs, and counting in a plain photo is what such a model does best.</summary>
+    public static string CountQuestion(string name) =>
+        $"This photo is meant to show a {name}. Answer in JSON. count: how many separate {name} you can see in the photo, " +
+        $"counting each one, also young, small, far away or partly hidden ones. Count only whole {name}, not their parts.";
+
+    /// <summary>The JSON shape the count must answer in.</summary>
+    public static JsonObject CountSchema() => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject { ["count"] = new JsonObject { ["type"] = "integer" } },
+        ["required"] = new JsonArray("count"),
+    };
+
+    /// <summary>One raw question, for the console tool's <c>probe</c>, which tries questions on a set of pictures without
+    /// acting on any answer.</summary>
+    public Task<string?> AskRawAsync(string content, IEnumerable<byte[]> images, JsonObject? format, CancellationToken ct = default) =>
+        AskAsync(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = content, ["images"] = new JsonArray([.. images.Select(i => (JsonNode)Convert.ToBase64String(i))]) }), format, ct);
+
+    /// <summary>As <see cref="AskRawAsync"/>, with the description asked first and the verdict after it, as a check does.</summary>
+    public async Task<(string? Saw, string? Verdict)> AskDescribedAsync(string question, byte[] png, string name, CancellationToken ct = default)
+    {
+        var ask = new JsonObject { ["role"] = "user", ["content"] = question, ["images"] = new JsonArray(Convert.ToBase64String(png)) };
+        var saw = await AskAsync(new JsonArray(ask), null, ct);
+        if (saw is null) return (null, null);
+        var verdict = await AskAsync(new JsonArray(ask.DeepClone(), new JsonObject { ["role"] = "assistant", ["content"] = saw }, new JsonObject { ["role"] = "user", ["content"] = Verdict(name) }), Schema(), ct);
+        return (saw, verdict);
+    }
+
+    /// <summary>The first question without saying what the picture should show (only what it is meant to be), for the
+    /// probe: whether "should show exactly one whole" leads the model to see one.</summary>
+    public static string PlainQuestion(string name, RealCategory category) =>
+        $"This cut-out picture is meant to be a {name} ({Describe(category)}). " +
+        $"Describe what you actually see in one or two sentences: what it is, how many there are, whether anything else is in the picture, " +
+        $"and whether it is cut, cooked, a model, a fossil or a drawing. Answer with the description only.";
+
     private async Task<string?> AskAsync(JsonArray messages, JsonObject? format, CancellationToken ct)
     {
         var body = new JsonObject

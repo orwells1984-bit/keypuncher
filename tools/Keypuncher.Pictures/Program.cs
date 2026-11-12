@@ -74,8 +74,10 @@ switch (verb)
         return await CheckAsync(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null);
     case "nightly":
         return await NightlyAsync();
+    case "probe":
+        return await ProbeAsync(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : "probe.jsonl");
     default:
-        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, things, choose, generate, check, nightly");
+        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, things, choose, generate, check, nightly, probe");
         return 1;
 }
 
@@ -124,6 +126,48 @@ async Task<int> CheckAsync(string? slug)
     }
     Console.WriteLine($"{passed} look right, {flagged} taken out of play (another photo is wanted for each), {silent} unanswered");
     return 0;
+}
+
+// Tries the checker's questions on every picture in play and writes the raw answers, one JSON line a picture, to the
+// file given; acts on nothing. For tuning the questions against pictures whose right answer is known.
+async Task<int> ProbeAsync(string outPath)
+{
+    if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
+    var vision = new OllamaVision(new HttpClient { BaseAddress = OllamaHost(), Timeout = TimeSpan.FromMinutes(3) }, options.CheckModel);
+    var pictures = folder.All().Where(p => folder.HasPicture(p.Slug)).ToList();
+    Console.WriteLine($"{pictures.Count} pictures to probe with {vision.Model} into {outPath}");
+    using var output = new StreamWriter(outPath, append: false);
+    foreach (var p in pictures)
+    {
+        var (real, category) = ToyNames.LookUp(p.Name, folder.Cards.Get(p.Slug)?.Category ?? p.Category);
+        var png = File.ReadAllBytes(folder.PicturePath(p.Slug));
+        var photo = folder.FindRaw(p.Slug) is { } raw ? Shrunk(File.ReadAllBytes(raw)) : null;
+        var watch = Stopwatch.StartNew();
+        var (sawA, verdictA) = await vision.AskDescribedAsync(OllamaVision.Question(real, category), png, real);
+        var (sawB, verdictB) = await vision.AskDescribedAsync(OllamaVision.PlainQuestion(real, category), png, real);
+        string? count = null, compare = null;
+        if (photo is not null)
+        {
+            count = await vision.AskRawAsync(OllamaVision.CountQuestion(real), [photo], OllamaVision.CountSchema());
+            compare = await vision.AskRawAsync(OllamaVision.Compare(real), [photo, png], OllamaVision.CompareSchema());
+        }
+        var line = JsonSerializer.Serialize(new { slug = p.Slug, name = real, category = category.ToString(), sawA, verdictA, sawB, verdictB, count, compare, seconds = watch.Elapsed.TotalSeconds });
+        await output.WriteLineAsync(line);
+        await output.FlushAsync();
+        Console.WriteLine($"{p.Slug}: {watch.Elapsed.TotalSeconds:0} s; count {count}");
+    }
+    return 0;
+
+    static byte[]? Shrunk(byte[] bytes)
+    {
+        using var photo = PhotoFetcher.Decode(bytes);
+        if (photo is null) return null;
+        var scale = Math.Min(1.0, PictureChecks.MaxPhotoSide / (double)Math.Max(photo.Width, photo.Height));
+        var info = new SkiaSharp.SKImageInfo(Math.Max(1, (int)Math.Round(photo.Width * scale)), Math.Max(1, (int)Math.Round(photo.Height * scale)), SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Unpremul);
+        using var small = scale < 1 ? photo.Resize(info, new SkiaSharp.SKSamplingOptions(SkiaSharp.SKCubicResampler.Mitchell)) : photo.Copy();
+        using var data = small?.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
+        return data?.ToArray();
+    }
 }
 
 async Task<int> NightlyAsync()
