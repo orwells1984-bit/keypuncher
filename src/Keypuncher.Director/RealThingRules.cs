@@ -21,6 +21,10 @@ namespace Keypuncher.Director;
 /// confirmed as really found there by <see cref="FactChecker.FitsAsync"/>.</param>
 /// <param name="Landscape">What the scene looks like, when it is known: a lake takes no sea creatures, a desert no
 /// fish (<see cref="Habitat"/>).</param>
+/// <param name="Been">What this family has been earlier in the play, so it does not grow back into one of them: a
+/// coconut grew into a coconut palm and straight back into a coconut (Nov 2026).</param>
+/// <param name="TurnedDownBefore">Picks turned down by earlier requests in this play for reasons that still hold (not
+/// real, a place, not found here), so the model is told and the same name is not checked again.</param>
 public sealed record DirectorRequest(
     int Slot,
     RecipeKind Kind,
@@ -31,7 +35,21 @@ public sealed record DirectorRequest(
     string? Place = null,
     string? MustBe = null,
     string? Here = null,
-    Landscape? Landscape = null);
+    Landscape? Landscape = null,
+    IReadOnlyList<string>? Been = null,
+    IReadOnlyList<TurnedDown>? TurnedDownBefore = null)
+{
+    /// <summary>The earlier refusal of <paramref name="name"/> that still holds for this request, if any: one about where
+    /// the scene is counts only while the scene is still there.</summary>
+    public TurnedDown? TurnedDownEarlier(string name) =>
+        TurnedDownBefore?.FirstOrDefault(t => RealThingRules.SameThing(t.Name, name) && (t.Here is null || t.Here == Here));
+}
+
+/// <summary>A pick turned down for a reason that outlasts its request.</summary>
+/// <param name="Why">As the next prompt puts it: "not real", "not found at Bondi Beach, Australia".</param>
+/// <param name="Category">What it was offered as, so only requests for the same kind of thing are told of it.</param>
+/// <param name="Here">The place the refusal was about, or null when it holds anywhere.</param>
+public sealed record TurnedDown(string Name, string Why, RealCategory Category, string? Here = null);
 
 /// <summary>
 /// The checks a pick must pass before anything is asked about whether it is real. They cannot prove a thing
@@ -75,6 +93,15 @@ public static class RealThingRules
 
     /// <summary>Group words that end a description rather than a name: "sea animal", "flying reptile".</summary>
     private static readonly HashSet<string> GroupEndings = ["animal", "animals", "creature", "creatures", "reptile", "reptiles", "mammal", "mammals", "beast", "species", "dinosaur", "dinosaurs", "thing", "vehicle", "vehicles", "object", "objects"];
+    /// <summary>Last words that make a name a place rather than a thing in it: offered a plant that grows at Bondi Beach,
+    /// the model answered "bondi beach" (Nov 2026). Things whose name only starts with one (beach ball, sea lion) pass.</summary>
+    private static readonly HashSet<string> PlaceEndings =
+    [
+        "beach", "lake", "forest", "woods", "mountain", "mountains", "desert", "island", "river", "meadow", "jungle",
+        "savanna", "savannah", "valley", "bay", "coast", "shore", "sea", "ocean", "park", "lagoon",
+        "glacier", "canyon", "hills", "plain", "plains", "reef",
+    ];
+
     /// <summary>What the model hands back when it echoes the schema instead of answering: in a run it offered
     /// "string" three times for a vehicle.</summary>
     private static readonly HashSet<string> Placeholders = ["string", "name", "subject", "text", "example", "placeholder", "item", "value", "unknown", "tbd"];
@@ -275,6 +302,7 @@ public static class RealThingRules
         var parts = name.Split(' ');
         if (GroupWords.Contains(name) || parts.Any(DescribingWords.Contains) || GroupEndings.Contains(parts[^1]))
             return "too general, not one kind";
+        if (PlaceEndings.Contains(parts[^1])) return "the place, not a thing in it";
         if (RealDespiteTheWord.Contains(name)) return null;
         var words = name.Split(' ', '-');
         if (FantasyWords.Contains(name) || words.Any(FantasyWords.Contains)) return "from a story, not real";
@@ -298,7 +326,17 @@ public static class RealThingRules
             return false;
         }
         if (parsed is null) { error = "empty"; return false; }
+        return TryBuild(parsed, request, out pick, out recipe, out error);
+    }
 
+    /// <summary>A pick and a recipe for <paramref name="request"/>'s family from a parsed answer, or why not.</summary>
+    /// <param name="refiled">The pick is being filed under the kind the checker named rather than the one the author
+    /// was made to answer in (a sand dollar asked for as an object is an animal): the category may differ from the
+    /// request's, and a drawing that does not suit the new kind becomes a plain blob rather than a refusal.</param>
+    public static bool TryBuild(RealThingPick parsed, DirectorRequest request, out RealThingPick? pick, out Recipe? recipe, out string? error, bool refiled = false)
+    {
+        recipe = null;
+        error = null;
         var subject = Tidy(parsed.Subject);
         pick = parsed with { Subject = subject };
         if (NameProblem(subject) is { } problem) { error = problem; return false; }
@@ -315,7 +353,7 @@ public static class RealThingRules
             return false;
         }
 
-        if (parsed.Category != request.Category && request.GrowInto is null)
+        if (parsed.Category != request.Category && request.GrowInto is null && !refiled)
         {
             error = $"not {RealThingPick.Describe(request.Category)}";
             return false;
@@ -328,8 +366,13 @@ public static class RealThingRules
 
         var shape = ShapeByName(subject, parsed.Category) ?? parsed.Shape;
         var living = parsed.Category is RealCategory.Animal or RealCategory.ExtinctAnimal;
+        if (refiled && !RealThingSchema.ShapesFor(parsed.Category, anyAnimal: true).Contains(shape)) shape = Shape.Blob;
         if (shape.IsAnimal() && !living) { error = "an animal shape for a thing that is not an animal"; return false; }
-        if (IsDinosaurShape(shape) && parsed.Category != RealCategory.ExtinctAnimal) { error = "a dinosaur shape for an animal alive today"; return false; }
+        if (IsDinosaurShape(shape) && parsed.Category != RealCategory.ExtinctAnimal)
+        {
+            if (!refiled) { error = "a dinosaur shape for an animal alive today"; return false; }
+            shape = Shape.Blob;
+        }
 
         // Plants stay rooted; nothing in a family bursts, which is for effects.
         var motion = parsed.Motion.Type switch
@@ -341,7 +384,10 @@ public static class RealThingRules
 
         if (!RecipeValidator.IsNote(parsed.Voice.Root)) { error = "root"; return false; }
 
-        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && tidy != subject && NameProblem(tidy) is null ? tidy : null;
+        // A life stage must be something new: not what the family is now or was earlier in the play, and not something
+        // already in the world, which growing would copy (a coconut palm grew into the coconut on another key).
+        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && tidy != subject && NameProblem(tidy) is null
+            && !GrewFrom(tidy, request) ? tidy : null;
         // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
         var fact = new string(parsed.Fact.Trim().Where(c => c < 0x2E80).ToArray());
         pick = pick with { Shape = shape, GrowsInto = grows, Fact = fact };
@@ -355,7 +401,15 @@ public static class RealThingRules
             Motion = motion,
             Voice = parsed.Voice,
             GrowsInto = grows,
+            Category = parsed.Category,
         });
         return true;
     }
+
+    /// <summary>Whether growing into <paramref name="name"/> would go back or copy: it is what the family is now or was
+    /// earlier, or it is already in the world.</summary>
+    public static bool GrewFrom(string name, DirectorRequest request) =>
+        (request.Current is { } now && SameThing(now, name))
+        || (request.Been?.Any(b => SameThing(b, name)) ?? false)
+        || request.Existing.Any(e => SameThing(e, name));
 }

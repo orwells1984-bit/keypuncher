@@ -1,3 +1,4 @@
+using Keypuncher.Core;
 using Keypuncher.Director;
 
 namespace Keypuncher.Pictures.Tests;

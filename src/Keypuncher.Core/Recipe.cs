@@ -16,6 +16,10 @@ public sealed record Recipe
     [JsonPropertyName("motion")] public required Motion Motion { get; init; }
     [JsonPropertyName("voice")] public required Voice Voice { get; init; }
     [JsonPropertyName("growsInto")] public string? GrowsInto { get; init; }
+    /// <summary>What kind of real thing the director confirmed this is, as its checker named it: the author can only
+    /// answer in the category it was asked for, so a beach ball asked for as a vehicle is filed here as an object.
+    /// Null for built-in recipes and for things picked before this was kept, whose kind is guessed from the recipe.</summary>
+    [JsonPropertyName("category")] public RealCategory? Category { get; init; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<RecipeKind>))]

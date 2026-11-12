@@ -5,21 +5,6 @@ using Keypuncher.Core;
 
 namespace Keypuncher.Director;
 
-/// <summary>What kind of real thing a pick is. The kind of recipe follows from it, not from the model.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<RealCategory>))]
-public enum RealCategory
-{
-    /// <summary>A kind of animal alive today.</summary>
-    Animal,
-    /// <summary>An animal known from fossils or history: dinosaurs, mammoths, the dodo.</summary>
-    ExtinctAnimal,
-    /// <summary>A plant, flower, tree, fruit or vegetable.</summary>
-    Plant,
-    Vehicle,
-    /// <summary>A real everyday object: a ball, a kite, a teapot.</summary>
-    Object,
-}
-
 /// <summary>
 /// The model's answer for one key family: a real thing, named, placed in a category, with one fact about it,
 /// then drawn in the recipe vocabulary. The name and fact are never shown to or said to the child; the words
@@ -27,6 +12,11 @@ public enum RealCategory
 /// </summary>
 public sealed record RealThingPick
 {
+    /// <summary>A few things that would answer the request, the subject among them. When the subject is turned down
+    /// for something the next try cannot change by itself (it is in the world already, or the place, or was turned
+    /// down before), the director asks for the first of these that is still free instead: a small model asked
+    /// again tends to give the same answer, and offered "coconut" six times running at a beach (Nov 2026).</summary>
+    [JsonPropertyName("ideas")] public IReadOnlyList<string>? Ideas { get; init; }
     [JsonPropertyName("subject")] public required string Subject { get; init; }
     [JsonPropertyName("category")] public required RealCategory Category { get; init; }
     /// <summary>Where it lives or grows, or when it lived. Asked for so the model grounds the pick in something
@@ -65,16 +55,17 @@ public sealed record RealThingPick
     };
 }
 
-/// <summary>The JSON schema for <see cref="RealThingPick"/>. The name, category and fact come first, so the model
-/// commits to what the thing is before it draws it.</summary>
+/// <summary>The JSON schema for <see cref="RealThingPick"/>. A few ideas, then the name, category and fact come first,
+/// so the model commits to what the thing is before it draws it.</summary>
 public static class RealThingSchema
 {
     public const string Json = """
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["subject", "category", "fact", "shape", "lobes", "hue", "size", "motion", "voice", "growsInto"],
+          "required": ["ideas", "subject", "category", "fact", "shape", "lobes", "hue", "size", "motion", "voice", "growsInto"],
           "properties": {
+            "ideas": { "type": "array", "minItems": 3, "maxItems": 4, "items": { "type": "string", "minLength": 2, "maxLength": 24 } },
             "subject": { "type": "string", "minLength": 2, "maxLength": 24 },
             "category": { "type": "string", "enum": ["Animal", "ExtinctAnimal", "Plant", "Vehicle", "Object"] },
             "fact": { "type": "string", "minLength": 8, "maxLength": 100 },
@@ -123,6 +114,7 @@ public static class RealThingSchema
     /// model the schema it decodes against, so these only help when the schema also goes in the prompt.</summary>
     public static readonly IReadOnlyDictionary<string, string> Descriptions = new Dictionary<string, string>
     {
+        ["ideas"] = "three or four different real things that would answer the request, by their ordinary names, none already in the world",
         ["subject"] = "the thing's ordinary English name in small letters, one to three words, like \"brown trout\", \"oak tree\" or \"fire engine\": one particular kind, never a group word, a place name or a placeholder",
         ["category"] = "what kind of real thing it is",
         ["fact"] = "one short true sentence about where it lives or grows, or when it lived",
