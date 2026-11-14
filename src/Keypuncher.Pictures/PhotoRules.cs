@@ -56,6 +56,28 @@ public static class PhotoRules
         "wood of", "bark of", "svg", "range map", "distribution map", "locator map", "size comparison",
     ];
 
+    /// <summary>Words in a file name that mean the photo shows more than one of the thing, a mother with her young, the
+    /// thing with people, or the thing cut open. These photos cut out as one blob of several animals (the "Flock of
+    /// sheep", "Anas platyrhynchos (mixed pair)", "Eubalaena glacialis with calf" and "Kangaroo and joey" in play in
+    /// November 2026) or as a montage ("Bird Diversity 2011", "Leaf Varieties (15 sp)"), and the checker, shown the
+    /// cut-out, called most of them one animal.</summary>
+    private static readonly HashSet<string> GroupWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "flock", "flocks", "herd", "herds", "pair", "pairs", "couple", "group", "groups", "pack", "school", "shoal", "swarm",
+        "colony", "family", "families", "together", "mating", "mother", "mom", "calf", "calves", "joey", "foal", "foals",
+        "cub", "cubs", "chicks", "ducklings", "goslings", "puppies", "kittens", "lambs", "litter", "young", "offspring",
+        "diversity", "varieties", "variety", "assortment", "selection", "halved", "half", "halves", "sliced", "slices",
+        "market", "vendor", "vendors", "seller", "sellers", "people", "woman", "women", "girl", "girls", "boy", "boys",
+        "children", "child", "farmer", "farmers", "holding", "hand", "hands",
+    };
+
+    /// <summary>Category name beginnings that mean the same.</summary>
+    private static readonly string[] GroupCategories =
+    [
+        "groups of", "flocks of", "herds of", "pairs of", "schools of", "shoals of", "mothers and", "animals with young",
+        "people with", "women with", "men with", "children with", "markets", "street vendors", "fruit vendors",
+    ];
+
     /// <summary>For an extinct animal there is no photo of the living thing: a life restoration is what we want, and the
     /// usual lead image (a skeleton, a mummified find) is what we do not.</summary>
     private static readonly string[] ExtinctHardWords = ["skeleton", "skull", "fossil", "bone", "bones", "mounted", "mummy", "mummified", "carcass", "permafrost", "specimen", "skeletal"];
@@ -80,6 +102,8 @@ public static class PhotoRules
         var words = WithoutPhrase(Words(facts.FileTitle).ToList(), name is null ? [] : Words(name).ToList());
         var categories = facts.Categories.Select(c => c.StartsWith("Category:") ? c[9..] : c).Select(c => c.ToLowerInvariant()).ToList();
 
+        if (Group(words, categories, name) is { } group) return (Rejection.Hard, group);
+
         if (category == RealCategory.ExtinctAnimal)
         {
             if (words.Any(w => ExtinctHardWords.Contains(w)) || categories.Any(c => ExtinctHardWords.Any(c.Contains)))
@@ -95,6 +119,21 @@ public static class PhotoRules
         if (words.FirstOrDefault(w => BadWords.Contains(w)) is { } bad) return (Rejection.Hard, $"file name says {bad}");
         if (categories.FirstOrDefault(c => BadCategories.Any(c.StartsWith)) is { } badCategory) return (Rejection.Hard, $"in category {badCategory}");
         if (words.Any(w => ArtWords.Contains(w)) || categories.Any(c => ArtWords.Any(a => c.Contains(a)))) return (Rejection.Soft, "a drawing or painting rather than a photo");
+        return null;
+    }
+
+    /// <summary>Why the file shows more than one of the thing (or the thing with people, or cut open), or null: a group
+    /// word, a group category, or the name's own last word in the plural ("Mangos - single and halved", "Zebras in
+    /// Etosha").</summary>
+    private static string? Group(List<string> words, List<string> categories, string? name)
+    {
+        // A number run onto a word ("joey03") is the uploader's numbering.
+        words = [.. words.Select(w => w.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')).Where(w => w.Length > 0)];
+        if (words.FirstOrDefault(GroupWords.Contains) is { } word) return $"file name says {word}: more than one, or not on its own";
+        if (categories.FirstOrDefault(c => GroupCategories.Any(c.StartsWith)) is { } category) return $"in category {category}: more than one, or not on its own";
+        if (name is not null && Words(name).LastOrDefault() is { Length: >= 3 } last
+            && words.FirstOrDefault(w => !w.Equals(last, StringComparison.OrdinalIgnoreCase) && OllamaVision.Singular(w) == last) is { } plural)
+            return $"file name says {plural}: more than one";
         return null;
     }
 

@@ -22,6 +22,8 @@
 //                                                                               photo sources gave up on, cut it out, and have gemma3 check it
 //   dotnet run --project tools/Keypuncher.Pictures -- check [slug] [--again]    show pictures to gemma3; one it fails is taken out of play and
 //                                                                               another photo is wanted (put it back with 'show <slug>')
+//   dotnet run --project tools/Keypuncher.Pictures -- probe [file.jsonl]        ask gemma3 about every picture in play and write what it said;
+//                                                                               changes nothing (for tuning the checker's question)
 //   dotnet run --project tools/Keypuncher.Pictures -- nightly [--until HH:mm]   fetch, then generate, then check what is unchecked, then fetch
 //                                                                               replacements for what the check turned down
 //
@@ -74,8 +76,10 @@ switch (verb)
         return await CheckAsync(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null);
     case "nightly":
         return await NightlyAsync();
+    case "probe":
+        return await ProbeAsync(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : "probe.jsonl");
     default:
-        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, things, choose, generate, check, nightly");
+        Console.WriteLine("verbs: wanted, fetch, dryrun, model, recut, hide, show, things, choose, generate, check, nightly, probe");
         return 1;
 }
 
@@ -110,7 +114,7 @@ async Task<int> CheckAsync(string? slug)
     if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
     var checker = Checker();
     var checks = new PictureChecks(folder, checker, note: line => Console.WriteLine("  " + line));
-    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || p.Check is null).Select(p => p.Slug).ToList();
+    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || PictureChecks.Stale(p.Check)).Select(p => p.Slug).ToList();
     Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
     int passed = 0, flagged = 0, silent = 0;
     foreach (var s in slugs)
@@ -123,6 +127,29 @@ async Task<int> CheckAsync(string? slug)
         else flagged++;
     }
     Console.WriteLine($"{passed} look right, {flagged} taken out of play (another photo is wanted for each), {silent} unanswered");
+    return 0;
+}
+
+// Asks the checker's question about every picture in play and writes the raw answers and the verdict they come to,
+// one JSON line a picture, to the file given; acts on nothing. For tuning the question against pictures whose right
+// answer is known.
+async Task<int> ProbeAsync(string outPath)
+{
+    if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
+    var vision = new OllamaVision(new HttpClient { BaseAddress = OllamaHost(), Timeout = TimeSpan.FromMinutes(3) }, options.CheckModel);
+    var pictures = folder.All().Where(p => folder.HasPicture(p.Slug)).ToList();
+    Console.WriteLine($"{pictures.Count} pictures to probe with {vision.Model} into {outPath}");
+    using var output = new StreamWriter(outPath, append: false);
+    foreach (var p in pictures)
+    {
+        var (real, category) = ToyNames.LookUp(p.Name, folder.Cards.Get(p.Slug)?.Category ?? p.Category);
+        var watch = Stopwatch.StartNew();
+        var (saw, verdict) = await vision.AskDescribedAsync(OllamaVision.Question(real, category), File.ReadAllBytes(folder.PicturePath(p.Slug)), real);
+        var check = saw is null ? null : OllamaVision.Read(saw.Trim(), verdict, vision.Model, DateTime.Now, real, category);
+        await output.WriteLineAsync(JsonSerializer.Serialize(new { slug = p.Slug, name = real, category = category.ToString(), saw, verdict, passed = check?.Passed, why = check?.Saw, seconds = watch.Elapsed.TotalSeconds }));
+        await output.FlushAsync();
+        Console.WriteLine($"{p.Slug}: {(check is null ? "no answer" : check.Passed ? "passes" : "FAILS")} in {watch.Elapsed.TotalSeconds:0} s");
+    }
     return 0;
 }
 

@@ -320,8 +320,14 @@ public sealed class ToyHost : IDisposable
         _checking.LogFailures("pictures", "checking new pictures");
     }
 
-    /// <summary>The longest Quit waits for a picture check under way: about twenty pictures.</summary>
-    public static readonly TimeSpan MaxPictureCheckOnQuit = TimeSpan.FromMinutes(2);
+    /// <summary>The longest Quit waits for a picture check under way: the picture being looked at, about. It was two
+    /// minutes, and on 2026-11-14 a check that could not get the card (the director's model was still loading) held
+    /// "Finishing the picture check..." until the toy was closed by force.</summary>
+    public static readonly TimeSpan MaxPictureCheckOnQuit = TimeSpan.FromSeconds(15);
+
+    /// <summary>The longest the check waits for the director to finish a pick before it starts: Ollama holds one model,
+    /// so a check started under a pick waits for the card and runs out of time.</summary>
+    public static readonly TimeSpan MaxWaitForDirector = TimeSpan.FromSeconds(90);
 
     /// <summary>True while the vision model is looking at new pictures.</summary>
     public bool PictureCheckRunning => _checking is { IsCompleted: false };
@@ -334,7 +340,11 @@ public sealed class ToyHost : IDisposable
         if (_checking is not { IsCompleted: false } checking) return true;
         Log.Info("pictures", "waiting for the picture check before quitting");
         var finished = await Task.WhenAny(checking, Task.Delay(max)).ConfigureAwait(false) == checking;
-        if (!finished) Log.Info("pictures", $"the picture check took longer than {max.TotalMinutes:0} min; the rest wait for next time");
+        if (!finished)
+        {
+            Log.Info("pictures", $"the picture check took longer than {max.TotalSeconds:0} s; it is stopped and the rest wait for next time");
+            Log.Safely("pictures", "stopping the picture check", _stopChecks.Cancel);
+        }
         return finished;
     }
 
@@ -351,8 +361,17 @@ public sealed class ToyHost : IDisposable
             Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {checks.Model} is not installed in Ollama (the grown-ups' page can download it)");
             return;
         }
+        // The director's model and the checker cannot share the card; a pick under way is let finish first.
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (Director.Busy && waited.Elapsed < MaxWaitForDirector && !_quitting)
+            await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+        if (Director.Busy || _quitting)
+        {
+            Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {(_quitting ? "the toy is closing" : "the director is still choosing")}; they wait for next time");
+            return;
+        }
         Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
-        int passed = 0, failed = 0, silent = 0;
+        int passed = 0, failed = 0;
         try
         {
             foreach (var picture in todo)
@@ -361,8 +380,9 @@ public sealed class ToyHost : IDisposable
                 var check = await checks.CheckAsync(picture.Slug, ct).ConfigureAwait(false);
                 if (check is null)
                 {
-                    if (++silent >= 2) { Story($"the picture checker ({checks.Model}) is not answering; the rest wait for next time"); break; }
-                    continue;
+                    // One that did not answer in its two minutes means the card is taken; the next would wait as long.
+                    Story($"the picture checker ({checks.Model}) is not answering; the rest wait for next time");
+                    break;
                 }
                 if (check.Passed) { passed++; continue; }
                 failed++;

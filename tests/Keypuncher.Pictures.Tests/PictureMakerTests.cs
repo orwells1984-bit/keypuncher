@@ -232,12 +232,10 @@ public sealed class PictureMakerTests : IDisposable
         public bool Answer { get; set; } = true;
         public string Saw { get; set; } = "a sailboat";
         public List<(string Name, RealCategory Category)> Asked { get; } = [];
-        public List<byte[]?> Photos { get; } = [];
 
-        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
+        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
         {
             Asked.Add((name, category));
-            Photos.Add(photo);
             return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 0.9 : 0.3, Saw, new DateTime(2026, 11, 7, 1, 5, 0)) : null);
         }
     }
@@ -327,6 +325,10 @@ public sealed class OllamaVisionTests
     [InlineData("a detailed drawing of a paddle boat from an older document", "paddle boat", RealCategory.Vehicle, "drawing")]
     [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
+    [InlineData("a single, complete coconut palm, depicted as a 3D model with a blue and red plaid texture", "coconut palm", RealCategory.Plant, "model")]
+    [InlineData("a whole, unblemished coconut, appearing to be a realistic model", "coconut", RealCategory.Plant, "model")]
+    [InlineData("a folded blue and red plaid cloth", "coconut", RealCategory.Plant, "plaid")]
+    [InlineData("a plastic toy giraffe", "giraffe", RealCategory.Animal, "toy")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
     {
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
@@ -359,6 +361,9 @@ public sealed class OllamaVisionTests
     [InlineData("a wooden rowing boat with two oars", "rowing boat", RealCategory.Vehicle)]
     [InlineData("a black and white drawing of a single, complete great auk", "great auk", RealCategory.ExtinctAnimal)]
     [InlineData("a watercolor painting of one brachiosaurus dinosaur", "brachiosaurus", RealCategory.ExtinctAnimal)]
+    [InlineData("a realistic-looking cut-out model of a single, complete ankylosaurus dinosaur", "ankylosaurus", RealCategory.ExtinctAnimal)]
+    [InlineData("a stack of folded cotton towels, soft fabric", "beach towel", RealCategory.Object)]
+    [InlineData("a single cow, not a toy or a model", "cow", RealCategory.Animal)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
@@ -398,76 +403,38 @@ public sealed class OllamaVisionTests
     public void A_rough_singular_is_enough_to_match_the_name(string plural, string singular) =>
         Assert.Equal(singular, OllamaVision.Singular(plural));
 
-    /// <summary>The octopus: shown the white shell from its arms alone, gemma3 saw "a single, complete, live octopus".
-    /// With the photo, a third call shows both and a clear "not all of it" takes the pass away.</summary>
-    [Fact]
-    public async Task With_the_photo_a_passed_cut_out_is_compared_with_it()
-    {
-        var sent = new List<string>();
-        var handler = new RecordingHandler(request =>
-        {
-            sent.Add(request);
-            return sent.Count switch
-            {
-                1 => Reply("A single, complete, live octopus with its tentacles extended."),
-                2 => Reply("""{"count":1,"is_the_thing":true,"whole":true}"""),
-                _ => Reply("""{"kept":"a white shell the octopus is holding.","all_of_it":false}"""),
-            };
-        });
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
-        var png = TestPhotos.Jpeg(32, 32);
-        var photo = TestPhotos.Jpeg(64, 48);
-
-        var check = await new OllamaVision(http).CheckAsync(png, "octopus", RealCategory.Animal, photo);
-
-        Assert.False(check!.Passed);
-        Assert.Equal(0, check.Confidence);
-        Assert.Equal("A single, complete, live octopus with its tentacles extended. [kept a white shell the octopus is holding, not all of the octopus in the photo]", check.Saw);
-        Assert.Equal(3, sent.Count);
-        using var third = JsonDocument.Parse(sent[2]);
-        var messages = third.RootElement.GetProperty("messages");
-        Assert.Equal(1, messages.GetArrayLength());
-        Assert.Equal(OllamaVision.Compare("octopus"), messages[0].GetProperty("content").GetString());
-        var images = messages[0].GetProperty("images");
-        Assert.Equal(Convert.ToBase64String(photo), images[0].GetString());
-        Assert.Equal(Convert.ToBase64String(png), images[1].GetString());
-        Assert.Equal("object", third.RootElement.GetProperty("format").GetProperty("type").GetString());
-    }
-
-    [Fact]
-    public async Task A_cut_out_that_already_failed_is_not_compared()
-    {
-        var sent = 0;
-        var handler = new RecordingHandler(_ => ++sent == 1 ? Reply("two zebras") : Reply("""{"count":2,"is_the_thing":true,"whole":true}"""));
-        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:11434/") };
-
-        var check = await new OllamaVision(http).CheckAsync(TestPhotos.Jpeg(32, 32), "zebra", RealCategory.Animal, TestPhotos.Jpeg(64, 48));
-
-        Assert.False(check!.Passed);
-        Assert.Equal(2, sent);
-    }
-
+    /// <summary>What gemma3 said on the family desktop (November 2026) when told only what each picture is meant to
+    /// be: the groups, the plaid cloth, the leaf chart, the branch of berries and the close-up of watercress flowers fail;
+    /// the single animals and plants pass.
+    /// Told it "should show exactly one", it had called the fish, sheep, dolphins and whales one each.</summary>
     [Theory]
-    [InlineData("""{"kept":"the whole zebra","all_of_it":true}""", true, "one zebra")]
-    [InlineData("""{"kept":"one hoof","all_of_it":false}""", false, "one zebra [kept one hoof, not all of the zebra in the photo]")]
-    [InlineData("""{"all_of_it":false}""", false, "one zebra [not all of the zebra in the photo]")]
-    [InlineData("""{"kept":"the zebra"}""", true, "one zebra")]
-    [InlineData("I think it kept the zebra", true, "one zebra")]
-    [InlineData(null, true, "one zebra")]
-    public void Only_a_clear_no_from_the_comparison_takes_a_pass_away(string? answer, bool passed, string saw)
-    {
-        var check = OllamaVision.Compared(new VisionCheck("gemma3:4b", true, 1, "one zebra", DateTime.UnixEpoch), answer, "zebra");
-        Assert.Equal(passed, check.Passed);
-        Assert.Equal(saw, check.Saw);
-    }
+    [InlineData("fish", RealCategory.Animal, "The image shows a large group of approximately 20-30 blue tang fish, cut out and arranged against a black background, creating a dynamic and colorful underwater scene.", """{"count":20,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("sheep", RealCategory.Animal, "The image shows a group of approximately ten sheep standing closely together in a field, and it is a digital cut-out of the animals.", """{"count":10,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("dolphin", RealCategory.Animal, "This is a cut-out image of two blue dolphins swimming against a black background, appearing as a digital illustration.", """{"count":2,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("whale", RealCategory.Animal, "The image shows two stylized, blue whales cut out from a white background, appearing as a graphic illustration rather than a realistic depiction.", """{"count":2,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("mouse", RealCategory.Animal, "The image shows two white mice lying side-by-side on a plain background, appearing to be a cut-out photograph.", """{"count":2,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("duck", RealCategory.Animal, "The image shows two mallard ducks standing side-by-side on a white background, which appears to be a cut-out.", """{"count":2,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("tulip", RealCategory.Plant, "The image shows two pink tulips, one fully open and another partially closed, against a black background, and it appears to be a cut-out photograph.", """{"count":2,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("coconut", RealCategory.Plant, "This is a three-dimensional model of a coconut, cut in half to reveal its interior, with a plaid shirt draped over it and a partially visible heart-shaped piece at the bottom.", """{"count":3,"is_the_thing":true,"whole":false}""", false)]
+    [InlineData("serrated leaf", RealCategory.Plant, "The image shows a cut-out illustration of a large, rounded cactus with prominent spines, and a smaller image of a prickly pear cactus with flowers and fruit. There are multiple cut-out pieces of the cacti arranged in a layered composition, suggesting a stylized representation rather than a realistic depiction.", """{"count":3,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("beach berry", RealCategory.Plant, "A branch with several bright red beach berries is cut out against a black background, with the berries partially covered in frost.", """{"count":1,"is_the_thing":true,"whole":true}""", false)]
+    [InlineData("octopus", RealCategory.Animal, "This is a cut-out image of a reddish-brown octopus, with eight arms and numerous suckers, set against a teal-colored background, appearing to be a realistic depiction of the animal.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("turtle", RealCategory.Animal, "A single, clear-cut image depicts a brown and green sea turtle swimming horizontally against a black background, appearing as a realistic cut-out.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("zebra", RealCategory.Animal, "This is a cut-out image of a single, adult zebra standing against a plain white background, appearing to be a realistic representation of the animal.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("cow", RealCategory.Animal, "This is a cut-out image of a single black and white Holstein cow standing on a white background, appearing to be a realistic depiction of the animal.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("Triceratops", RealCategory.ExtinctAnimal, "This is a cut-out picture of a single Triceratops dinosaur model, depicted in gray with three prominent horns and frill, set against a black background.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("mangrove tree", RealCategory.Plant, "This is a cut-out image of a young mangrove tree with a slender trunk and dense, bright green foliage, appearing to be a single specimen isolated on a white background.", """{"count":1,"is_the_thing":true,"whole":true}""", true)]
+    [InlineData("watercress", RealCategory.Plant, "This is a close-up, cut-out image of a cluster of white watercress flowers, with approximately 10-15 blossoms visible, set against a blurred green background. It appears to be a photographic cut-out, not a drawing or model.", """{"count":1,"is_the_thing":true,"whole":true}""", false)]
+    public void The_desktops_answers_to_the_plain_question_come_to_the_right_verdict(string name, RealCategory category, string saw, string verdict, bool passed) =>
+        Assert.Equal(passed, OllamaVision.Read(saw, verdict, "gemma3:4b", DateTime.UnixEpoch, name, category).Passed);
 
     [Fact]
-    public void The_comparison_says_which_image_is_which()
+    public void The_question_says_what_the_picture_is_meant_to_be_but_not_how_many()
     {
-        var compare = OllamaVision.Compare("octopus");
-        Assert.Contains("first image is a photo", compare);
-        Assert.Contains("second image is a cut-out", compare);
-        Assert.Contains("whole octopus", compare);
+        var question = OllamaVision.Question("sheep", RealCategory.Animal);
+        Assert.Contains("meant to be a sheep", question);
+        Assert.DoesNotContain("exactly one", question);
+        Assert.DoesNotContain("toy", question);
     }
 
     [Fact]
@@ -493,7 +460,7 @@ public sealed class OllamaVisionTests
     public void The_question_names_the_thing_and_its_kind()
     {
         var question = OllamaVision.Question("arctic thyme", RealCategory.Plant);
-        Assert.Contains("exactly one whole arctic thyme (a plant)", question);
+        Assert.Contains("meant to be a arctic thyme (a plant)", question);
         Assert.Contains("how many", question);
         Assert.DoesNotContain("toy", question);
         Assert.DoesNotContain("picture book", question);

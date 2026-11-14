@@ -142,7 +142,7 @@ public sealed class PictureFolder
             var hidden = HiddenPath(slug);
             if (!File.Exists(hidden)) return;
             File.Move(hidden, PicturePath(slug), overwrite: true);
-            if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false });
+            if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false, ShownByGrownUp = true });
             // A grown-up putting back a picture the checker turned down wants that one, not another.
             Wanted.Remove(slug);
         }

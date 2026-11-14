@@ -1,6 +1,5 @@
 using Keypuncher.Core;
 using Keypuncher.Director;
-using SkiaSharp;
 
 namespace Keypuncher.Pictures;
 
@@ -21,17 +20,23 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
 {
     /// <summary>The wanted reason for a thing whose picture the checker turned down.</summary>
     public const string FailedCheck = "failed check";
-    /// <summary>The photo is shown to the checker at most this big on its long side: the model sees less anyway, and an
-    /// 8000-pixel original would be tens of megabytes of base64.</summary>
-    public const int MaxPhotoSide = 1024;
     /// <summary>The "model" recorded on a check the cut-out floor made without asking the checker.</summary>
     public const string CutOutRule = "cut-out rule";
 
+    /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
+    /// enough that old verdicts should not stand: 1 (November 2026) stopped telling the model the picture "should show
+    /// exactly one" and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.</summary>
+    public const int Rules = 1;
+
     public string Model => checker.Model;
 
-    /// <summary>The pictures in play the checker has not seen yet, newest first: what a play has just fetched.</summary>
+    /// <summary>The pictures in play the checker has not seen yet, or saw under older rules, newest first: what a play
+    /// has just fetched, then what the old rules let through.</summary>
     public IReadOnlyList<PictureSidecar> Unchecked() =>
-        [.. folder.All().Where(p => p.Check is null && folder.HasPicture(p.Slug))];
+        [.. folder.All().Where(p => Stale(p.Check) && folder.HasPicture(p.Slug)).OrderBy(p => p.Check is null ? 0 : 1)];
+
+    /// <summary>Whether a verdict is missing or was made under older rules.</summary>
+    public static bool Stale(VisionCheck? check) => check is null || check.Rules < Rules;
 
     /// <summary>Shows a picture (in play or hidden) to the checker, records its verdict and, on a fail, takes it out of
     /// play and asks for another. Null when there is no such picture or the checker did not answer.</summary>
@@ -56,7 +61,7 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
         }
         else
         {
-            try { check = await checker.CheckAsync(png, real, realCategory, Photo(sidecar.Slug), ct); }
+            try { check = await checker.CheckAsync(png, real, realCategory, ct); }
             catch (Exception e) when (e is HttpRequestException or IOException or OperationCanceledException && !ct.IsCancellationRequested)
             {
                 Note($"{sidecar.Name}: the checker did not answer ({e.Message})");
@@ -65,6 +70,7 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             }
             if (check is null) { Note($"{sidecar.Name}: the checker did not answer"); return null; }
         }
+        check = check with { Rules = Rules };
         var current = folder.ReadSidecar(sidecar.Slug) ?? sidecar;
         if (current.Id != sidecar.Id)
         {
@@ -79,9 +85,9 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}");
             return check;
         }
-        if (current.Source == PictureSource.Hand || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
+        if (current.Source == PictureSource.Hand || current.ShownByGrownUp || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
         {
-            // A grown-up looked at this picture and chose it; the checker's doubt is shown to them, and that is all.
+            // A grown-up looked at this picture and chose it, or put it back; the checker's doubt is shown to them, and that is all.
             Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
             return check;
         }
@@ -90,29 +96,6 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
         folder.Wanted.Bump(sidecar.Slug, FailedCheck, now, exclude: sidecar.Photo?.FileTitle);
         Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; taken out of play, another picture is wanted");
         return check;
-    }
-
-    /// <summary>The photo (or made image) the cut-out came from, as a JPEG no bigger than <see cref="MaxPhotoSide"/>;
-    /// null when there is none or it cannot be read, and the check then goes without the comparison.</summary>
-    private byte[]? Photo(string slug)
-    {
-        try
-        {
-            if (folder.FindRaw(slug) is not { } path) return null;
-            using var photo = PhotoFetcher.Decode(File.ReadAllBytes(path));
-            if (photo is null) return null;
-            var scale = Math.Min(1.0, MaxPhotoSide / (double)Math.Max(photo.Width, photo.Height));
-            var info = new SKImageInfo(Math.Max(1, (int)Math.Round(photo.Width * scale)), Math.Max(1, (int)Math.Round(photo.Height * scale)), SKColorType.Rgba8888, SKAlphaType.Unpremul);
-            using var small = scale < 1 ? photo.Resize(info, new SKSamplingOptions(SKCubicResampler.Mitchell)) : photo.Copy();
-            if (small is null) return null;
-            using var data = small.Encode(SKEncodedImageFormat.Jpeg, 90);
-            return data?.ToArray();
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn("pictures", $"could not read the photo of {slug} to compare", e);
-            return null;
-        }
     }
 
     private void Note(string line) => note?.Invoke(line);

@@ -4,15 +4,15 @@
     "normalized": [
       {
         "fromencoded": false,
-        "from": "File:Sable_antelope_calf.jpg",
-        "to": "File:Sable antelope calf.jpg"
+        "from": "File:Sable_antelope_grazing.jpg",
+        "to": "File:Sable antelope grazing.jpg"
       }
     ],
     "pages": [
       {
         "pageid": 52215,
         "ns": 6,
-        "title": "File:Sable antelope calf.jpg",
+        "title": "File:Sable antelope grazing.jpg",
         "imagerepository": "local",
         "imageinfo": [
           {
@@ -20,10 +20,10 @@
             "width": 1000,
             "height": 667,
             "responsiveUrls": {
-              "2": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_calf.jpg"
+              "2": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_grazing.jpg"
             },
-            "url": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_calf.jpg",
-            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sable_antelope_calf.jpg",
+            "url": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_grazing.jpg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Sable_antelope_grazing.jpg",
             "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=52215",
             "sha1": "3f1e7b0c8a9d2e4f5a6b7c8d9e0f1a2b3c4d5e6f",
             "mime": "image/jpeg",
@@ -64,7 +64,7 @@
                 "hidden": ""
               }
             },
-            "thumburl": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_calf.jpg",
+            "thumburl": "https://upload.wikimedia.org/wikipedia/commons/4/4b/Sable_antelope_grazing.jpg",
             "thumbwidth": 1000,
             "thumbheight": 667
           }

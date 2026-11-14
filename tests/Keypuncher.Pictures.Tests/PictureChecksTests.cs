@@ -173,30 +173,6 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Empty(Checks().Unchecked());
     }
 
-    [Fact]
-    public async Task The_checker_is_shown_the_photo_the_cut_out_came_from()
-    {
-        await Fetcher().FetchAsync("fish", RealCategory.Animal);
-
-        await Checks().CheckAsync("fish");
-
-        var photo = Assert.Single(_checker.Photos);
-        Assert.NotNull(photo);
-        using var decoded = SkiaSharp.SKBitmap.Decode(photo);
-        Assert.NotNull(decoded);
-        Assert.True(Math.Max(decoded.Width, decoded.Height) <= PictureChecks.MaxPhotoSide);
-    }
-
-    [Fact]
-    public async Task Without_its_photo_a_picture_is_checked_alone()
-    {
-        await Fetcher().FetchAsync("fish", RealCategory.Animal);
-        File.Delete(_folder.FindRaw("fish")!);
-
-        Assert.True((await Checks().CheckAsync("fish"))!.Passed);
-        Assert.Null(Assert.Single(_checker.Photos));
-    }
-
     /// <summary>The octopus and thylacine pictures were cut out from closer looks that kept 11% and 8% of the crop,
     /// before the cut-out turned those down; a check takes them out without asking the model.</summary>
     [Fact]
@@ -260,6 +236,54 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Equal(("Tyrannosaurus", RealCategory.ExtinctAnimal), _checker.Asked.Single());
     }
 
+    [Fact]
+    public async Task A_picture_checked_under_older_rules_is_checked_again()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Checks().CheckAsync("fish");
+        Assert.Equal(PictureChecks.Rules, _folder.ReadSidecar("fish")!.Check!.Rules);
+        Assert.Empty(Checks().Unchecked());
+
+        // A verdict from before the rules were numbered, as on the family desktop: a school of fish passed as one.
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+
+        Assert.Equal("fish", Assert.Single(Checks().Unchecked()).Slug);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        Assert.False(_folder.HasPicture("fish"));
+        Assert.True(_folder.IsHidden("fish"));
+    }
+
+    [Fact]
+    public async Task A_picture_a_grown_up_put_back_stays_in_play_when_checked_again()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _folder.Unhide("fish");
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+
+        await Checks().CheckAsync("fish");
+
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.Check!.Passed);
+    }
+
+    [Fact]
+    public async Task Pictures_never_checked_come_before_those_checked_under_older_rules()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Checks().CheckAsync("fish");
+        var sidecar = _folder.ReadSidecar("fish")!;
+        _folder.WriteSidecar(sidecar with { Check = sidecar.Check! with { Rules = 0 } });
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("trout", RealCategory.Animal);
+
+        Assert.Equal(["trout", "fish"], Checks().Unchecked().Select(p => p.Slug));
+    }
+
     private sealed class Checker : IVisionChecker
     {
         public string Model => "gemma3:4b";
@@ -267,14 +291,12 @@ public sealed class PictureChecksTests : IDisposable
         public bool Answer { get; set; } = true;
         public string Saw { get; set; } = "one blue fish";
         public List<(string Name, RealCategory Category)> Asked { get; } = [];
-        public List<byte[]?> Photos { get; } = [];
         /// <summary>Something that happens to the folder while the checker is looking.</summary>
         public Action? OnCheck { get; set; }
 
-        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
+        public Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
         {
             Asked.Add((name, category));
-            Photos.Add(photo);
             OnCheck?.Invoke();
             return Task.FromResult(Answer ? new VisionCheck(Model, Passed, Passed ? 1 : 0, Saw, new DateTime(2026, 11, 8, 16, 1, 0)) : null);
         }
