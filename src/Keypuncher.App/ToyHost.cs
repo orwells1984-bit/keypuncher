@@ -134,7 +134,7 @@ public sealed class ToyHost : IDisposable
         // remembers everything that was tried and why.
         foreach (var (_, recipe, _) in World.Families.Restyled())
         {
-            PictureJobs.Enqueue(recipe.Name, CategoryOf(recipe), categoryGuessed: true);
+            PictureJobs.Enqueue(recipe.Name, CategoryOf(recipe), categoryGuessed: recipe.Category is null);
             // A grown form is an animal unless its family is a plant, as the director asks for it.
             if (recipe.GrowsInto is { } grown)
                 PictureJobs.Enqueue(grown, recipe.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal, categoryGuessed: true);
@@ -292,10 +292,13 @@ public sealed class ToyHost : IDisposable
     /// <summary>The background fetching of pictures.</summary>
     public PictureJobs PictureJobs { get; }
 
-    /// <summary>The best guess at what a thing is from its recipe alone, for things picked before the director
-    /// said: creatures are animals, plants are plants, and the rest are objects.</summary>
-    public static RealCategory CategoryOf(Recipe recipe) => recipe.Kind switch
+    /// <summary>What a thing is: what the director filed it as, or for things picked before it kept that, the best
+    /// guess from the recipe alone: a creature drawn as a car or a boat is a vehicle, one drawn as a ball an object,
+    /// other creatures animals, plants plants, and the rest objects.</summary>
+    public static RealCategory CategoryOf(Recipe recipe) => recipe.Category ?? recipe.Kind switch
     {
+        RecipeKind.Creature when recipe.Body.Shape is Core.Shape.Car or Core.Shape.Boat => RealCategory.Vehicle,
+        RecipeKind.Creature when recipe.Body.Shape is Core.Shape.Ball => RealCategory.Object,
         RecipeKind.Creature => RealCategory.Animal,
         RecipeKind.Plant => RealCategory.Plant,
         _ => RealCategory.Object,

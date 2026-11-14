@@ -35,7 +35,7 @@ public sealed record DirectorLogEntry(DateTime At, int Slot, DirectorOutcome? Ou
         }
         foreach (var a in Outcome!.Attempts)
             yield return a.Refused is null
-                ? $"{at}  key family {Slot}: {a.Subject}. {a.Fact}"
+                ? $"{at}  key family {Slot}: {a.Subject}. {a.Fact}{(a.Note is { } note ? $" ({note})" : "")}"
                 : $"{at}  turned down for key family {Slot}: {a.Subject} ({a.Refused}){(a.Check is { } c ? $"; checker said \"{c.WhatItIs}\"" : "")}";
         if (!Outcome.Accepted) yield return $"{at}  key family {Slot} unchanged; trying again soon";
     }
@@ -71,6 +71,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     public const int WeathersOffered = 2;
     /// <summary>After this many steps at one place the next step is always a journey.</summary>
     public const int StepsBeforeJourney = 3;
+    /// <summary>How many lasting refusals the loop remembers through a play, newest first.</summary>
+    public const int RememberedRefusals = 40;
 
     /// <summary>Plain names for the built-in animals whose recipe names are shorthand.</summary>
     private static readonly Dictionary<string, string> PlainNames = new()
@@ -83,6 +85,8 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
     private readonly CancellationTokenSource _stop = new();
     private readonly List<DirectorLogEntry> _log = [];
     private readonly List<string> _places = [];
+    private readonly List<TurnedDown> _turnedDown = [];
+    private readonly Dictionary<int, List<string>> _been = [];
     private Task<DirectorOutcome>? _family;
     private Task<SceneOutcome>? _scene;
     private (int Slot, Recipe Was)? _asked;
@@ -96,6 +100,9 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
     /// <summary>Newest first.</summary>
     public IReadOnlyList<DirectorLogEntry> Log => _log;
+
+    /// <summary>Picks turned down this play for reasons that still hold, newest first; every request is told of them.</summary>
+    public IReadOnlyList<TurnedDown> Refused => _turnedDown;
 
     public bool Busy => _family is not null || _scene is not null;
 
@@ -207,13 +214,25 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             return Ask(slot, families[slot].Kind, null, existing, scene);
         }
 
-        var growing = slots.Where(i => families[i].GrowsInto is not null).OrderBy(i => families.ChangedAt(i)).ToList();
+        // A thing grows into what it becomes, unless that would go back to what the family was this play or copy
+        // something already in the world: then it changes like any other.
+        var growing = slots.Where(i => families[i].GrowsInto is { } into && !GrowsBack(i, families[i].Name, into, existing))
+            .OrderBy(i => families.ChangedAt(i)).ToList();
         var pick = growing.Count > 0 ? growing[0] : slots.OrderBy(i => families.ChangedAt(i)).First();
         var current = families[pick];
-        return current.GrowsInto is { } next
-            ? new DirectorRequest(pick, current.Kind, current.Name, existing, next, current.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal)
+        return growing.Count > 0 && current.GrowsInto is { } next
+            ? new DirectorRequest(pick, current.Kind, current.Name, existing, next, current.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal,
+                Been: Been(pick))
             : Ask(pick, current.Kind, current.Name, existing, scene);
     }
+
+    /// <summary>Whether family <paramref name="slot"/>, now <paramref name="now"/>, growing into <paramref name="into"/>
+    /// would go back to something it was this play or copy something already in the world.</summary>
+    private bool GrowsBack(int slot, string now, string into, IReadOnlyList<string> existing) =>
+        RealThingRules.GrewFrom(into, new DirectorRequest(slot, RecipeKind.Creature, now, existing, Been: Been(slot)));
+
+    /// <summary>What family <paramref name="slot"/> has been this play, oldest first.</summary>
+    private IReadOnlyList<string> Been(int slot) => _been.TryGetValue(slot, out var names) ? [.. names] : [];
 
     /// <summary>A request with a category drawn at random, so the picks range widely, for something that belongs
     /// where the scene is; with no scene, a place drawn at random too.</summary>
@@ -223,7 +242,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
         var place = scene is not null ? HerePlace(scene, category) : Pick(Places[category]);
         // Only a real, named place is checked: the starting meadow is nowhere in particular.
         return new DirectorRequest(slot, kind, current, existing, Category: category, Place: place,
-            Here: scene?.Place is { } named ? $"at {named}" : null, Landscape: scene?.Landscape);
+            Here: scene?.Place is { } named ? $"at {named}" : null, Landscape: scene?.Landscape, Been: Been(slot), TurnedDownBefore: [.. _turnedDown]);
     }
 
     /// <summary>Where the scene is, as a request's place: "that really lives at Reynisfjara, Iceland". An extinct
@@ -304,6 +323,7 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
 
         var outcome = done.Result;
         AddLog(new DirectorLogEntry(DateTime.Now, slot, outcome, null));
+        Remember(outcome);
         Note($"key family {slot}: {(outcome.Accepted ? "accepted" : "nothing accepted")} after {outcome.Attempts.Count} {(outcome.Attempts.Count == 1 ? "try" : "tries")} in {took:0.0} s");
         // Nothing usable came back: try again (another category and place, maybe another family) shortly,
         // rather than leaving the family as it is for a whole interval.
@@ -320,10 +340,24 @@ public sealed class DirectorLoop(RealThingDirector director, Random? random = nu
             Note($"{recipe.Name} dropped: key family {slot} may not change");
             return;
         }
-        AppLog.Info("director", $"key family {slot} is now {recipe.Name} ({outcome.Request.Category}, was {was.Name})");
+        AppLog.Info("director", $"key family {slot} is now {recipe.Name} ({recipe.Category ?? outcome.Request.Category}, was {was.Name})");
         AppLog.Debug("director", $"key family {slot} recipe: {recipe}");
+        if (!_been.TryGetValue(slot, out var been)) _been[slot] = been = [];
+        been.Add(was.Name);
         Restyled?.Invoke(slot, recipe);
-        Picked?.Invoke(recipe, outcome.Request.Category);
+        Picked?.Invoke(recipe, recipe.Category ?? outcome.Request.Category);
+    }
+
+    /// <summary>Keeps the refusals from <paramref name="outcome"/> that still hold, so no later request this play asks
+    /// the checker about them again; a scene refusal is kept only while the scene is there, which the request checks.</summary>
+    private void Remember(DirectorOutcome outcome)
+    {
+        foreach (var lasting in outcome.Attempts.Select(a => a.Lasting).OfType<TurnedDown>())
+        {
+            _turnedDown.RemoveAll(t => RealThingRules.SameThing(t.Name, lasting.Name) && t.Here == lasting.Here);
+            _turnedDown.Insert(0, lasting);
+        }
+        if (_turnedDown.Count > RememberedRefusals) _turnedDown.RemoveRange(RememberedRefusals, _turnedDown.Count - RememberedRefusals);
     }
 
     private void Finish(World world, Task<SceneOutcome> done, CalmLimits limits)

@@ -1,3 +1,4 @@
+using Keypuncher.Core;
 using Keypuncher.Director;
 using Keypuncher.Pictures;
 using Keypuncher.Rendering;
@@ -119,7 +120,7 @@ public sealed class PictureFolderTests : IDisposable
     {
         var added = _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now, categoryGuessed: true);
         Assert.Equal(("sable-antelope", "sable antelope", RealCategory.Animal, _now, true), (added.Slug, added.Name, added.Category, added.Since, added.CategoryGuessed));
-        Assert.Same(added, _folder.Wanted.Add("sable antelope", RealCategory.Plant, _now.AddDays(1)));
+        Assert.Same(added, _folder.Wanted.Add("sable antelope", RealCategory.Plant, _now.AddDays(1), categoryGuessed: true));
 
         _folder.Wanted.Bump("sable-antelope", "no photo found", _now.AddMinutes(5), exclude: "File:A.jpg");
         _folder.Wanted.Bump("sable-antelope", "offline", _now.AddMinutes(6), countTry: false, exclude: "File:A.jpg");
@@ -129,6 +130,11 @@ public sealed class PictureFolderTests : IDisposable
         Assert.Equal((1, "offline", _now.AddMinutes(6)), (again.Tries, again.Reason, again.LastTry));
         Assert.Equal(["File:A.jpg"], again.Exclude);
         Assert.True(again.CategoryGuessed);
+
+        // A known category replaces a guessed one, keeping the rest; a guess never replaces a known one.
+        var known = _folder.Wanted.Add("sable antelope", RealCategory.ExtinctAnimal, _now.AddDays(2));
+        Assert.Equal((RealCategory.ExtinctAnimal, false, _now, 1), (known.Category, known.CategoryGuessed, known.Since, known.Tries));
+        Assert.Equal(RealCategory.ExtinctAnimal, _folder.Wanted.Add("sable antelope", RealCategory.Animal, _now, categoryGuessed: true).Category);
 
         _folder.Wanted.Remove("sable-antelope");
         Assert.Empty(_folder.Wanted.All());

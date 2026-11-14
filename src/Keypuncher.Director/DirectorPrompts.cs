@@ -40,7 +40,9 @@ public static class DirectorPrompts
         Never choose anything from myths, fairy tales, stories, films, cartoons, games or toys. Never a character,
         a brand, a mix of two animals, or a made-up name. Dragons, unicorns, fairies, mermaids and monsters are
         not real. If you are not sure something is real, choose something more common that you are sure of.
-        subject is the thing's ordinary English name in small letters, one to three words, like "oak tree" or
+        ideas is three or four different real things that would answer the request, by their ordinary names, none
+        of them already in the world or turned down. subject is the one of your ideas you are surest of: its
+        ordinary English name in small letters, one to three words, spelt correctly, like "oak tree" or
         "fire engine". fact is one short true sentence about where it lives or grows, or when it lived.
 
         Draw it with the nearest shape:
@@ -69,9 +71,9 @@ public static class DirectorPrompts
     public const string FewShotExamples = """
 
         Three examples of good answers, each for a different request:
-        {"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}
-        {"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}
-        {"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
+        {"ideas":["brown trout","perch","grayling"],"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}
+        {"ideas":["oak tree","silver birch","holly"],"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}
+        {"ideas":["fire engine","tractor","double-decker bus"],"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
         """;
 
     /// <summary>The three prompts the author needs for one try, arranged as <paramref name="variant"/> asks.
