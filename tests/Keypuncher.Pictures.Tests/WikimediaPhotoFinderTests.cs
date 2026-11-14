@@ -279,7 +279,10 @@ public sealed class WikimediaPhotoFinderTests
     [InlineData("Berry", "the beach berry grows on dunes", "beach berry", true)]
     [InlineData("Fennec fox", null, "fennec fox", true)]
     [InlineData("Sea lion", null, "sea lion", true)]
-    [InlineData("Coconut crab", null, "coconut palm", true)]
+    [InlineData("Coconut crab", null, "coconut palm", false)]
+    [InlineData("Red Ball Express", "a truck convoy system", "beach ball", false)]
+    [InlineData("Beach volleyball", "a team sport played on sand", "beach ball", false)]
+    [InlineData("Beach ball", null, "beach ball", true)]
     public void A_search_hit_is_about_the_name_or_is_not(string title, string? snippet, string name, bool named) =>
         Assert.Equal(named, WikimediaPhotoFinder.Named(title, snippet, name));
 

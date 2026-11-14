@@ -370,7 +370,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
     [
         "footballer", "politician", "actor", "actress", "singer", "musician", "born", "writer", "player", "band", "album", "film", "song",
         "novel", "village", "town", "city", "river", "company", "surname", "given name", "character", "television", "series", "episode",
-        "game", "poet", "painter", "author", "composer", "comedian", "athlete", "wrestler", "boxer", "cyclist", "swimmer", "lake", "mountain",
+        "video game", "board game", "card game", "computer game", "game show", "team sport", "ball game", "water sport", "poet", "painter", "author", "composer", "comedian", "athlete", "wrestler", "boxer", "cyclist", "swimmer", "lake", "mountain",
         "island", "county", "district", "municipality", "neighbourhood", "neighborhood", "street", "magazine", "newspaper", "journal",
     ];
 
@@ -384,7 +384,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         _ => null,
     };
 
-    /// <summary>Whether a search hit is plainly about the name: its title shares a word of three letters or more with
+    /// <summary>Whether a search hit is plainly about the name: its title says every word of three letters or more of
     /// the name (a plural allowed), or its snippet says the whole name.</summary>
     public static bool Named(string title, string? snippet, string name)
     {
@@ -392,11 +392,11 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
         static bool SameWord(string a, string b) => a == b || a == b + "s" || b == a + "s" || a == b + "es" || b == a + "es";
         var wanted = Words(name).Where(w => w.Length >= 3).ToList();
         if (wanted.Count == 0) wanted = Words(name).ToList();
-        // A title that is only some of the name's words is a broader thing: "Berry" for "beach berry" brought a
-        // barberry, "Thyme" for "arctic thyme" would bring any thyme. Only the snippet saying the name whole saves it.
-        var own = Words(Parenthesis().Replace(title, " "));
-        var broader = wanted.Count >= 2 && own.Length > 0 && own.All(t => wanted.Any(w => SameWord(t, w))) && !wanted.All(w => own.Any(t => SameWord(t, w)));
-        if (!broader && Words(title).Any(t => wanted.Any(w => SameWord(t, w)))) return true;
+        // The title has to say every word of the name. Sharing one word was not enough: "Berry" for "beach berry"
+        // brought a barberry, "Red Ball Express" and "Beach volleyball" for "beach ball" brought army trucks and
+        // players. A title that says less is only taken when its snippet says the name whole.
+        var own = Words(title);
+        if (wanted.All(w => own.Any(t => SameWord(t, w)))) return true;
         if (Plain(snippet) is not { } text) return false;
         var said = Words(text);
         var all = Words(name);
@@ -469,9 +469,6 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
 
     [GeneratedRegex(@"\s*(?:See the original file here|Original uploader was .+?|This file was derived from:?.*?)\.?(?=\s|$)", RegexOptions.IgnoreCase)]
     private static partial Regex Boilerplate();
-
-    [GeneratedRegex(@"\([^)]*\)")]
-    private static partial Regex Parenthesis();
 
     [GeneratedRegex("<[^>]+>")]
     private static partial Regex Tags();

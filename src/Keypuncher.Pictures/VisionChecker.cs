@@ -13,9 +13,8 @@ namespace Keypuncher.Pictures;
 public interface IVisionChecker
 {
     string Model { get; }
-    /// <summary>Checks a cut-out. With <paramref name="photo"/> (the photo or made image it was cut from), a cut-out that
-    /// passes is also compared with it, to catch a cut-out that kept only a part of the thing or something else in the photo.</summary>
-    Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default);
+    /// <summary>Checks a cut-out: shows it to the model and reads what it says.</summary>
+    Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default);
 }
 
 /// <summary>The check through Ollama's chat API with a multimodal model (gemma3:4b by default), asking for a JSON
@@ -36,100 +35,23 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
 
     /// <summary>Two calls: first the picture with the question and no answer shape, which gets a real sentence
     /// (forcing JSON made gemma3 write placeholders like ":[{" or "{count} bilberries" for what it saw), then the
-    /// short verdict in a fixed shape with that sentence already in the conversation. About twelve seconds a picture.
-    /// With the photo, a cut-out that passes is shown again beside it in a fresh conversation (see <see cref="Compare"/>),
-    /// a few seconds more.</summary>
-    public async Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, byte[]? photo = null, CancellationToken ct = default)
+    /// short verdict in a fixed shape with that sentence already in the conversation.</summary>
+    /// <remarks>Until November 2026 a third call showed the cut-out beside the photo it came from and asked whether it
+    /// kept all of the thing. On a copy of the family desktop's 47 pictures it said yes to every one, the school of fish
+    /// and the two mice included, so it went.</remarks>
+    public async Task<VisionCheck?> CheckAsync(byte[] png, string name, RealCategory category, CancellationToken ct = default)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(Limit);
-        var ask = new JsonObject { ["role"] = "user", ["content"] = Question(name, category), ["images"] = new JsonArray(Convert.ToBase64String(png)) };
-        var saw = await AskAsync(new JsonArray(ask), null, cts.Token);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var (saw, verdict) = await AskDescribedAsync(Question(name, category), png, name, cts.Token);
+        Log.Info("pictures", $"{model} looked at {name} in {watch.Elapsed.TotalSeconds:0.0} s: {Log.Short(saw ?? "(no answer)")} {verdict}");
         if (saw is null) return null;
-        var follow = new JsonArray(
-            ask.DeepClone(),
-            new JsonObject { ["role"] = "assistant", ["content"] = saw },
-            new JsonObject { ["role"] = "user", ["content"] = Verdict(name) });
-        var verdict = await AskAsync(follow, Schema(), cts.Token);
-        var check = Read(saw.Trim(), verdict, model, DateTime.Now, name, category);
-        if (!check.Passed || photo is null) return check;
-        var both = new JsonObject
-        {
-            ["role"] = "user",
-            ["content"] = Compare(name),
-            ["images"] = new JsonArray(Convert.ToBase64String(photo), Convert.ToBase64String(png)),
-        };
-        var compared = await AskAsync(new JsonArray(both), CompareSchema(), cts.Token);
-        return Compared(check, compared, name);
+        return Read(saw.Trim(), verdict, model, DateTime.Now, name, category);
     }
 
-    /// <summary>The comparison, with the photo first and the cut-out second. The octopus photo's cut-out was the white
-    /// shell in its arms, and the description call, shown the shell alone, saw "a single, complete, live octopus"; beside
-    /// the photo the difference is plain.</summary>
-    public static string Compare(string name) =>
-        $"The first image is a photo. The second image is a cut-out made from that photo, meant to show the whole {name} from the photo on its own. " +
-        $"Answer in JSON. kept: in a few words, what the cut-out kept from the photo. " +
-        $"all_of_it: whether the cut-out kept the whole {name} from the photo, and not only a part of it or something else from the photo.";
-
-    /// <summary>The JSON shape the comparison must answer in.</summary>
-    public static JsonObject CompareSchema() => new()
-    {
-        ["type"] = "object",
-        ["properties"] = new JsonObject
-        {
-            ["kept"] = new JsonObject { ["type"] = "string" },
-            ["all_of_it"] = new JsonObject { ["type"] = "boolean" },
-        },
-        ["required"] = new JsonArray("kept", "all_of_it"),
-    };
-
-    /// <summary>A passed check, failed when the comparison says the cut-out did not keep all of the thing. A comparison
-    /// that did not answer, or not in JSON, leaves the check as it was: it only ever takes a pass away, on a clear no.</summary>
-    public static VisionCheck Compared(VisionCheck check, string? answer, string name)
-    {
-        if (!check.Passed || answer is null) return check;
-        string? kept = null;
-        bool? allOfIt = null;
-        try
-        {
-            using var doc = JsonDocument.Parse(answer);
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return check;
-            kept = root.TryGetProperty("kept", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null;
-            allOfIt = root.TryGetProperty("all_of_it", out var a) && a.ValueKind is JsonValueKind.True or JsonValueKind.False ? a.GetBoolean() : null;
-        }
-        catch (JsonException e)
-        {
-            Log.Warn("pictures", $"the picture checker's comparison for {name} was not JSON: {Log.Short(answer)}", e);
-            return check;
-        }
-        if (allOfIt != false) return check;
-        var what = string.IsNullOrWhiteSpace(kept) ? "" : $"kept {kept.Trim().TrimEnd('.')}, ";
-        return check with { Passed = false, Confidence = 0, Saw = $"{check.Saw} [{what}not all of the {name} in the photo]" };
-    }
-
-    /// <summary>The count asked of the photo itself (not the cut-out): how many of the thing it shows. On the family
-    /// desktop gemma3, shown a cut-out, called a school of surgeonfish "a single blue tang", eight merged sheep "a single
-    /// sheep" and two whales "one complete whale"; a photo of a herd or a mother with her young is what makes those
-    /// cut-outs, and counting in a plain photo is what such a model does best.</summary>
-    public static string CountQuestion(string name) =>
-        $"This photo is meant to show a {name}. Answer in JSON. count: how many separate {name} you can see in the photo, " +
-        $"counting each one, also young, small, far away or partly hidden ones. Count only whole {name}, not their parts.";
-
-    /// <summary>The JSON shape the count must answer in.</summary>
-    public static JsonObject CountSchema() => new()
-    {
-        ["type"] = "object",
-        ["properties"] = new JsonObject { ["count"] = new JsonObject { ["type"] = "integer" } },
-        ["required"] = new JsonArray("count"),
-    };
-
-    /// <summary>One raw question, for the console tool's <c>probe</c>, which tries questions on a set of pictures without
-    /// acting on any answer.</summary>
-    public Task<string?> AskRawAsync(string content, IEnumerable<byte[]> images, JsonObject? format, CancellationToken ct = default) =>
-        AskAsync(new JsonArray(new JsonObject { ["role"] = "user", ["content"] = content, ["images"] = new JsonArray([.. images.Select(i => (JsonNode)Convert.ToBase64String(i))]) }), format, ct);
-
-    /// <summary>As <see cref="AskRawAsync"/>, with the description asked first and the verdict after it, as a check does.</summary>
+    /// <summary>The description asked first and the verdict after it, with the description in the conversation; for
+    /// a check and for the console tool's <c>probe</c>.</summary>
     public async Task<(string? Saw, string? Verdict)> AskDescribedAsync(string question, byte[] png, string name, CancellationToken ct = default)
     {
         var ask = new JsonObject { ["role"] = "user", ["content"] = question, ["images"] = new JsonArray(Convert.ToBase64String(png)) };
@@ -138,13 +60,6 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         var verdict = await AskAsync(new JsonArray(ask.DeepClone(), new JsonObject { ["role"] = "assistant", ["content"] = saw }, new JsonObject { ["role"] = "user", ["content"] = Verdict(name) }), Schema(), ct);
         return (saw, verdict);
     }
-
-    /// <summary>The first question without saying what the picture should show (only what it is meant to be), for the
-    /// probe: whether "should show exactly one whole" leads the model to see one.</summary>
-    public static string PlainQuestion(string name, RealCategory category) =>
-        $"This cut-out picture is meant to be a {name} ({Describe(category)}). " +
-        $"Describe what you actually see in one or two sentences: what it is, how many there are, whether anything else is in the picture, " +
-        $"and whether it is cut, cooked, a model, a fossil or a drawing. Answer with the description only.";
 
     private async Task<string?> AskAsync(JsonArray messages, JsonObject? format, CancellationToken ct)
     {
@@ -163,12 +78,17 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return doc.RootElement.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var c) ? c.GetString() : null;
     }
 
-    /// <summary>The first question: what is in the picture, in a sentence or two. It names what matters (one, whole,
-    /// alive) without listing the faults, since the model echoed a list of faults back in a negation ("not a slice,
-    /// drawing or diagram") and the word "picture book" came back as "an illustration for a children's book"; and it
+    /// <summary>The first question: what is in the picture, in a sentence or two. It says what the picture is meant
+    /// to be, and names what matters (how many, anything else, cut, cooked, a model, a fossil, a drawing) without listing
+    /// faults, since the model echoed a list of faults back in a negation ("not a slice, drawing or diagram"), and
     /// avoids "toy", which came back as what was seen.</summary>
+    /// <remarks>Until November 2026 it began "This cut-out picture should show exactly one whole {name}", and the
+    /// model saw what it was told it should: on a copy of the family desktop's pictures it called a school of 20-30
+    /// surgeonfish "a single blue tang", ten sheep "a single sheep", and two dolphins and two whales one each. Told only
+    /// what the picture is meant to be, it counted all of those right and said more than one for none of the single
+    /// animals.</remarks>
     public static string Question(string name, RealCategory category) =>
-        $"This cut-out picture should show exactly one whole {name} ({Describe(category)}), complete and alive, with nothing else. " +
+        $"This cut-out picture is meant to be a {name} ({Describe(category)}). " +
         $"Describe what you actually see in one or two sentences: what it is, how many there are, whether anything else is in the picture, " +
         $"and whether it is cut, cooked, a model, a fossil or a drawing. Answer with the description only.";
 

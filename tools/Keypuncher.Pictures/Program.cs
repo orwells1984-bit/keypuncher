@@ -22,6 +22,8 @@
 //                                                                               photo sources gave up on, cut it out, and have gemma3 check it
 //   dotnet run --project tools/Keypuncher.Pictures -- check [slug] [--again]    show pictures to gemma3; one it fails is taken out of play and
 //                                                                               another photo is wanted (put it back with 'show <slug>')
+//   dotnet run --project tools/Keypuncher.Pictures -- probe [file.jsonl]        ask gemma3 about every picture in play and write what it said;
+//                                                                               changes nothing (for tuning the checker's question)
 //   dotnet run --project tools/Keypuncher.Pictures -- nightly [--until HH:mm]   fetch, then generate, then check what is unchecked, then fetch
 //                                                                               replacements for what the check turned down
 //
@@ -128,8 +130,9 @@ async Task<int> CheckAsync(string? slug)
     return 0;
 }
 
-// Tries the checker's questions on every picture in play and writes the raw answers, one JSON line a picture, to the
-// file given; acts on nothing. For tuning the questions against pictures whose right answer is known.
+// Asks the checker's question about every picture in play and writes the raw answers and the verdict they come to,
+// one JSON line a picture, to the file given; acts on nothing. For tuning the question against pictures whose right
+// answer is known.
 async Task<int> ProbeAsync(string outPath)
 {
     if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
@@ -140,34 +143,14 @@ async Task<int> ProbeAsync(string outPath)
     foreach (var p in pictures)
     {
         var (real, category) = ToyNames.LookUp(p.Name, folder.Cards.Get(p.Slug)?.Category ?? p.Category);
-        var png = File.ReadAllBytes(folder.PicturePath(p.Slug));
-        var photo = folder.FindRaw(p.Slug) is { } raw ? Shrunk(File.ReadAllBytes(raw)) : null;
         var watch = Stopwatch.StartNew();
-        var (sawA, verdictA) = await vision.AskDescribedAsync(OllamaVision.Question(real, category), png, real);
-        var (sawB, verdictB) = await vision.AskDescribedAsync(OllamaVision.PlainQuestion(real, category), png, real);
-        string? count = null, compare = null;
-        if (photo is not null)
-        {
-            count = await vision.AskRawAsync(OllamaVision.CountQuestion(real), [photo], OllamaVision.CountSchema());
-            compare = await vision.AskRawAsync(OllamaVision.Compare(real), [photo, png], OllamaVision.CompareSchema());
-        }
-        var line = JsonSerializer.Serialize(new { slug = p.Slug, name = real, category = category.ToString(), sawA, verdictA, sawB, verdictB, count, compare, seconds = watch.Elapsed.TotalSeconds });
-        await output.WriteLineAsync(line);
+        var (saw, verdict) = await vision.AskDescribedAsync(OllamaVision.Question(real, category), File.ReadAllBytes(folder.PicturePath(p.Slug)), real);
+        var check = saw is null ? null : OllamaVision.Read(saw.Trim(), verdict, vision.Model, DateTime.Now, real, category);
+        await output.WriteLineAsync(JsonSerializer.Serialize(new { slug = p.Slug, name = real, category = category.ToString(), saw, verdict, passed = check?.Passed, why = check?.Saw, seconds = watch.Elapsed.TotalSeconds }));
         await output.FlushAsync();
-        Console.WriteLine($"{p.Slug}: {watch.Elapsed.TotalSeconds:0} s; count {count}");
+        Console.WriteLine($"{p.Slug}: {(check is null ? "no answer" : check.Passed ? "passes" : "FAILS")} in {watch.Elapsed.TotalSeconds:0} s");
     }
     return 0;
-
-    static byte[]? Shrunk(byte[] bytes)
-    {
-        using var photo = PhotoFetcher.Decode(bytes);
-        if (photo is null) return null;
-        var scale = Math.Min(1.0, PictureChecks.MaxPhotoSide / (double)Math.Max(photo.Width, photo.Height));
-        var info = new SkiaSharp.SKImageInfo(Math.Max(1, (int)Math.Round(photo.Width * scale)), Math.Max(1, (int)Math.Round(photo.Height * scale)), SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Unpremul);
-        using var small = scale < 1 ? photo.Resize(info, new SkiaSharp.SKSamplingOptions(SkiaSharp.SKCubicResampler.Mitchell)) : photo.Copy();
-        using var data = small?.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 90);
-        return data?.ToArray();
-    }
 }
 
 async Task<int> NightlyAsync()
