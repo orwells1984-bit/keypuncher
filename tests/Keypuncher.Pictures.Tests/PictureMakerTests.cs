@@ -329,6 +329,9 @@ public sealed class OllamaVisionTests
     [InlineData("a whole, unblemished coconut, appearing to be a realistic model", "coconut", RealCategory.Plant, "model")]
     [InlineData("a folded blue and red plaid cloth", "coconut", RealCategory.Plant, "plaid")]
     [InlineData("a plastic toy giraffe", "giraffe", RealCategory.Animal, "toy")]
+    [InlineData("three brown beans arranged in a row on a dark gray surface", "brown bean", RealCategory.Plant, "three")]
+    [InlineData("A branch with several bright red beach berries", "beach berry", RealCategory.Plant, "branch")]
+    [InlineData("a stack of six colorful towels", "beach towel", RealCategory.Object, "six")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
     {
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
@@ -364,6 +367,10 @@ public sealed class OllamaVisionTests
     [InlineData("a realistic-looking cut-out model of a single, complete ankylosaurus dinosaur", "ankylosaurus", RealCategory.ExtinctAnimal)]
     [InlineData("a stack of folded cotton towels, soft fabric", "beach towel", RealCategory.Object)]
     [InlineData("a single cow, not a toy or a model", "cow", RealCategory.Animal)]
+    [InlineData("a vibrant, cut-out image of a single, five-armed starfish against a black background", "starfish", RealCategory.Animal)]
+    [InlineData("a two-toned zebra standing", "zebra", RealCategory.Animal)]
+    [InlineData("three blueberries clustered together on a stem", "blueberry", RealCategory.Plant)]
+    [InlineData("a bunch of sorghum plants, with several stalks branching out from a central point", "sorghum", RealCategory.Plant)]
     public void A_clean_description_passes(string saw, string name, RealCategory category)
     {
         Assert.Null(OllamaVision.GiveAway(saw, name, category));
@@ -427,6 +434,42 @@ public sealed class OllamaVisionTests
     [InlineData("watercress", RealCategory.Plant, "This is a close-up, cut-out image of a cluster of white watercress flowers, with approximately 10-15 blossoms visible, set against a blurred green background. It appears to be a photographic cut-out, not a drawing or model.", """{"count":1,"is_the_thing":true,"whole":true}""", false)]
     public void The_desktops_answers_to_the_plain_question_come_to_the_right_verdict(string name, RealCategory category, string saw, string verdict, bool passed) =>
         Assert.Equal(passed, OllamaVision.Read(saw, verdict, "gemma3:4b", DateTime.UnixEpoch, name, category).Passed);
+
+    /// <summary>The desktop's check of 2026-11-15: the model's count of 2 fails a picture only when its own description
+    /// speaks of a second thing. The bear with a leaf, the seahorse on its stem and the kangaroo with her joey were
+    /// counted 2 and described as one; the real pairs and groups were described as such.</summary>
+    [Theory]
+    [InlineData("bear", "A large, brown grizzly bear is depicted in a cut-out image, standing on a patch of green grass with a leaf in front of it, and the background is transparent.", 2, true)]
+    [InlineData("seahorse", "This is a cut-out image of a single, reddish-brown seahorse attached to a yellow, branching seahorse stem, set against a black background.", 2, true)]
+    [InlineData("kangaroo", "This is a cut-out image of a single, adult kangaroo standing upright with its joey clinging to its back, set against a black background.", 2, true)]
+    [InlineData("flamingo", "This is a close-up, cut-out image of a vibrant pink flamingo, with a second flamingo partially visible in the background, and the image appears to be a photograph.", 2, false)]
+    [InlineData("dog", "This is a cut-out picture featuring three Siberian Huskies standing side-by-side in a snowy environment, with a smaller Shiba Inu dog also included in the image.", 4, false)]
+    [InlineData("thylacine", "a black and white cut-out image of a single, complete thylacine standing on a stone surface, with a smaller dog visible in the background.", 2, false)]
+    [InlineData("mouse", "one whole, live white mouse lying on its side, and another mouse is slightly behind it.", 2, false)]
+    [InlineData("fish", "The image shows a large group of approximately 20-30 blue tang fish, cut out and arranged against a black background.", 20, false)]
+    public void A_count_above_one_fails_only_when_the_description_bears_it_out(string name, string saw, int count, bool passed) =>
+        Assert.Equal(passed, OllamaVision.Read(saw, $$"""{"count":{{count}},"is_the_thing":true,"whole":true}""", "gemma3:4b", DateTime.UnixEpoch, name, RealCategory.Animal).Passed);
+
+    [Theory]
+    [InlineData("two zebras", true)]
+    [InlineData("a herd of zebras", true)]
+    [InlineData("a zebra with a second zebra behind it", true)]
+    [InlineData("a single zebra, a 3D model", false)]
+    [InlineData("a single, five-armed starfish", false)]
+    [InlineData("a single zebra with nothing else in the picture", false)]
+    public void A_description_says_more_than_one_in_words_digits_or_by_naming_a_second(string saw, bool more) =>
+        Assert.Equal(more, OllamaVision.SaysMoreThanOne(saw));
+
+    [Theory]
+    [InlineData("blueberry", RealCategory.Plant, true)]
+    [InlineData("arctic bilberries", RealCategory.Plant, true)]
+    [InlineData("sorghum", RealCategory.Plant, true)]
+    [InlineData("meadow grass", RealCategory.Plant, true)]
+    [InlineData("tulip", RealCategory.Plant, false)]
+    [InlineData("brown bean", RealCategory.Plant, false)]
+    [InlineData("berry bird", RealCategory.Animal, false)]
+    public void Berries_grains_and_grasses_grow_in_clusters(string name, RealCategory category, bool clustered) =>
+        Assert.Equal(clustered, OllamaVision.GrowsInClusters(name, category));
 
     [Fact]
     public void The_question_says_what_the_picture_is_meant_to_be_but_not_how_many()
