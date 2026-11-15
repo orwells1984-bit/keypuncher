@@ -14,7 +14,7 @@ public sealed class ParentPage : ContentPage
 {
     private readonly ToyHost _host;
     private readonly Dictionary<string, Slider> _weights = [];
-    private readonly Switch _upper, _words, _thingWords, _noises, _director, _directorTest, _recordPlay, _pictures;
+    private readonly Switch _upper, _words, _thingWords, _noises, _director, _directorTest, _recordPlay, _recordCamera, _pictures;
     private readonly Label _pictureStatus = new() { FontSize = 13 };
     private readonly Label _lockStatus = new();
     private readonly Button _lockButton;
@@ -106,6 +106,12 @@ public sealed class ParentPage : ContentPage
         _recordPlay = new Switch { IsToggled = s.RecordPlay };
         layout.Add(Row("Record play", _recordPlay));
         layout.Add(new Label { Text = $"Each play session is saved as a small video (4 frames a second, stamped with the time the log uses) in {Path.Combine(host.DataFolder, ToyHost.VideosName)}, so a problem can be looked at afterwards; test mode is always recorded. Nothing leaves this computer, and the oldest videos are deleted past 4 GB. When play starts and ends, the goodnight and how many keys were pressed go in {Path.Combine(host.DataFolder, ToyHost.DirectorLogName)}.", FontSize = 13 });
+        _recordCamera = new Switch { IsToggled = s.RecordCamera };
+        layout.Add(Row("Film the child", _recordCamera));
+        _cameraStatus = new Label { Text = "Looking for a camera...", FontSize = 13 };
+        layout.Add(new Label { Text = $"During play the webcam films the child and the microphone records, so the child's reactions can be gauged afterwards; nothing leaves this computer. The files go in {Path.Combine(host.DataFolder, ToyHost.CameraName)}, and the oldest are deleted past {CameraRecorder.MaxFolderBytes / 1e9:0} GB. What the toy did, moment by moment, goes beside the screen videos as play-....timeline.jsonl. While the camera cannot see a face for {CameraRecorder.OutOfFrameAfter:0} seconds, a small camera picture shows in the corner of play until it can. Windows' Settings > Privacy > Camera must let desktop apps use the camera.", FontSize = 13 });
+        layout.Add(_cameraStatus);
+        _ = ShowCamerasAsync();
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
         layout.Add(Heading("Models"));
@@ -188,11 +194,22 @@ public sealed class ParentPage : ContentPage
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
             _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled,
             // The models are saved the moment they are chosen; carried over here.
-            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel));
+            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel, _recordCamera.IsToggled));
         base.OnDisappearing();
     }
 
     private void Play() => ToyApp.Show(new PlayPage(_host));
+
+    private readonly Label _cameraStatus;
+
+    /// <summary>Says which cameras Windows has, so a grown-up knows filming will work before play.</summary>
+    private async Task ShowCamerasAsync()
+    {
+        var cameras = await CameraRecorder.FindCamerasAsync();
+        MainThread.BeginInvokeOnMainThread(() => _cameraStatus.Text = cameras.Count == 0
+            ? "No camera found: play will not be filmed."
+            : $"Camera: {string.Join(", ", cameras)} (the first is used); sound from Windows' default microphone.");
+    }
 
     /// <summary>Fills the status line and the list of things from the folder as it is now.</summary>
     private void RefreshPictures()

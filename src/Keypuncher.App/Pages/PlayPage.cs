@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using Keypuncher.Core;
+using Keypuncher.Platform.Windows;
 using Keypuncher.Rendering;
+using Keypuncher.Storage;
+using SkiaSharp;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
 
@@ -23,6 +26,14 @@ public sealed class PlayPage : ContentPage
     private int _frames;
     private TimeSpan _fpsStart;
     private SessionRecorder? _recorder;
+    private CameraRecorder? _camera;
+    private PlayTimeline? _timeline;
+    private SKImage? _cameraPicture;
+    private bool? _childInFrame;
+    private readonly SKPaint _cameraFrame = new() { IsAntialias = true, Color = SKColors.White, Style = SKPaintStyle.Stroke, StrokeWidth = 4 };
+    private readonly SKPaint _cameraLabelBack = new() { Color = SKColors.White.WithAlpha(220) };
+    private readonly SKPaint _cameraLabelInk = new() { IsAntialias = true, Color = new SKColor(40, 40, 70) };
+    private readonly SKFont _cameraFont = new(Fonts.LoadAndika(), 20);
     private readonly Stopwatch _session = new();
     private readonly HashSet<int> _held = [];
     private int _keys, _taps;
@@ -68,6 +79,7 @@ public sealed class PlayPage : ContentPage
         _session.Restart();
         if (s.RecordPlay || s.DirectorTest)
             _recorder = new SessionRecorder(Path.Combine(_host.DataFolder, ToyHost.VideosName), s.DirectorTest ? "test" : "play");
+        StartTimeline(s);
         Story($"play started: calm {s.Calm}, language {_host.Engine.SessionLanguage}, model changes {(s.Director ? "on" : "off")}"
             + $"{(s.DirectorTest ? ", test mode" : "")}, goodnight {(s.SessionLength is { } l ? $"after {l.TotalMinutes:0.#} min" : "never")}"
             + $"{(_recorder is null ? ", not recorded" : $", recording to {Path.Combine(_host.DataFolder, ToyHost.VideosName)}")}");
@@ -102,17 +114,23 @@ public sealed class PlayPage : ContentPage
         {
             // A held key repeats its down; only the first counts.
             if (!key.IsDown) _held.Remove(key.ScanCode);
-            else if (_held.Add(key.ScanCode)) _keys++;
+            else if (_held.Add(key.ScanCode))
+            {
+                _keys++;
+                _timeline?.Add("key", ("code", key.ScanCode), ("char", key.Character));
+            }
             _host.Engine.OnKey(key);
         }
         _host.Engine.Advance(elapsed);
         if (_host.Engine.IsAsleep && !_wasAsleep)
         {
             Story($"goodnight after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps");
+            _timeline?.Add("goodnight", ("keys", _keys), ("taps", _taps));
             // The director has stopped choosing, so the card is free for the vision model.
             _host.CheckNewPictures();
         }
         _wasAsleep = _host.Engine.IsAsleep;
+        WatchCamera();
         var settings = _host.Engine.Settings;
         _host.Director.Update(_host.World, settings.Limits, settings.Director && !_host.Engine.IsAsleep);
         _canvas.InvalidateSurface();
@@ -164,11 +182,13 @@ public sealed class PlayPage : ContentPage
         _renderer.Draw(e.Surface.Canvas, e.Info.Width, e.Info.Height, _host.World, overlay,
             touchCue.Opacity > escCue.Opacity ? touchCue : escCue, touchGate.Targets);
 
+        DrawCameraPicture(e.Surface.Canvas, e.Info.Width, e.Info.Height);
+
         // Once the goodnight has faded to dark there is nothing more to see.
         if (_host.World.Night < 1) _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
     }
 
-    /// <summary>Ends the session's record: its length and presses in the log, and the video closed.</summary>
+    /// <summary>Ends the session's record: its length and presses in the log, and the videos and timeline closed.</summary>
     private void StopRecording()
     {
         if (!_session.IsRunning) return;
@@ -176,7 +196,113 @@ public sealed class PlayPage : ContentPage
         var file = _recorder?.CurrentFile;
         _recorder?.Dispose();
         _recorder = null;
-        Story($"play ended after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps{(file is null ? "" : $"; video saved as {file}")}");
+        var camera = _camera?.VideoFile;
+        _camera?.Dispose();
+        _camera = null;
+        _cameraPicture?.Dispose();
+        _cameraPicture = null;
+        _childInFrame = null;
+        Story($"play ended after {Minutes(_session.Elapsed)}: {_keys} key presses, {_taps} taps{(file is null ? "" : $"; video saved as {file}")}"
+            + $"{(camera is null ? "" : $"; camera video saved as {camera}")}");
+        StopTimeline();
+    }
+
+    /// <summary>Starts the play's timeline, and the camera when it is wanted, all named by the same start time.</summary>
+    private void StartTimeline(ToySettings s)
+    {
+        var stamp = DateTime.Now.ToString("yyyy-MM-dd-HHmmss");
+        try
+        {
+            _timeline = new PlayTimeline(Path.Combine(_host.DataFolder, ToyHost.VideosName, $"{(s.DirectorTest ? "test" : "play")}-{stamp}.timeline.jsonl"));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn("recording", "could not start the play timeline", e);
+        }
+        if (s.RecordCamera)
+        {
+            try { _camera = new CameraRecorder(Path.Combine(_host.DataFolder, ToyHost.CameraName), stamp); }
+            catch (Exception e) { Log.Warn("camera", "could not start filming; play goes on", e); }
+        }
+        _timeline?.Add("start", ("calm", s.Calm.ToString()), ("language", _host.Engine.SessionLanguage), ("director", s.Director),
+            ("test", s.DirectorTest), ("screen", _recorder is not null), ("camera", _camera is not null),
+            ("scene", _host.World.Scene.Landscape.ToString()), ("time", _host.World.Scene.TimeOfDay.ToString()));
+        _host.World.Added += OnAdded;
+        _host.World.SceneChanged += OnSceneChanged;
+        _host.Mixer.SpeechStarted += OnSpeech;
+        _host.Engine.AnimalCalled += OnCall;
+        _host.Engine.Popped += OnPop;
+        _host.Director.Picked += OnPicked;
+    }
+
+    private void StopTimeline()
+    {
+        _host.World.Added -= OnAdded;
+        _host.World.SceneChanged -= OnSceneChanged;
+        _host.Mixer.SpeechStarted -= OnSpeech;
+        _host.Engine.AnimalCalled -= OnCall;
+        _host.Engine.Popped -= OnPop;
+        _host.Director.Picked -= OnPicked;
+        _timeline?.Add("end", ("keys", _keys), ("taps", _taps), ("minutes", _session.Elapsed.TotalMinutes));
+        _timeline?.Dispose();
+        _timeline = null;
+    }
+
+    private void OnAdded(Entity e) => _timeline?.Add("shown", ("role", e.Role.ToString()), ("name", e.Recipe?.Name), ("text", e.Text),
+        ("kind", e.Recipe?.Kind.ToString()), ("category", e.Recipe is { } r ? ToyHost.CategoryOf(r).ToString() : null),
+        ("shape", e.Recipe?.Body.Shape.ToString()), ("x", e.X), ("y", e.Y));
+
+    private void OnSceneChanged(Scene scene) => _timeline?.Add("scene", ("landscape", scene.Landscape.ToString()),
+        ("time", scene.TimeOfDay.ToString()), ("weather", scene.Weather.ToString()), ("place", scene.Place));
+
+    private void OnSpeech(double seconds) => _timeline?.Add("speech", ("seconds", seconds));
+    private void OnCall(Core.Shape shape) => _timeline?.Add("call", ("shape", shape.ToString()));
+    private void OnPop(double x) => _timeline?.Add("pop", ("x", x));
+    private void OnPicked(Recipe recipe, RealCategory category) => _timeline?.Add("pick", ("name", recipe.Name), ("category", category.ToString()));
+
+    /// <summary>Once a frame: notes in the timeline and the log when the child leaves or comes back into the camera's
+    /// view, and takes the newest camera picture to show while the child is out of it.</summary>
+    private void WatchCamera()
+    {
+        var inFrame = _camera?.ChildInFrame;
+        if (inFrame != _childInFrame)
+        {
+            if (inFrame is { } seen)
+            {
+                _timeline?.Add(seen ? "inframe" : "outframe");
+                Log.Info("camera", seen ? "the camera can see the child" : "the camera cannot see the child; showing the camera picture");
+            }
+            _childInFrame = inFrame;
+        }
+        if (inFrame == false)
+        {
+            if (_camera?.TakePreview() is { } picture)
+            {
+                _cameraPicture?.Dispose();
+                _cameraPicture = picture;
+            }
+        }
+        else if (_cameraPicture is not null)
+        {
+            _cameraPicture.Dispose();
+            _cameraPicture = null;
+        }
+    }
+
+    /// <summary>While the camera cannot see the child: what it sees, small in the bottom-right corner, with a line
+    /// for the grown-up above it.</summary>
+    private void DrawCameraPicture(SKCanvas canvas, int width, int height)
+    {
+        if (_cameraPicture is not { } picture) return;
+        var w = width * 0.22f;
+        var h = w * picture.Height / picture.Width;
+        var rect = SKRect.Create(width - w - 24, height - h - 24, w, h);
+        canvas.DrawImage(picture, rect, new SKSamplingOptions(SKFilterMode.Linear));
+        canvas.DrawRect(rect, _cameraFrame);
+        const string text = "The camera can't see the child";
+        var tw = _cameraFont.MeasureText(text);
+        canvas.DrawRect(rect.Right - tw - 16, rect.Top - 34, tw + 16, 30, _cameraLabelBack);
+        canvas.DrawText(text, rect.Right - 8, rect.Top - 12, SKTextAlign.Right, _cameraFont, _cameraLabelInk);
     }
 
     /// <summary>A line in the director's log (and the app's log).</summary>
@@ -206,6 +332,7 @@ public sealed class PlayPage : ContentPage
             case SKTouchAction.Pressed:
                 _fingers.Add(e.Id);
                 _taps++;
+                _timeline?.Add("tap", ("x", x), ("y", y), ("fingers", _fingers.Count));
                 _host.Engine.OnFingerDown(e.Id, x, y, aspect, _fingers.Count);
                 break;
             case SKTouchAction.Moved:
@@ -227,6 +354,10 @@ public sealed class PlayPage : ContentPage
         // This page is never shown again: the grown-ups' page makes a new one.
         _canvas.PaintSurface -= OnPaint;
         _renderer.Dispose();
+        _cameraFont.Dispose();
+        _cameraFrame.Dispose();
+        _cameraLabelBack.Dispose();
+        _cameraLabelInk.Dispose();
         ToyApp.Show(new ParentPage(_host));
     }
 }

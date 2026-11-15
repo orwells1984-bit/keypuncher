@@ -52,10 +52,18 @@ public sealed class World
 
     public long NextId() => _nextId++;
 
+    /// <summary>Raised when something is put on screen (a thing, a letter, a word or an effect), for the play
+    /// timeline. Raised on the caller's thread, which is the UI thread in the toy.</summary>
+    public event Action<Entity>? Added;
+
+    /// <summary>Raised when <see cref="SetScene"/> moves the world to a different scene, for the play timeline.</summary>
+    public event Action<Scene>? SceneChanged;
+
     public Entity Add(Entity entity)
     {
         _live.Add(entity);
         if (entity.IsPersistent) Dirty = true;
+        Added?.Invoke(entity);
         return entity;
     }
 
@@ -166,6 +174,7 @@ public sealed class World
         Scene = scene;
         SceneChangedAt = Time;
         Dirty = true;
+        SceneChanged?.Invoke(scene);
     }
 
     public void MarkSaved() => Dirty = false;

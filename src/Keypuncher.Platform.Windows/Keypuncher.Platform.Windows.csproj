@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Keypuncher.Audio\Keypuncher.Audio.csproj" />
     <ProjectReference Include="..\Keypuncher.Core\Keypuncher.Core.csproj" />
     <ProjectReference Include="..\Keypuncher.Inference\Keypuncher.Inference.csproj" />
+    <ProjectReference Include="..\Keypuncher.Rendering\Keypuncher.Rendering.csproj" />
   </ItemGroup>
 
   <ItemGroup>

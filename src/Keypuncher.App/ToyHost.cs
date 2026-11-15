@@ -256,6 +256,8 @@ public sealed class ToyHost : IDisposable
     public const string PicturesName = "pictures";
     /// <summary>The folder, next to the log, that play and test mode are recorded into.</summary>
     public const string VideosName = "videos";
+    /// <summary>The folder, next to the log, that the webcam's video and the microphone's sound of each play go into.</summary>
+    public const string CameraName = "camera";
     /// <summary>The log file is moved aside to director.old.log when it grows past this.</summary>
     private const long DirectorLogLimit = 2_000_000;
     private readonly string _directorLog;
