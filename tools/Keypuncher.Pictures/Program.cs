@@ -114,13 +114,16 @@ async Task<int> CheckAsync(string? slug)
     if (await CardBusyAsync() is { } busy) { Console.WriteLine(busy); return 2; }
     var checker = Checker();
     var checks = new PictureChecks(folder, checker, note: line => Console.WriteLine("  " + line));
-    var slugs = slug is { } one ? [one] : folder.All().Where(p => options.Again || PictureChecks.Stale(p.Check)).Select(p => p.Slug).ToList();
+    // A thing whose cut-out failed has a story but no picture, in play or hidden: nothing to show the checker. On
+    // 2026-11-15 two of those (archaeopteryx, moringa) printed nothing and were counted as "unanswered".
+    var slugs = slug is { } one ? [one] : folder.All().Where(p => (options.Again || PictureChecks.Stale(p.Check)) && (folder.HasPicture(p.Slug) || folder.IsHidden(p.Slug))).Select(p => p.Slug).ToList();
     Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
     int passed = 0, flagged = 0, silent = 0;
     foreach (var s in slugs)
     {
         if (options.Until is { } until && DateTime.Now >= until) { Console.WriteLine("stopping: the time is up"); break; }
         Console.WriteLine($"{s}:");
+        if (!folder.HasPicture(s) && !folder.IsHidden(s)) { Console.WriteLine("  no picture of it to check"); continue; }
         var check = await checks.CheckAsync(s);
         if (check is null) { if (++silent >= 3) { Console.WriteLine("stopping: the checker is not answering"); break; } }
         else if (check.Passed) passed++;

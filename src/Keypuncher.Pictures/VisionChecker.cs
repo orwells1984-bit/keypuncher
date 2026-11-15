@@ -157,15 +157,51 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return text.Trim('*', '"', ' ', '\n', '\r');
     }
 
-    /// <summary>Why the answer fails, or null when it passes. The count is trusted only for animals.</summary>
+    /// <summary>Why the answer fails, or null when it passes. The count is trusted only for animals, and only when
+    /// the description bears it out (see <see cref="SaysMoreThanOne"/>).</summary>
     public static string? Fault(string saw, int? count, bool isThing, bool whole, string name, RealCategory category)
     {
         if (!isThing) return "not the thing";
         if (!whole) return "not whole";
-        if (category is RealCategory.Animal or RealCategory.ExtinctAnimal && count is > 1) return $"counted {count}";
+        if (category is RealCategory.Animal or RealCategory.ExtinctAnimal && count is > 1 && SaysMoreThanOne(saw)) return $"counted {count}";
         if (GiveAway(saw, name, category) is { } word) return $"says \"{word}\"";
         if (!Named(saw, name)) return "does not name it";
         return null;
+    }
+
+    /// <summary>Whether the description itself speaks of more than one thing: a number above one in words or digits, a
+    /// group word, "second", "another", "together", or something "in the background", "behind it" or "beside it".
+    /// The model's count alone is not enough: on 2026-11-15 it counted 2 for "a large, brown grizzly bear ... with a
+    /// leaf in front of it", for "a single seahorse attached to a ... stem" and for a kangaroo with its joey, while
+    /// every real pair or group that morning (two dolphins, two mice, ten sheep, "a second flamingo", three huskies)
+    /// was also described as one.</summary>
+    public static bool SaysMoreThanOne(string saw)
+    {
+        var text = saw.ToLowerInvariant();
+        if (Digits().Matches(text).Any(m => int.TryParse(m.Value, out var n) && n > 1 && !Dimensional(text, m.Index + m.Length))) return true;
+        foreach (Match m in Words().Matches(text))
+        {
+            if (Hyphenated(text, m)) continue;
+            if (Many.Contains(m.Value) || More.Contains(m.Value)) return true;
+        }
+        return MorePhrases.Any(text.Contains);
+    }
+
+    /// <summary>Whether a word is the first half of a hyphenated word: the "five" of "five-armed", the "three" of
+    /// "three-dimensional", which say how the thing is made, not how many there are.</summary>
+    private static bool Hyphenated(string text, Match word) => word.Index + word.Length < text.Length && text[word.Index + word.Length] == '-';
+
+    /// <summary>"3D" and "3-dimensional" are not a count.</summary>
+    private static bool Dimensional(string text, int after) => after < text.Length && (text[after] is 'd' or '-');
+
+    /// <summary>Whether the thing grows in clusters, so that "three blueberries on a stem" or "a bunch of sorghum" is
+    /// what one of it looks like: berries, and grains and other plants that grow as many stalks. A grown-up kept the
+    /// blueberries and the sorghum the checker had turned down for their number (2026-11-15).</summary>
+    public static bool GrowsInClusters(string name, RealCategory category)
+    {
+        if (category != RealCategory.Plant) return false;
+        var words = Words().Matches(name.ToLowerInvariant()).Select(m => Singular(m.Value)).ToList();
+        return words.Any(w => w.EndsWith("berry") || Clustered.Contains(w));
     }
 
     /// <summary>Whether the description uses any word of the name (three letters or more, singular or plural): the
@@ -184,15 +220,19 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or skull
     /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container (food, not the
     /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); an animal word for a vehicle or object; and for a plant "a branch" or
-    /// "a sprig", or any single "branch" for a tree (a part; trees have branches). Nothing after a negation in the same sentence
+    /// "a sprig", or any single "branch" for a tree (a part; trees have branches). A number that is the first half of a
+    /// hyphenated word ("five-armed", "three-dimensional") is not a count, and no number or group word counts against
+    /// a plant that grows in clusters (<see cref="GrowsInClusters"/>). Nothing after a negation in the same sentence
     /// counts, since the model repeats the question back ("not a slice or a drawing"). Null when the description is
     /// clean.</summary>
     public static string? GiveAway(string saw, string name, RealCategory category)
     {
         var own = Words().Matches(name.ToLowerInvariant()).Select(m => m.Value).ToHashSet();
+        var clustered = GrowsInClusters(name, category);
         foreach (var sentence in saw.ToLowerInvariant().Split(['.', ';', '!', '?'], StringSplitOptions.RemoveEmptyEntries))
         {
-            var words = Words().Matches(sentence).Select(m => m.Value).ToList();
+            var matches = Words().Matches(sentence);
+            var words = matches.Select(m => m.Value).ToList();
             for (var i = 0; i < words.Count; i++)
             {
                 var word = words[i];
@@ -207,7 +247,9 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
                 if (pair is not null && NotWholePairs.Contains(pair)) return pair;
-                if (pair is "three dimensional" or "two dimensional") continue;
+                // "five-armed starfish", "three-dimensional": the number says how the thing is made, not how many.
+                if (Hyphenated(sentence, matches[i]) || pair is "three dimensional" or "two dimensional") continue;
+                if (clustered) continue;
                 if (Many.Contains(word) && Followed(words, i + 1, own)) return word;
                 if (pair is not null && ManyPairs.Contains(pair) && Followed(words, i + 2, own)) return pair;
             }
@@ -251,6 +293,15 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "several", "many", "multiple", "numerous", "pair", "couple", "group", "flock", "herd", "pack", "pod",
         "school", "swarm", "litter", "family", "bunch", "stack", "pile", "heap", "collection", "montage", "collage",
     ];
+    /// <summary>Words that, with the model's count above one, say a second thing is in the picture.</summary>
+    private static readonly HashSet<string> More = ["second", "another", "others", "twin", "twins", "together"];
+    private static readonly string[] MorePhrases = ["in the background", "behind it", "beside it", "next to it", "side-by-side", "side by side"];
+    /// <summary>Plants that grow as many stalks or stems; berries are known by their name's ending.</summary>
+    private static readonly HashSet<string> Clustered =
+    [
+        "sorghum", "wheat", "barley", "rice", "oat", "rye", "millet", "grass", "reed", "bamboo", "heather", "clover", "moss",
+        "thyme", "cress", "watercress", "lavender", "grape", "currant",
+    ];
     private static readonly HashSet<string> ManyPairs = ["a lot", "lots of", "a number", "a few", "a series", "a set", "a variety"];
     private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed", "statue"];
     private static readonly HashSet<string> NotWhole = ["half", "halved", "halves", "slice", "sliced", "slices", "peeled", "partial", "fragment", "decaying", "rotten", "jaws"];
@@ -274,4 +325,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
 
     [GeneratedRegex("[a-z]+")]
     private static partial Regex Words();
+
+    [GeneratedRegex("[0-9]+")]
+    private static partial Regex Digits();
 }
