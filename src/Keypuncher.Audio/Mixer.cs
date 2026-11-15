@@ -66,11 +66,16 @@ public sealed class Mixer
         _commands.Enqueue(() => StartVoice(v));
     }
 
+    /// <summary>Raised on the caller's thread when <see cref="Speak"/> starts a clip, with its length in seconds; for
+    /// the play timeline, so the camera's sound can leave out the moments the toy itself was talking.</summary>
+    public event Action<double>? SpeechStarted;
+
     /// <summary>Plays a mono clip at <see cref="SampleRate"/> on the speech channel, cutting off (with a
     /// short fade) whatever was being said.</summary>
     public void Speak(float[] samples, double pan = 0)
     {
         _speechPlaying = true;
+        SpeechStarted?.Invoke(samples.Length / (double)SampleRate);
         var (l, r) = PanGains(pan * 0.5);
         _commands.Enqueue(() =>
         {

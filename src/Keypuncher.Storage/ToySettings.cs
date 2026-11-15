@@ -26,6 +26,9 @@ namespace Keypuncher.Storage;
 /// the toy's own choice.</param>
 /// <param name="PictureCheckModel">The Ollama model that looks at new pictures, as a grown-up chose it; null for the
 /// toy's own choice.</param>
+/// <param name="RecordCamera">During play, film the child with the webcam and record the microphone, on this computer
+/// only, so the child's reactions can be gauged afterwards; while the camera cannot see a face, the toy shows a small
+/// camera picture so a grown-up can move the camera or the child.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -40,7 +43,8 @@ public sealed record ToySettings(
     bool Pictures = true,
     bool SayThingWords = true,
     string? DirectorModel = null,
-    string? PictureCheckModel = null)
+    string? PictureCheckModel = null,
+    bool RecordCamera = true)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 
