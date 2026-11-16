@@ -221,7 +221,7 @@ public sealed class PlayPage : ContentPage
         }
         if (s.RecordCamera)
         {
-            try { _camera = new CameraRecorder(Path.Combine(_host.DataFolder, ToyHost.CameraName), stamp); }
+            try { _camera = new CameraRecorder(Path.Combine(_host.DataFolder, ToyHost.CameraName), stamp, s.Camera, s.CameraName, s.Microphone); }
             catch (Exception e) { Log.Warn("camera", "could not start filming; play goes on", e); }
         }
         _timeline?.Add("start", ("calm", s.Calm.ToString()), ("language", _host.Engine.SessionLanguage), ("director", s.Director),
