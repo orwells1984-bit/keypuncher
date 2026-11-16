@@ -29,6 +29,10 @@ namespace Keypuncher.Storage;
 /// <param name="RecordCamera">During play, film the child with the webcam and record the microphone, on this computer
 /// only, so the child's reactions can be gauged afterwards; while the camera cannot see the child (no face and nothing
 /// moving where the child was), the toy shows a small camera picture so a grown-up can move the camera or the child.</param>
+/// <param name="Camera">The camera a grown-up chose to film with, by Windows' id for it; null for the first camera
+/// Windows lists.</param>
+/// <param name="CameraName">The chosen camera's name, to find it by when its id changes (another USB port).</param>
+/// <param name="Microphone">The microphone a grown-up chose to record with, by name; null for Windows' default.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -44,7 +48,10 @@ public sealed record ToySettings(
     bool SayThingWords = true,
     string? DirectorModel = null,
     string? PictureCheckModel = null,
-    bool RecordCamera = true)
+    bool RecordCamera = true,
+    string? Camera = null,
+    string? CameraName = null,
+    string? Microphone = null)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 

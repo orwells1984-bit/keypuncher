@@ -30,6 +30,10 @@ public sealed class ParentPage : ContentPage
     private IReadOnlyList<string> _modelsMissing = [];
     private bool _fillingModels;
     private CancellationTokenSource? _modelDownloading;
+    private readonly Picker _cameraPicker, _micPicker;
+    private readonly Image _cameraPreview = new() { WidthRequest = 320, HeightRequest = 240, Aspect = Aspect.AspectFit, BackgroundColor = Color.FromArgb("#333333") };
+    private IReadOnlyList<CaptureDevice> _cameras = [], _mics = [];
+    private CancellationTokenSource? _previewing;
 
     private static readonly (CalmLevel Level, string Name)[] CalmChoices =
     [
@@ -110,8 +114,14 @@ public sealed class ParentPage : ContentPage
         layout.Add(Row("Film the child", _recordCamera));
         _cameraStatus = new Label { Text = "Looking for a camera...", FontSize = 13 };
         layout.Add(new Label { Text = $"During play the webcam films the child and the microphone records, so the child's reactions can be gauged afterwards; nothing leaves this computer. The files go in {Path.Combine(host.DataFolder, ToyHost.CameraName)}, and the oldest are deleted past {CameraRecorder.MaxFolderBytes / 1e9:0} GB. What the toy did, moment by moment, goes beside the screen videos as play-....timeline.jsonl. When the camera has seen neither the child's face nor any movement where the child was for {ChildInView.QuietFor:0} seconds, a small camera picture shows in the corner of play until it sees the child again. Windows' Settings > Privacy > Camera must let desktop apps use the camera.", FontSize = 13 });
+        _cameraPicker = ChoicePicker(["Looking for cameras..."], 0);
+        _cameraPicker.SelectedIndexChanged += (_, _) => { if (_cameraPicker.SelectedIndex >= 0 && _cameraPicker.SelectedIndex < _cameras.Count) ShowPreview(); };
+        layout.Add(Row("Camera", _cameraPicker));
+        layout.Add(new HorizontalStackLayout { Spacing = 16, Children = { new Label { WidthRequest = 220 }, _cameraPreview, Button("Look again", ShowPreview) } });
+        _micPicker = ChoicePicker([DefaultMic], 0);
+        layout.Add(Row("Microphone", _micPicker));
         layout.Add(_cameraStatus);
-        _ = ShowCamerasAsync();
+        _ = ShowCamerasAsync(s);
         layout.Add(new Label { Text = DirectorSummary(host), FontSize = 13 });
 
         layout.Add(Heading("Models"));
@@ -185,6 +195,7 @@ public sealed class ParentPage : ContentPage
         // A model download under way is stopped; Ollama keeps what it has and goes on from there next time.
         _modelDownloading?.Cancel();
         _pictureList.Close();
+        _previewing?.Cancel();
         // Choices made with the console tool while this page was open are picked up before play goes on.
         _host.Choices.Reload();
         _host.Words.Reload();
@@ -194,7 +205,9 @@ public sealed class ParentPage : ContentPage
             CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
             _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled,
             // The models are saved the moment they are chosen; carried over here.
-            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel, _recordCamera.IsToggled));
+            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel, _recordCamera.IsToggled,
+            ChosenCamera()?.Id ?? _host.Engine.Settings.Camera, ChosenCamera()?.Name ?? _host.Engine.Settings.CameraName,
+            ChosenMic(_host.Engine.Settings.Microphone)));
         base.OnDisappearing();
     }
 
@@ -202,13 +215,74 @@ public sealed class ParentPage : ContentPage
 
     private readonly Label _cameraStatus;
 
-    /// <summary>Says which cameras Windows has, so a grown-up knows filming will work before play.</summary>
-    private async Task ShowCamerasAsync()
+    private const string DefaultMic = "Windows' default microphone";
+
+    /// <summary>Fills the camera and microphone lists from what Windows has now, with the chosen ones selected (or the
+    /// ones play uses when nothing was chosen: the first camera, Windows' default microphone), and shows what the
+    /// selected camera sees, so a grown-up can tell which camera is which before play.</summary>
+    private async Task ShowCamerasAsync(ToySettings s)
     {
-        var cameras = await CameraRecorder.FindCamerasAsync();
-        MainThread.BeginInvokeOnMainThread(() => _cameraStatus.Text = cameras.Count == 0
-            ? "No camera found: play will not be filmed."
-            : $"Camera: {string.Join(", ", cameras)} (the first is used); sound from Windows' default microphone.");
+        IReadOnlyList<CaptureDevice> cameras = [], mics = [];
+        try
+        {
+            cameras = await CameraRecorder.FindCamerasAsync();
+            mics = await Task.Run(CameraRecorder.FindMicrophones);
+        }
+        catch (Exception e) { Log.Warn("camera", "listing the cameras and microphones for the grown-ups' page failed", e); }
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _cameras = cameras;
+            _mics = mics;
+            _cameraPicker.Items.Clear();
+            // Two cameras of the same name are told apart by their place in Windows' list.
+            foreach (var (camera, i) in cameras.Select((c, i) => (c, i)))
+                _cameraPicker.Items.Add(cameras.Count(c => c.Name == camera.Name) > 1 ? $"{camera.Name} ({i + 1})" : camera.Name);
+            var chosenCamera = DeviceChoice.Find(cameras, s.Camera, s.CameraName);
+            _micPicker.Items.Clear();
+            _micPicker.Items.Add(DefaultMic);
+            foreach (var mic in mics) _micPicker.Items.Add(mic.Name);
+            var chosenMic = DeviceChoice.Find(mics, null, s.Microphone);
+            _micPicker.SelectedIndex = chosenMic + 1;
+            var missing = new List<string>();
+            if (chosenCamera < 0 && (s.Camera ?? s.CameraName) is not null) missing.Add($"The camera chosen before, {s.CameraName ?? s.Camera}, is not plugged in, so play films with the first one.");
+            if (chosenMic < 0 && s.Microphone is not null) missing.Add($"The microphone chosen before, {s.Microphone}, is not plugged in, so play records from Windows' default.");
+            _cameraStatus.Text = cameras.Count == 0
+                ? "No camera found: play will not be filmed."
+                : string.Join(" ", missing.Prepend("Choose the camera that sees the child at the keyboard; the picture shows what the chosen one sees now. Both choices are remembered."));
+            if (cameras.Count == 0) _cameraPicker.Items.Add("No camera found");
+            // Selecting shows the preview.
+            _cameraPicker.SelectedIndex = cameras.Count == 0 ? 0 : Math.Max(0, chosenCamera);
+        });
+    }
+
+    private CaptureDevice? ChosenCamera() =>
+        _cameraPicker.SelectedIndex >= 0 && _cameraPicker.SelectedIndex < _cameras.Count ? _cameras[_cameraPicker.SelectedIndex] : null;
+
+    /// <summary>The microphone selected, by name; null for Windows' default, and the one chosen before while the list
+    /// is not filled yet.</summary>
+    private string? ChosenMic(string? before) =>
+        _mics.Count == 0 ? before : _micPicker.SelectedIndex is > 0 and var i && i <= _mics.Count ? _mics[i - 1].Name : null;
+
+    /// <summary>Takes one picture from the selected camera and shows it beside the list.</summary>
+    private async void ShowPreview()
+    {
+        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
+        try
+        {
+            if (ChosenCamera() is not { } camera) return;
+            _previewing?.Cancel();
+            var cancel = _previewing = new CancellationTokenSource();
+            _cameraPreview.Source = null;
+            var jpeg = await Task.Run(() => CameraRecorder.SnapshotAsync(camera.Id, cancel.Token));
+            if (cancel.IsCancellationRequested || ChosenCamera() != camera) return;
+            if (jpeg is null)
+            {
+                _cameraStatus.Text = $"{camera.Name} gave no picture: it may be in use by another app, or Windows' Settings > Privacy > Camera may not let desktop apps use it.";
+                return;
+            }
+            _cameraPreview.Source = ImageSource.FromStream(() => new MemoryStream(jpeg));
+        }
+        catch (Exception e) { Log.Warn("camera", "showing the camera's picture on the grown-ups' page failed", e); }
     }
 
     /// <summary>Fills the status line and the list of things from the folder as it is now.</summary>

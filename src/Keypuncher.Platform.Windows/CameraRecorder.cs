@@ -16,7 +16,8 @@ namespace Keypuncher.Platform.Windows;
 /// <summary>
 /// Records the child during play: the webcam as a Motion-JPEG video (<see cref="Fps"/> frames a second, about
 /// <see cref="Width"/> pixels wide, each stamped with the clock time the log and the play timeline use) and the
-/// default microphone as a WAV file beside it, both named by the time play started. For gauging the child's
+/// microphone as a WAV file beside it (the camera and microphone a grown-up chose on the grown-ups' page, else the
+/// first camera Windows lists and Windows' default microphone), both named by the time play started. For gauging the child's
 /// reactions afterwards, on this computer only. A missing or busy camera, or a microphone that will not open, is
 /// written to the log and play goes on without it; nothing here may ever hold play up.
 /// </summary>
@@ -32,6 +33,7 @@ public sealed class CameraRecorder : IDisposable
     public const string Prefix = "cam";
 
     private readonly string _folder, _stamp;
+    private readonly string? _cameraId, _cameraName, _micName;
     private readonly Func<DateTime> _clock;
     private readonly Stopwatch _steady = new();
     private readonly Channel<(byte[] Jpeg, int W, int H, int Copies)> _frames =
@@ -66,10 +68,15 @@ public sealed class CameraRecorder : IDisposable
     /// <summary>Starts recording at once: the microphone here (call on the UI thread, which its callbacks need), the
     /// camera in the background, as opening it can take a second or two.</summary>
     /// <param name="stamp">The play's start time as it appears in its other files' names (yyyy-MM-dd-HHmmss).</param>
-    public CameraRecorder(string folder, string stamp, bool withMic = true, Func<DateTime>? clock = null)
+    /// <param name="cameraId">The camera a grown-up chose (<see cref="CaptureDevice.Id"/>), with its name to find it by when
+    /// its id has changed; null for the first camera Windows lists.</param>
+    /// <param name="micName">The microphone a grown-up chose, by name; null for Windows' default.</param>
+    public CameraRecorder(string folder, string stamp, string? cameraId = null, string? cameraName = null, string? micName = null,
+        bool withMic = true, Func<DateTime>? clock = null)
     {
         _folder = folder;
         _stamp = stamp;
+        (_cameraId, _cameraName, _micName) = (cameraId, cameraName, micName);
         _clock = clock ?? (() => DateTime.Now);
         Directory.CreateDirectory(folder);
         Prune(folder);
@@ -107,20 +114,103 @@ public sealed class CameraRecorder : IDisposable
     /// <summary>The sound file, once the microphone is open.</summary>
     public string? SoundFile { get; private set; }
 
-    /// <summary>The cameras Windows knows of, by name, for the grown-ups' page. Empty when there are none or
+    /// <summary>The cameras Windows knows of, in its order, for the grown-ups' page. Empty when there are none or
     /// the question fails.</summary>
-    public static async Task<IReadOnlyList<string>> FindCamerasAsync()
+    public static async Task<IReadOnlyList<CaptureDevice>> FindCamerasAsync()
     {
         try
         {
             var groups = await MediaFrameSourceGroup.FindAllAsync();
-            return [.. groups.Where(g => ColorSource(g) is not null).Select(g => g.DisplayName)];
+            return [.. groups.Where(g => ColorSource(g) is not null).Select(g => new CaptureDevice(g.Id, g.DisplayName))];
         }
         catch (Exception e)
         {
             Log.Warn("camera", "could not ask Windows for its cameras", e);
             return [];
         }
+    }
+
+    /// <summary>The microphones Windows knows of, by the names its sound recording gives them (at most 31 letters),
+    /// for the grown-ups' page; each <see cref="CaptureDevice.Id"/> is its number now, which can change.</summary>
+    public static IReadOnlyList<CaptureDevice> FindMicrophones()
+    {
+        try
+        {
+            return [.. Enumerable.Range(0, WaveIn.DeviceCount).Select(i => new CaptureDevice(i.ToString(), WaveIn.GetCapabilities(i).ProductName))];
+        }
+        catch (Exception e)
+        {
+            Log.Warn("camera", "could not ask Windows for its microphones", e);
+            return [];
+        }
+    }
+
+    /// <summary>One picture from a camera, as a JPEG about <see cref="Width"/> pixels wide, so a grown-up can see
+    /// which camera is which; null when it cannot be had in a few seconds. Opens the camera alongside anything else
+    /// using it, and waits a moment for it to settle, as a camera's first frames are often dark.</summary>
+    public static async Task<byte[]?> SnapshotAsync(string cameraId, CancellationToken cancel = default)
+    {
+        MediaCapture? capture = null;
+        MediaFrameReader? reader = null;
+        try
+        {
+            var groups = await MediaFrameSourceGroup.FindAllAsync();
+            var group = groups.FirstOrDefault(g => g.Id == cameraId && ColorSource(g) is not null);
+            if (group is null) return null;
+            var info = ColorSource(group)!;
+            capture = new MediaCapture();
+            try { await capture.InitializeAsync(Settings(group, MediaCaptureSharingMode.ExclusiveControl)); }
+            catch (Exception)
+            {
+                capture.Dispose();
+                capture = new MediaCapture();
+                await capture.InitializeAsync(Settings(group, MediaCaptureSharingMode.SharedReadOnly));
+            }
+            reader = await capture.CreateFrameReaderAsync(capture.FrameSources[info.Id], MediaEncodingSubtypes.Bgra8);
+            reader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Realtime;
+            if (await reader.StartAsync() != MediaFrameReaderStartStatus.Success) return null;
+            await Task.Delay(TimeSpan.FromSeconds(1.5), cancel);
+            for (var tries = 0; tries < 30; tries++)
+            {
+                using (var frame = reader.TryAcquireLatestFrame())
+                    if (frame?.VideoMediaFrame?.SoftwareBitmap is { } bitmap) return Jpeg(bitmap);
+                await Task.Delay(100, cancel);
+            }
+            return null;
+        }
+        catch (OperationCanceledException) { return null; }
+        catch (Exception e)
+        {
+            Log.Warn("camera", "could not take a picture from the camera for the grown-ups' page", e);
+            return null;
+        }
+        finally
+        {
+            if (reader is not null)
+            {
+                try { await reader.StopAsync(); }
+                catch (Exception) { /* closing anyway */ }
+                reader.Dispose();
+            }
+            capture?.Dispose();
+        }
+    }
+
+    private static byte[] Jpeg(SoftwareBitmap bitmap)
+    {
+        using var bgra = bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8 ? null : SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+        var b = bgra ?? bitmap;
+        var (w, h) = (b.PixelWidth, b.PixelHeight);
+        var pixels = new byte[w * h * 4];
+        b.CopyToBuffer(pixels.AsBuffer());
+        using var image = SKImage.FromPixelCopy(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul), pixels, w * 4);
+        var outW = Math.Min(Width, w);
+        var outH = Math.Max(1, (int)Math.Round(outW * h / (double)w));
+        using var surface = SKSurface.Create(new SKImageInfo(outW, outH, SKColorType.Rgba8888, SKAlphaType.Premul));
+        surface.Canvas.DrawImage(image, new SKRect(0, 0, outW, outH), new SKSamplingOptions(SKFilterMode.Linear));
+        using var snapshot = surface.Snapshot();
+        using var data = snapshot.Encode(SKEncodedImageFormat.Jpeg, 80);
+        return data.ToArray();
     }
 
     /// <summary>Deletes the oldest camera recordings until the folder is under <see cref="MaxFolderBytes"/> with room
@@ -172,13 +262,16 @@ public sealed class CameraRecorder : IDisposable
     {
         try
         {
-            var groups = await MediaFrameSourceGroup.FindAllAsync();
-            var group = groups.FirstOrDefault(g => ColorSource(g) is not null);
-            if (group is null)
+            var groups = (await MediaFrameSourceGroup.FindAllAsync()).Where(g => ColorSource(g) is not null).ToList();
+            if (groups.Count == 0)
             {
                 Log.Warn("camera", "no camera found; play is not filmed");
                 return;
             }
+            var chosen = DeviceChoice.Find([.. groups.Select(g => new CaptureDevice(g.Id, g.DisplayName))], _cameraId, _cameraName);
+            if (chosen < 0 && (_cameraId ?? _cameraName) is not null)
+                Log.Warn("camera", $"the chosen camera {_cameraName ?? _cameraId} is not plugged in; filming with the first camera Windows lists, {groups[0].DisplayName}");
+            var group = groups[Math.Max(0, chosen)];
             var info = ColorSource(group)!;
             var capture = new MediaCapture();
             var exclusive = true;
@@ -429,11 +522,15 @@ public sealed class CameraRecorder : IDisposable
             SoundFile = Path.Combine(_folder, $"{Prefix}-{_stamp}.wav");
             var format = new WaveFormat(MicSampleRate, 16, 1);
             // -1 is Windows' default recording device, whichever that is now.
-            _mic = new WaveIn { DeviceNumber = -1, WaveFormat = format, BufferMilliseconds = 100 };
+            var mics = FindMicrophones();
+            var chosen = DeviceChoice.Find(mics, null, _micName);
+            if (chosen < 0 && _micName is not null)
+                Log.Warn("camera", $"the chosen microphone {_micName} is not plugged in; recording from Windows' default microphone");
+            _mic = new WaveIn { DeviceNumber = chosen, WaveFormat = format, BufferMilliseconds = 100 };
             _wav = new WaveFileWriter(SoundFile, format);
             _mic.DataAvailable += OnSound;
             _mic.StartRecording();
-            Log.Info("camera", $"recording sound from the default microphone to {SoundFile}");
+            Log.Info("camera", $"recording sound from {(chosen < 0 ? "Windows' default microphone" : mics[chosen].Name)} to {SoundFile}");
         }
         catch (Exception e)
         {
