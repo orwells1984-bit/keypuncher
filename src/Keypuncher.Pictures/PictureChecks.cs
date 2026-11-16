@@ -25,15 +25,18 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
 
     /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
     /// enough that old verdicts should not stand: 1 (November 2026) stopped telling the model the picture "should show
-    /// exactly one" and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.</summary>
-    public const int Rules = 1;
+    /// exactly one" and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.
+    /// 2 (later that month) fails a counted heap ("50-60 mangoes", "approximately 20 tulips") and things in bowls.</summary>
+    public const int Rules = 2;
 
     public string Model => checker.Model;
 
-    /// <summary>The pictures in play the checker has not seen yet, or saw under older rules, newest first: what a play
-    /// has just fetched, then what the old rules let through.</summary>
+    /// <summary>The pictures the checker has not seen yet, or saw under older rules: first those held out of play
+    /// until it has (<see cref="PictureSidecar.AwaitsCheck"/>), then what a play has just fetched, then what the old
+    /// rules let through; newest first within each.</summary>
     public IReadOnlyList<PictureSidecar> Unchecked() =>
-        [.. folder.All().Where(p => Stale(p.Check) && folder.HasPicture(p.Slug)).OrderBy(p => p.Check is null ? 0 : 1)];
+        [.. folder.All().Where(p => Stale(p.Check) && (folder.HasPicture(p.Slug) || (p.AwaitsCheck && folder.IsHidden(p.Slug))))
+            .OrderBy(p => p.AwaitsCheck ? 0 : p.Check is null ? 1 : 2)];
 
     /// <summary>Whether a verdict is missing or was made under older rules.</summary>
     public static bool Stale(VisionCheck? check) => check is null || check.Rules < Rules;
@@ -79,10 +82,11 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             Note($"{sidecar.Name}: picture {sidecar.Id} was replaced by picture {current.Id} while it was being checked; the verdict is dropped");
             return null;
         }
-        folder.WriteSidecar(current with { Check = check });
+        folder.WriteSidecar(current with { Check = check, AwaitsCheck = false });
         if (check.Passed)
         {
-            Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}");
+            if (current.AwaitsCheck) folder.Release(sidecar.Slug);
+            Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}{(current.AwaitsCheck ? "; it goes into play" : "")}");
             return check;
         }
         if (current.Source == PictureSource.Hand || current.ShownByGrownUp || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))

@@ -322,8 +322,13 @@ public sealed class PhotoFetcherTests : IDisposable
         _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Sable antelope male.jpg", Download, "a drawing or painting rather than a photo"), []);
         await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
         Assert.StartsWith("fake, covers", _folder.ReadSidecar("sable-antelope")!.CutOut);
+        // A photo the search doubted waits out of play for the picture check.
+        Assert.False(_folder.HasPicture("sable-antelope"));
+        Assert.True(_folder.IsHidden("sable-antelope"));
+        Assert.True(_folder.ReadSidecar("sable-antelope")!.AwaitsCheck);
+        Assert.Null(_folder.Wanted.Get("sable-antelope"));
         _cutOut.IsAvailable = false;
-        File.Delete(_folder.PicturePath("sable-antelope"));
+        File.Delete(_folder.HiddenPath("sable-antelope"));
         File.Delete(_folder.SidecarPath("sable-antelope"));
         await Fetcher().FetchAsync("sable antelope", RealCategory.Animal);
         Assert.Equal("taken with doubt: a drawing or painting rather than a photo", _folder.ReadSidecar("sable-antelope")!.CutOut);

@@ -384,9 +384,10 @@ public static class RealThingRules
 
         if (!RecipeValidator.IsNote(parsed.Voice.Root)) { error = "root"; return false; }
 
-        // A life stage must be something new: not what the family is now or was earlier in the play, and not something
-        // already in the world, which growing would copy (a coconut palm grew into the coconut on another key).
-        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && tidy != subject && NameProblem(tidy) is null
+        // A life stage must be something new: not what the family is now or was earlier in the play under any name
+        // (see Renames), and not something already in the world, which growing would copy (a coconut palm grew into
+        // the coconut on another key).
+        var grows = parsed.GrowsInto is { } g && Tidy(g) is var tidy && !Nothing.Contains(tidy) && !Renames(subject, tidy) && NameProblem(tidy) is null
             && !GrewFrom(tidy, request) ? tidy : null;
         // Small models sometimes slip a stray character from another script into the fact; it is shown to grown-ups.
         var fact = new string(parsed.Fact.Trim().Where(c => c < 0x2E80).ToArray());
@@ -409,7 +410,23 @@ public static class RealThingRules
     /// <summary>Whether growing into <paramref name="name"/> would go back or copy: it is what the family is now or was
     /// earlier, or it is already in the world.</summary>
     public static bool GrewFrom(string name, DirectorRequest request) =>
-        (request.Current is { } now && SameThing(now, name))
-        || (request.Been?.Any(b => SameThing(b, name)) ?? false)
+        (request.Current is { } now && Renames(now, name))
+        || (request.Been?.Any(b => Renames(b, name)) ?? false)
         || request.Existing.Any(e => SameThing(e, name));
+
+    /// <summary>Whether two names are one thing under two names: the same, or one made of the other's words and more
+    /// ("alpine buttercup seed", "alpine buttercup flower", "baby giraffe", "adult frog" beside the plain name). On
+    /// 2026-11-15 a family went alpine buttercup, alpine buttercup seed, alpine buttercup flower in six minutes: three
+    /// picks and three picture searches for one flower. A real change has a name of its own (tadpole and frog, acorn
+    /// and oak tree, caterpillar and butterfly).</summary>
+    public static bool Renames(string a, string b)
+    {
+        if (SameThing(a, b)) return true;
+        var (wa, wb) = (NameWords(a), NameWords(b));
+        if (wa.Count == 0 || wb.Count == 0) return false;
+        return wa.IsSubsetOf(wb) || wb.IsSubsetOf(wa);
+    }
+
+    private static HashSet<string> NameWords(string name) =>
+        [.. Tidy(name).Split([' ', '-'], StringSplitOptions.RemoveEmptyEntries).Select(w => w.Length > 3 && w.EndsWith('s') && !w.EndsWith("ss") ? w[..^1] : w)];
 }

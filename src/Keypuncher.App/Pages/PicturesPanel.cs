@@ -494,7 +494,7 @@ public sealed class PicturesPanel : ContentView
         {
             host.PictureFolder.Wanted.Add(thing.Name, category, now);
             if (thing.Picture is { } picture)
-                host.PictureFolder.Wanted.Bump(thing.Slug, "another was asked for", now, countTry: false, exclude: picture.Photo?.FileTitle);
+                host.PictureFolder.Wanted.Bump(thing.Slug, PhotoFetcher.AskedForAnother, now, countTry: false, exclude: picture.Photo?.FileTitle);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -562,7 +562,7 @@ public sealed class PicturesPanel : ContentView
             $"Met {meetings} {(meetings == 1 ? "time" : "times")}; {(climbs ? "climbs the ladder" : "real at once")}; drawn now as {StageName(now).ToLowerInvariant()}.",
         };
         if (thing.Picture is { } picture)
-            lines.Add($"Picture {picture.Id}{(thing.Hidden ? ", hidden" : "")}: {picture.CreditLine}{(picture.Photo?.DescriptionUrl is { } url ? ", " + url : "")}");
+            lines.Add($"Picture {picture.Id}{(thing.Hidden ? picture.AwaitsCheck ? ", waiting for the picture check (Show puts it in play now)" : ", hidden" : "")}: {picture.CreditLine}{(picture.Photo?.DescriptionUrl is { } url ? ", " + url : "")}");
         else if (thing.Kept.Count == 0) lines.Add("No picture.");
         if (thing.Kept.Count > 0) lines.Add($"{thing.Kept.Count} kept from before.");
         if (thing.Wanted is { } w)

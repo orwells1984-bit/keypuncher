@@ -45,6 +45,8 @@ public static class PhotoRules
         "lithograph", "illustration", "plate", "herbarium", "egg", "eggs", "nest", "track", "tracks", "footprint", "scat",
         "pelt", "skin", "horn", "antler", "feather", "seed", "seeds", "pollen", "interior", "cockpit", "engine", "dashboard",
         "badge", "wheel", "blueprint", "cutaway", "skeleton", "skull", "fossil", "bones", "taxidermy", "mounted", "specimen",
+        // "Parasaurolophus holotype skulls" and "Points of a horse" (a labelled diagram) were taken on 2026-11-15.
+        "skeletons", "skulls", "fossils", "holotype", "paratype", "points", "parts", "labelled", "labeled", "annotated", "schematic",
     };
 
     /// <summary>Category name beginnings (lower case) that mean the same.</summary>
@@ -80,7 +82,7 @@ public static class PhotoRules
 
     /// <summary>For an extinct animal there is no photo of the living thing: a life restoration is what we want, and the
     /// usual lead image (a skeleton, a mummified find) is what we do not.</summary>
-    private static readonly string[] ExtinctHardWords = ["skeleton", "skull", "fossil", "bone", "bones", "mounted", "mummy", "mummified", "carcass", "permafrost", "specimen", "skeletal"];
+    private static readonly string[] ExtinctHardWords = ["skeleton", "skull", "fossil", "bone", "bones", "mounted", "mummy", "mummified", "carcass", "permafrost", "specimen", "skeletal", "skeletons", "skulls", "fossils", "holotype", "paratype"];
     private static readonly string[] ExtinctGoodWords = ["restoration", "reconstruction", "paleoart", "palaeoart", "life"];
 
     /// <summary>Words that make a living thing's picture a drawing rather than a photo: a soft no.</summary>

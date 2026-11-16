@@ -109,7 +109,8 @@ public static class DirectorPrompts
             {ask}
             Not any of these, which are already in the world: {(request.Existing.Count == 0 ? "none yet" : string.Join(", ", request.Existing))}.
             growsInto: if it really grows or turns into something else in nature (tadpole to frog, caterpillar to
-            butterfly, acorn to oak tree, egg to chick), name that; otherwise null.
+            butterfly, acorn to oak tree, egg to chick), name that; otherwise null. It must have a name of its own:
+            never the same name with a word added ("seed", "flower", "baby", "adult").
             {(turnedDown.Count == 0 ? "" : "Already turned down, do not choose again: " + string.Join("; ", turnedDown) + ".")}
             {(suggestions is { Count: > 0 } ? "If you are not sure of one, choose one of these: " + string.Join(", ", suggestions) + "." : "")}
             """;

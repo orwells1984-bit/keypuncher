@@ -161,6 +161,48 @@ public class DirectorPicksTests
         Assert.Equal("oak tree", seed!.GrowsInto);
     }
 
+    [Theory]
+    [InlineData("alpine buttercup", "alpine buttercup seed")]
+    [InlineData("alpine buttercup seed", "alpine buttercup")]
+    [InlineData("giraffe", "baby giraffe")]
+    [InlineData("frog", "adult frogs")]
+    [InlineData("oak", "oak tree")]
+    public void A_name_with_a_word_added_is_the_same_thing_renamed(string a, string b) => Assert.True(RealThingRules.Renames(a, b));
+
+    [Theory]
+    [InlineData("tadpole", "frog")]
+    [InlineData("acorn", "oak tree")]
+    [InlineData("caterpillar", "butterfly")]
+    [InlineData("apple seed", "apple tree")]
+    [InlineData("tree frog", "oak tree")]
+    public void A_real_change_has_a_name_of_its_own(string a, string b) => Assert.False(RealThingRules.Renames(a, b));
+
+    [Fact]
+    public void A_life_stage_that_only_renames_the_thing_is_dropped()
+    {
+        // Run of 15 Nov: alpine buttercup -> alpine buttercup seed -> alpine buttercup flower on one key in six minutes.
+        var plants = new DirectorRequest(6, RecipeKind.Plant, null, [], Category: RealCategory.Plant);
+        Assert.True(RealThingRules.TryBuild(JsonDocument.Parse(Pick("alpine buttercup", "Plant", "Petal", "alpine buttercup seed")), plants, out _, out var flower, out var error), error);
+        Assert.Null(flower!.GrowsInto);
+
+        // A stage that renames what the family was earlier is no better.
+        var seed = plants with { Current = "buttercup seed", Been = ["alpine buttercup"] };
+        Assert.True(RealThingRules.GrewFrom("alpine buttercup flower", seed));
+        Assert.False(RealThingRules.GrewFrom("meadow", seed));
+    }
+
+    [Fact]
+    public void The_loop_does_not_grow_a_thing_into_itself_renamed()
+    {
+        // A world saved before the rule still holds such stages; they are passed over, not asked for.
+        var world = new World();
+        using var loop = new DirectorLoop(new RealThingDirector(new BrokenModel(), new FactChecker(new BrokenModel())), new Random(2), [RealCategory.Plant]);
+        var slots = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).ToList();
+        foreach (var i in slots) world.Families.Restyle(i, world.Families[i] with { Name = $"thing{i}" }, 0);
+        world.Families.Restyle(slots[0], world.Families[slots[0]] with { Name = "alpine buttercup", GrowsInto = "alpine buttercup seed" }, 1);
+        Assert.Null(loop.NextRequest(world.Families)!.GrowInto);
+    }
+
     [Fact]
     public void The_loop_does_not_grow_a_thing_into_one_already_in_the_world()
     {
@@ -169,10 +211,10 @@ public class DirectorPicksTests
         var slots = Enumerable.Range(0, BuiltInRecipes.InventedFamilies).ToList();
         foreach (var i in slots) world.Families.Restyle(i, world.Families[i] with { Name = $"thing{i}" }, 0);
         var (a, b) = (slots[0], slots[1]);
-        world.Families.Restyle(a, world.Families[a] with { Name = "coconut palm", GrowsInto = "coconut" }, 1);
-        Assert.Equal("coconut", loop.NextRequest(world.Families)!.GrowInto);
+        world.Families.Restyle(a, world.Families[a] with { Name = "acorn", GrowsInto = "oak tree" }, 1);
+        Assert.Equal("oak tree", loop.NextRequest(world.Families)!.GrowInto);
 
-        world.Families.Restyle(b, world.Families[b] with { Name = "coconut" }, 2);
+        world.Families.Restyle(b, world.Families[b] with { Name = "oak tree" }, 2);
         var next = loop.NextRequest(world.Families)!;
         Assert.Null(next.GrowInto);
         Assert.NotEqual(a, next.Slot);   // asked like any other, oldest first

@@ -37,6 +37,11 @@ public sealed class PhotoFetcher : IPictureFetcher
 {
     public static readonly TimeSpan Limit = TimeSpan.FromSeconds(60);
     public const string ModelMissing = "cut-out model missing";
+    /// <summary>The wanted reason when a grown-up pressed Try another: the photo that comes is theirs to judge, and
+    /// goes into play at once.</summary>
+    public const string AskedForAnother = "another was asked for";
+    /// <summary>How the sidecar of a photo not yet cut out says the search doubted it.</summary>
+    public const string Doubted = "taken with doubt";
 
     private readonly PictureFolder _folder;
     private readonly IPhotoFinder _finder;
@@ -77,8 +82,11 @@ public sealed class PhotoFetcher : IPictureFetcher
             _folder.Wanted.Remove(slug);
             return FetchOutcome.AlreadyHave;
         }
-        wanted ??= _folder.Wanted.Add(name, category, now);
         var sidecar = _folder.ReadSidecar(slug);
+        // A photo that takes the place of one the checker turned down waits, out of play, for the checker to see it
+        // too: the first photo of a thing is the search's best, and the ones after it are worse more often.
+        var hold = _folder.IsHidden(slug) && sidecar is { Check.Passed: false } && wanted?.Reason != AskedForAnother;
+        wanted ??= _folder.Wanted.Add(name, category, now);
         // Everything turned down so far: what the wanted entry says, what earlier tries left in the sidecar (the entry
         // goes when a try succeeds), and, when another is asked for, the photo in play itself.
         var exclude = asked.Concat(sidecar?.Alternatives ?? []).Concat(inPlay && sidecar?.Photo?.FileTitle is { } shown ? [shown] : [])
@@ -89,7 +97,7 @@ public sealed class PhotoFetcher : IPictureFetcher
             && _folder.FindRaw(slug) is { } rawPath && !exclude.Contains(kept.FileTitle, StringComparer.OrdinalIgnoreCase) && _cutOut.IsAvailable)
         {
             using var raw = Decode(File.ReadAllBytes(rawPath));
-            if (raw is not null) { Note($"{name}: cutting the photo kept earlier"); return Cut(sidecar, raw, now); }
+            if (raw is not null) { Note($"{name}: cutting the photo kept earlier"); return Cut(sidecar, raw, now, hold: sidecar.CutOut?.StartsWith(Doubted) == true); }
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -128,15 +136,17 @@ public sealed class PhotoFetcher : IPictureFetcher
             Id = _folder.NextId(slug),
             Photo = photo.Provenance with { Mime = mime },
             Alternatives = exclude,
-            CutOut = photo.Doubt is { } doubt ? $"taken with doubt: {doubt}" : null,
+            CutOut = photo.Doubt is { } doubt ? $"{Doubted}: {doubt}" : null,
         };
         Note($"{name}: took {photo.Provenance.FileTitle} ({photo.Provenance.How}; {photo.Provenance.LicenseShortName})");
         // With a picture in play, its photo and story stay on disk until the new cut-out lands: a failed cut must
         // not leave the old picture credited to a photo nobody sees.
-        if (inPlay) return Cut(fresh, bitmap, now, pending: (ExtensionFor(mime), got.Bytes));
+        // So does a photo the search itself doubted (a drawing rather than a photo).
+        hold |= photo.Doubt is not null;
+        if (inPlay) return Cut(fresh, bitmap, now, pending: (ExtensionFor(mime), got.Bytes), hold);
         _folder.WriteRaw(slug, ExtensionFor(mime), got.Bytes);
         _folder.WriteSidecar(fresh);
-        return Cut(fresh, bitmap, now);
+        return Cut(fresh, bitmap, now, hold: hold);
     }
 
     /// <summary>Makes the cut-out again from the photo kept under <c>raw/</c>, for the console tool and the grown-ups' page.</summary>
@@ -153,7 +163,8 @@ public sealed class PhotoFetcher : IPictureFetcher
 
     /// <param name="pending">The downloaded photo not yet written under <c>raw/</c>, when an earlier picture is in play:
     /// it and the sidecar are written only once the cut succeeds, and the old picture's files are left alone otherwise.</param>
-    private FetchOutcome Cut(PictureSidecar sidecar, SKBitmap photo, DateTime now, (string Extension, byte[] Bytes)? pending = null)
+    /// <param name="hold">Whether the cut-out waits out of play for the checker (see <see cref="PictureFolder.Hold"/>).</param>
+    private FetchOutcome Cut(PictureSidecar sidecar, SKBitmap photo, DateTime now, (string Extension, byte[] Bytes)? pending = null, bool hold = false)
     {
         if (!_cutOut.IsAvailable)
         {
@@ -183,6 +194,12 @@ public sealed class PhotoFetcher : IPictureFetcher
             _folder.WritePicture(sidecar.Slug, picture);
         }
         _folder.Wanted.Remove(sidecar.Slug);
+        if (hold)
+        {
+            _folder.Hold(sidecar.Slug);
+            Note($"{sidecar.Name}: picture cut out ({result.Model}); it waits for the picture check before it goes into play");
+            return FetchOutcome.Pictured;
+        }
         Note($"{sidecar.Name}: picture in play ({result.Model})");
         return FetchOutcome.Pictured;
     }

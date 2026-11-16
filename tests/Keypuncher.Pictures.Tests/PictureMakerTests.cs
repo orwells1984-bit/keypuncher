@@ -338,6 +338,24 @@ public sealed class OllamaVisionTests
         Assert.Equal($"says \"{word}\"", OllamaVision.Fault(saw, 1, true, true, name, category));
     }
 
+    /// <summary>Both passed on 2026-11-15: the checker counted in digits, which only the animal rule read.</summary>
+    [Theory]
+    [InlineData("The image shows a display of fresh mangoes arranged in several painted metal bowls on a wooden table, with approximately 50-60 mangoes of varying colors and stages of ripeness visible. It is a realistic photograph of the fruit.", "mango", RealCategory.Plant, "bowls")]
+    [InlineData("approximately 50-60 mangoes of varying colors and stages of ripeness", "mango", RealCategory.Plant, "50 mangoes of varying")]
+    [InlineData("The image shows a collection of approximately 20 vibrant orange tulips arranged in a loose, overlapping cluster, and it is a digital cut-out.", "tulip", RealCategory.Plant, "20 vibrant orange tulips")]
+    [InlineData("12 toy cars on a shelf", "toy car", RealCategory.Object, "12 toy cars on")]
+    public void A_heap_counted_in_digits_or_set_out_in_bowls_fails(string saw, string name, RealCategory category, string says) =>
+        Assert.Equal($"says \"{says}\"", OllamaVision.Fault(saw, 1, true, true, name, category));
+
+    [Theory]
+    [InlineData("a single red fox with 2 bright red eyes", "red fox", RealCategory.Animal)]
+    [InlineData("a single zebra, a 3D rendering is not what this is", "zebra", RealCategory.Animal)]
+    [InlineData("one tulip with 6 petals", "tulip", RealCategory.Plant)]
+    [InlineData("a cluster with approximately 10-15 blueberries", "blueberry", RealCategory.Plant)]
+    [InlineData("a tractor, not 2 tractors", "tractor", RealCategory.Vehicle)]
+    public void A_number_that_does_not_count_the_thing_passes(string saw, string name, RealCategory category) =>
+        Assert.Null(OllamaVision.CountedHeap(saw, name, category));
+
     /// <summary>Words a good picture is described with must not flag it: the thing's own name, "cut-out", "I can see",
     /// "both ears", a tulip's stem, a cluster of flowers, a branch when the thing is not a plant.</summary>
     [Theory]

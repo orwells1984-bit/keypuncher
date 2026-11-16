@@ -45,6 +45,8 @@ public sealed class PhotoRulesTests
     [InlineData("File:Puffin egg.jpg", "egg")]
     [InlineData("File:Tractor cockpit.jpg", "cockpit")]
     [InlineData("File:Puffin_distribution.jpg", "distribution")]
+    [InlineData("File:Parasaurolophus holotype skulls.png", "holotype")]
+    [InlineData("File:Points of a horse.jpg", "points")]
     public void File_names_that_mean_something_else_are_turned_down(string title, string word)
     {
         var verdict = PhotoRules.Vet(Facts(title), RealCategory.Animal);
@@ -64,6 +66,10 @@ public sealed class PhotoRulesTests
         Assert.Equal(Rejection.Hard, verdict!.Value.Kind);
         Assert.Contains("category", verdict.Value.Why);
     }
+
+    [Fact]
+    public void Remains_in_the_plural_are_not_a_life_restoration() =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Parasaurolophus holotype skulls.png"), RealCategory.ExtinctAnimal)!.Value.Kind);
 
     [Theory]
     [InlineData("File:Puffin painting by Audubon.jpg")]
