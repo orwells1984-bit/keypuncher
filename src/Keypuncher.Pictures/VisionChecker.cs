@@ -219,7 +219,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// <summary>A word in the description that gives a bad picture away, whatever the verdict said. A number above one
     /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
     /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or skull
-    /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container (food, not the
+    /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container, or a bowl holding things (food, not the
     /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); an animal word for a vehicle or object; and for a plant "a branch" or
     /// "a sprig", or any single "branch" for a tree (a part; trees have branches). A number that is the first half of a
     /// hyphenated word ("five-armed", "three-dimensional") is not a count, and no number or group word counts against
@@ -244,6 +244,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (category != RealCategory.Object && Cloth.Contains(word)) return word;
                 if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
                 if (word is "skull" && !(i > 0 && words[i - 1] is "and")) return word;
+                // A bowl that holds things ("in a white bowl", "a bowl of plums"), not the bowl of a spoon or a pipe.
+                if (word is "bowl" && (i + 1 < words.Count && words[i + 1] is "of" || words.Skip(Math.Max(0, i - 4)).Take(i - Math.Max(0, i - 4)).Any(w => w is "in" or "inside" or "into"))) return word;
                 if (category is RealCategory.Vehicle or RealCategory.Object && Living.Contains(word)) return word;
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
@@ -335,7 +337,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     private static readonly HashSet<string> NotTheThing =
     [
         "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "crate", "basket", "dish",
-        "bowl", "bowls", "baskets", "crates", "jars", "dishes", "stall",
+        "bowls", "baskets", "crates", "jars", "dishes", "stall",
         "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
     ];
     /// <summary>Words that say the picture is a made copy of the thing, not the thing: the plaid cloth that was "a coconut

@@ -344,6 +344,8 @@ public sealed class OllamaVisionTests
     [InlineData("approximately 50-60 mangoes of varying colors and stages of ripeness", "mango", RealCategory.Plant, "50 mangoes of varying")]
     [InlineData("The image shows a collection of approximately 20 vibrant orange tulips arranged in a loose, overlapping cluster, and it is a digital cut-out.", "tulip", RealCategory.Plant, "20 vibrant orange tulips")]
     [InlineData("12 toy cars on a shelf", "toy car", RealCategory.Object, "12 toy cars on")]
+    [InlineData("a single ripe apple sitting in a white ceramic bowl", "apple", RealCategory.Plant, "bowl")]
+    [InlineData("a bowl of plums on a table", "plum", RealCategory.Plant, "bowl")]
     public void A_heap_counted_in_digits_or_set_out_in_bowls_fails(string saw, string name, RealCategory category, string says) =>
         Assert.Equal($"says \"{says}\"", OllamaVision.Fault(saw, 1, true, true, name, category));
 
