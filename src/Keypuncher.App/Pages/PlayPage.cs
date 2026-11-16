@@ -269,7 +269,7 @@ public sealed class PlayPage : ContentPage
         {
             if (inFrame is { } seen)
             {
-                _timeline?.Add(seen ? "inframe" : "outframe");
+                _timeline?.Add(seen ? "inframe" : "outframe", ("faces", _camera?.FacesAtLastLook));
                 Log.Info("camera", seen ? "the camera can see the child" : "the camera cannot see the child; showing the camera picture");
             }
             _childInFrame = inFrame;

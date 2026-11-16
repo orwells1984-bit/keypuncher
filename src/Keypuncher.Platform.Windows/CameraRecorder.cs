@@ -54,7 +54,12 @@ public sealed class CameraRecorder : IDisposable
     private FaceDetector? _faces;
     private bool _facesFailed;
     private double _lastLook = double.NegativeInfinity;
-    private double _lastFace = double.NegativeInfinity;
+    private ChildInView? _view;
+    private volatile bool _inView = true;
+    private byte[]? _lastCells;
+    private volatile int _lastFaces;
+    private int _looks, _faceLooks, _movingLooks;
+    private double _reportedAt;
     private volatile bool _filming;
     private SKImage? _preview;
 
@@ -78,23 +83,18 @@ public sealed class CameraRecorder : IDisposable
     /// <summary>The camera being recorded, once it is open.</summary>
     public string? CameraName { get; private set; }
 
-    /// <summary>Faces are looked for in a frame this often.</summary>
+    /// <summary>Faces and movement are looked for in a frame this often.</summary>
     public const double LookEvery = 0.5;
-    /// <summary>The child counts as out of frame once no face has been seen for this long, so a glance away or a
-    /// frame the detector misses does not flash the warning.</summary>
-    public const double OutOfFrameAfter = 3;
+    /// <summary>A line on what the looks found goes to the log (at Debug) this often.</summary>
+    public const double ReportEvery = 10;
 
-    /// <summary>Whether the camera can see the child: true while a face was seen in the last
-    /// <see cref="OutOfFrameAfter"/> seconds, false when not, null while the camera is not filming or faces cannot be
+    /// <summary>Whether the camera can see the child, as <see cref="ChildInView"/> decides it from faces and movement
+    /// (a child looking down at the keys shows no face); null while the camera is not filming or faces cannot be
     /// looked for. Read from any thread.</summary>
-    public bool? ChildInFrame
-    {
-        get
-        {
-            if (!_filming || _facesFailed) return null;
-            return _steady.Elapsed.TotalSeconds - Volatile.Read(ref _lastFace) < OutOfFrameAfter;
-        }
-    }
+    public bool? ChildInFrame => !_filming || _facesFailed ? null : _inView;
+
+    /// <summary>How many faces the last look found, for the timeline.</summary>
+    public int FacesAtLastLook => _lastFaces;
 
     /// <summary>The newest camera picture (without its time stamp) while the child is out of frame, for the toy to
     /// show so a grown-up can see what the camera sees; null when there is no newer one than the last taken. The
@@ -222,7 +222,8 @@ public sealed class CameraRecorder : IDisposable
             lock (_lock) _reader = reader;
             CameraName = group.DisplayName;
             // The child gets the first few seconds to be seen before the warning can show.
-            Volatile.Write(ref _lastFace, _steady.Elapsed.TotalSeconds);
+            _view = new ChildInView(_steady.Elapsed.TotalSeconds);
+            _reportedAt = _steady.Elapsed.TotalSeconds;
             _filming = true;
             Log.Info("camera", $"filming with {group.DisplayName} at {current.VideoFormat.Width}×{current.VideoFormat.Height}, "
                 + $"{Rate(current):0.#} frames a second from the camera, {Fps} kept");
@@ -302,11 +303,12 @@ public sealed class CameraRecorder : IDisposable
     }
 
     /// <summary>Every <see cref="LookEvery"/> s, asks Windows' built-in face detector (on the CPU, no model to
-    /// download) whether there is a face in the frame, before the time stamp is drawn on it.</summary>
+    /// download) whether there is a face in the frame, and measures how much of the picture where the child was has
+    /// changed since the last look, before the time stamp is drawn on it; <see cref="ChildInView"/> decides from both.</summary>
     private void LookForFace(SKSurface surface, int w, int h)
     {
         var now = _steady.Elapsed.TotalSeconds;
-        if (_facesFailed || now - _lastLook < LookEvery) return;
+        if (_facesFailed || _view is not { } view || now - _lastLook < LookEvery) return;
         _lastLook = now;
         try
         {
@@ -317,7 +319,21 @@ public sealed class CameraRecorder : IDisposable
             using var bgra = SoftwareBitmap.CreateCopyFromBuffer(pixels.AsBuffer(), BitmapPixelFormat.Bgra8, w, h, BitmapAlphaMode.Premultiplied);
             using var gray = SoftwareBitmap.Convert(bgra, BitmapPixelFormat.Gray8);
             var found = _faces.DetectFacesAsync(gray).AsTask().GetAwaiter().GetResult();
-            if (found.Count > 0) Volatile.Write(ref _lastFace, now);
+
+            // Brightness from the BGRA copy (the same weights as Windows' grey), as the grey bitmap's rows may be padded.
+            var grayPixels = new byte[w * h];
+            for (int i = 0, p = 0; i < grayPixels.Length; i++, p += 4)
+                grayPixels[i] = (byte)((pixels[p] * 29 + pixels[p + 1] * 150 + pixels[p + 2] * 77) >> 8);
+            var cells = MotionGrid.Cells(grayPixels, w, h);
+            double? moved = _lastCells is null ? null : MotionGrid.ChangedShare(_lastCells, cells, view.Area);
+            _lastCells = cells;
+            var largest = found.OrderByDescending(f => f.FaceBox.Width).FirstOrDefault();
+            ViewBox? face = largest is null ? null
+                : new ViewBox(largest.FaceBox.X / (double)w, largest.FaceBox.Y / (double)h, largest.FaceBox.Width / (double)w, largest.FaceBox.Height / (double)h);
+            _lastFaces = found.Count;
+            view.Look(now, face, moved);
+            _inView = view.InView;
+            Report(now, face is not null, moved >= ChildInView.MovingShare);
         }
         catch (Exception e)
         {
@@ -325,6 +341,20 @@ public sealed class CameraRecorder : IDisposable
             _facesFailed = true;
             Log.Warn("camera", "could not look for faces in the camera's picture; the out-of-frame warning is off", e);
         }
+    }
+
+    /// <summary>Counts the looks and, every <see cref="ReportEvery"/> s, writes to the log what they found, so a
+    /// play can be judged from the log without the video.</summary>
+    private void Report(double now, bool face, bool moving)
+    {
+        _looks++;
+        if (face) _faceLooks++;
+        else if (moving) _movingLooks++;
+        if (now - _reportedAt < ReportEvery) return;
+        Log.Debug("camera", $"{_looks} looks in {now - _reportedAt:0} s: a face in {_faceLooks}, no face but movement where the child is in {_movingLooks}; "
+            + (_inView ? "the child is in view" : "the child is out of view"));
+        _reportedAt = now;
+        _looks = _faceLooks = _movingLooks = 0;
     }
 
     private void Write()

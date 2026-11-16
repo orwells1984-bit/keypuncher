@@ -27,8 +27,8 @@ namespace Keypuncher.Storage;
 /// <param name="PictureCheckModel">The Ollama model that looks at new pictures, as a grown-up chose it; null for the
 /// toy's own choice.</param>
 /// <param name="RecordCamera">During play, film the child with the webcam and record the microphone, on this computer
-/// only, so the child's reactions can be gauged afterwards; while the camera cannot see a face, the toy shows a small
-/// camera picture so a grown-up can move the camera or the child.</param>
+/// only, so the child's reactions can be gauged afterwards; while the camera cannot see the child (no face and nothing
+/// moving where the child was), the toy shows a small camera picture so a grown-up can move the camera or the child.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
