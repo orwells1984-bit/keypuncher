@@ -165,6 +165,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         if (!whole) return "not whole";
         if (category is RealCategory.Animal or RealCategory.ExtinctAnimal && count is > 1 && SaysMoreThanOne(saw)) return $"counted {count}";
         if (GiveAway(saw, name, category) is { } word) return $"says \"{word}\"";
+        if (CountedHeap(saw, name, category) is { } heap) return $"says \"{heap}\"";
         if (!Named(saw, name)) return "does not name it";
         return null;
     }
@@ -218,7 +219,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// <summary>A word in the description that gives a bad picture away, whatever the verdict said. A number above one
     /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
     /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or skull
-    /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container (food, not the
+    /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container, or a bowl holding things (food, not the
     /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); an animal word for a vehicle or object; and for a plant "a branch" or
     /// "a sprig", or any single "branch" for a tree (a part; trees have branches). A number that is the first half of a
     /// hyphenated word ("five-armed", "three-dimensional") is not a count, and no number or group word counts against
@@ -243,6 +244,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (category != RealCategory.Object && Cloth.Contains(word)) return word;
                 if (NotAlive.Contains(word) || NotWhole.Contains(word) || NotTheThing.Contains(word)) return word;
                 if (word is "skull" && !(i > 0 && words[i - 1] is "and")) return word;
+                // A bowl that holds things ("in a white bowl", "a bowl of plums"), not the bowl of a spoon or a pipe.
+                if (word is "bowl" && (i + 1 < words.Count && words[i + 1] is "of" || words.Skip(Math.Max(0, i - 4)).Take(i - Math.Max(0, i - 4)).Any(w => w is "in" or "inside" or "into"))) return word;
                 if (category is RealCategory.Vehicle or RealCategory.Object && Living.Contains(word)) return word;
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
@@ -257,6 +260,31 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         return null;
     }
 
+    /// <summary>A number above one in digits with the thing itself (the last word of its name) within the next three words ("approximately 50-60
+    /// mangoes of varying colors", "approximately 20 vibrant orange tulips", both passed on 2026-11-15), as the number
+    /// and the words after it; null when there is none. <see cref="GiveAway"/> reads number words only. Not after a
+    /// negation, not "3D", and not for a plant that grows in clusters.</summary>
+    public static string? CountedHeap(string saw, string name, RealCategory category)
+    {
+        if (GrowsInClusters(name, category)) return null;
+        // Only the name's last word counts as the thing: "2 red eyes" must not fail a red fox.
+        var own = Words().Matches(name.ToLowerInvariant()).Select(m => m.Value).TakeLast(1).ToHashSet();
+        foreach (var sentence in saw.ToLowerInvariant().Split(['.', ';', '!', '?'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var tokens = Tokens().Matches(sentence).Select(m => m.Value).ToList();
+            for (var i = 0; i < tokens.Count; i++)
+            {
+                if (Negations.Contains(tokens[i])) break;
+                if (!int.TryParse(tokens[i], out var n) || n < 2) continue;
+                // "3d", "3-dimensional": how it is made. A range ("50-60") is read from its second number.
+                var rest = tokens.Skip(i + 1).SkipWhile(t => char.IsDigit(t[0])).Take(3).ToList();
+                if (rest is ["d" or "dimensional", ..]) continue;
+                if (Followed(rest, 0, own)) return $"{tokens[i]} {string.Join(' ', rest)}";
+            }
+        }
+        return null;
+    }
+
     /// <summary>Whether the thing itself (a word of its name, plural or not) or a generic word for things ("animals",
     /// "things") is among the next three words.</summary>
     private static bool Followed(List<string> words, int from, HashSet<string> own)
@@ -264,7 +292,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         for (var i = from; i < words.Count && i < from + 3; i++)
         {
             var word = words[i];
-            if (Generic.Contains(word) || own.Contains(word) || own.Contains(Singular(word))) return true;
+            if (Generic.Contains(word) || own.Contains(word) || own.Contains(Singular(word)) || (word.EndsWith("es") && own.Contains(word[..^2]))) return true;
         }
         return false;
     }
@@ -309,6 +337,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     private static readonly HashSet<string> NotTheThing =
     [
         "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "crate", "basket", "dish",
+        "bowls", "baskets", "crates", "jars", "dishes", "stall",
         "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
     ];
     /// <summary>Words that say the picture is a made copy of the thing, not the thing: the plaid cloth that was "a coconut
@@ -328,4 +357,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
 
     [GeneratedRegex("[0-9]+")]
     private static partial Regex Digits();
+
+    [GeneratedRegex("[a-z]+|[0-9]+")]
+    private static partial Regex Tokens();
 }

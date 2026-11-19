@@ -125,8 +125,10 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Equal(2, _folder.ReadSidecar("fish")!.Id);
     }
 
+    /// <summary>On 2026-11-15 the photos fetched in place of three failed ones went straight into play: fossil skulls
+    /// for a parasaurolophus. Now the replacement waits, out of play, for the checker.</summary>
     [Fact]
-    public async Task The_next_fetch_puts_another_photo_in_play_and_it_waits_for_its_own_check()
+    public async Task The_next_fetch_brings_another_photo_which_waits_out_of_play_for_its_own_check()
     {
         await Fetcher().FetchAsync("fish", RealCategory.Animal);
         _checker.Passed = false;
@@ -137,13 +139,102 @@ public sealed class PictureChecksTests : IDisposable
 
         Assert.Equal(FetchOutcome.Pictured, outcome);
         Assert.Contains("File:Maldives Surgeonfish.jpg", _finder.Asked[^1].Exclude);
-        Assert.True(_folder.HasPicture("fish"));
-        Assert.False(_folder.IsHidden("fish"));
+        Assert.False(_folder.HasPicture("fish"));
+        Assert.True(_folder.IsHidden("fish"));
         var sidecar = _folder.ReadSidecar("fish")!;
         Assert.Equal("File:Brown trout.jpg", sidecar.Photo!.FileTitle);
+        Assert.True(sidecar.AwaitsCheck);
         Assert.Null(sidecar.Check);
         Assert.Null(_folder.Wanted.Get("fish"));
         Assert.Equal("fish", Assert.Single(Checks().Unchecked()).Slug);
+        // Nothing fetches yet another while it waits.
+        Assert.Equal(FetchOutcome.AlreadyHave, await Fetcher().FetchAsync("fish", RealCategory.Animal));
+        Assert.Contains(_log, l => l.Contains("waits for the picture check"));
+    }
+
+    [Fact]
+    public async Task A_waiting_photo_the_checker_passes_goes_into_play()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = true;
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.True(check!.Passed);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.IsHidden("fish"));
+        var sidecar = _folder.ReadSidecar("fish")!;
+        Assert.Equal((false, false, false), (sidecar.Hidden, sidecar.AwaitsCheck, sidecar.ShownByGrownUp));
+        Assert.Empty(Checks().Unchecked());
+        Assert.Contains(_log, l => l.Contains("it goes into play"));
+    }
+
+    [Fact]
+    public async Task A_waiting_photo_the_checker_fails_never_enters_play_and_another_is_wanted()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        var check = await Checks().CheckAsync("fish");
+
+        Assert.False(check!.Passed);
+        Assert.False(_folder.HasPicture("fish"));
+        Assert.True(_folder.IsHidden("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.AwaitsCheck);
+        Assert.Equal(["File:Brown trout.jpg"], _folder.Wanted.Get("fish")!.Exclude);
+        Assert.Empty(Checks().Unchecked());
+    }
+
+    [Fact]
+    public async Task A_grown_up_can_put_a_waiting_photo_in_play_without_the_checker()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        _folder.Unhide("fish");
+
+        Assert.True(_folder.HasPicture("fish"));
+        var sidecar = _folder.ReadSidecar("fish")!;
+        Assert.Equal((false, true), (sidecar.AwaitsCheck, sidecar.ShownByGrownUp));
+    }
+
+    [Fact]
+    public async Task Another_photo_a_grown_up_asked_for_goes_into_play_at_once()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        // Try another on the grown-ups' page: the photo that comes is theirs to judge.
+        _folder.Wanted.Bump("fish", PhotoFetcher.AskedForAnother, _now, countTry: false);
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.ReadSidecar("fish")!.AwaitsCheck);
+    }
+
+    [Fact]
+    public async Task Waiting_photos_are_checked_first()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _checker.Passed = false;
+        await Checks().CheckAsync("fish");
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Brown trout.jpg", Trout), []);
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Fetcher().FetchAsync("trout", RealCategory.Animal);
+
+        Assert.Equal(["fish", "trout"], Checks().Unchecked().Select(p => p.Slug));
     }
 
     [Fact]

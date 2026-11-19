@@ -142,9 +142,33 @@ public sealed class PictureFolder
             var hidden = HiddenPath(slug);
             if (!File.Exists(hidden)) return;
             File.Move(hidden, PicturePath(slug), overwrite: true);
-            if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false, ShownByGrownUp = true });
+            if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false, ShownByGrownUp = true, AwaitsCheck = false });
             // A grown-up putting back a picture the checker turned down wants that one, not another.
             Wanted.Remove(slug);
+        }
+    }
+
+    /// <summary>Holds a picture just made out of play until the checker has looked at it: hidden, and marked as
+    /// waiting. On 2026-11-15 the photos fetched in place of three the checker had turned down went straight into
+    /// play unseen: fossil skulls for a parasaurolophus among them.</summary>
+    public void Hold(string slug)
+    {
+        lock (_lock)
+        {
+            Hide(slug);
+            if (IsHidden(slug) && ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = true, AwaitsCheck = true });
+        }
+    }
+
+    /// <summary>Puts a held picture the checker has passed into play. Unlike <see cref="Unhide"/> it is not a
+    /// grown-up's choice, so a later check may still take the picture out.</summary>
+    public void Release(string slug)
+    {
+        lock (_lock)
+        {
+            var hidden = HiddenPath(slug);
+            if (File.Exists(hidden)) File.Move(hidden, PicturePath(slug), overwrite: true);
+            if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = !File.Exists(PicturePath(slug)), AwaitsCheck = false });
         }
     }
 

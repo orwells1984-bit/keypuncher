@@ -32,6 +32,10 @@ public sealed record PictureSidecar(
     /// <summary>Whether a grown-up put this picture back after it was taken out of play: the checker's verdict on it is
     /// then shown and no more, as for a picture a grown-up chose.</summary>
     [JsonPropertyName("shownByGrownUp")] public bool ShownByGrownUp { get; init; }
+    /// <summary>Whether the picture is held out of play until the checker has looked at it: it took the place of one
+    /// the checker turned down, or the search itself doubted it (a drawing rather than a photo). A pass puts it in
+    /// play; so does a grown-up's Show.</summary>
+    [JsonPropertyName("awaitsCheck")] public bool AwaitsCheck { get; init; }
     [JsonPropertyName("photo")] public PhotoProvenance? Photo { get; init; }
     [JsonPropertyName("generated")] public GenerationProvenance? Generated { get; init; }
     [JsonPropertyName("check")] public VisionCheck? Check { get; init; }

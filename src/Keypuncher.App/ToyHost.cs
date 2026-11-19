@@ -331,6 +331,11 @@ public sealed class ToyHost : IDisposable
     /// so a check started under a pick waits for the card and runs out of time.</summary>
     public static readonly TimeSpan MaxWaitForDirector = TimeSpan.FromSeconds(90);
 
+    /// <summary>How many times over the check looks at what came in while it ran (the photos fetched in place of the
+    /// ones it turned down), and how long it waits for those fetches each time.</summary>
+    public const int MaxCheckRounds = 4;
+    public static readonly TimeSpan MaxWaitForReplacements = TimeSpan.FromSeconds(45);
+
     /// <summary>True while the vision model is looking at new pictures.</summary>
     public bool PictureCheckRunning => _checking is { IsCompleted: false };
 
@@ -373,24 +378,45 @@ public sealed class ToyHost : IDisposable
             return;
         }
         Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
-        int passed = 0, failed = 0;
+        int passed = 0, failed = 0, all = todo.Count;
+        var seen = new HashSet<(string Slug, int Id)>();
         try
         {
-            foreach (var picture in todo)
+            // A failed picture's replacement is fetched at once and waits out of play for this same check, so the
+            // rounds go on until nothing new has come; MaxCheckRounds stops a thing with no good photo at all.
+            for (var round = 0; todo.Count > 0 && round < MaxCheckRounds; round++)
             {
-                ct.ThrowIfCancellationRequested();
-                var check = await checks.CheckAsync(picture.Slug, ct).ConfigureAwait(false);
-                if (check is null)
+                var silent = false;
+                foreach (var picture in todo)
                 {
-                    // One that did not answer in its two minutes means the card is taken; the next would wait as long.
-                    Story($"the picture checker ({checks.Model}) is not answering; the rest wait for next time");
-                    break;
+                    ct.ThrowIfCancellationRequested();
+                    seen.Add((picture.Slug, picture.Id));
+                    var check = await checks.CheckAsync(picture.Slug, ct).ConfigureAwait(false);
+                    if (check is null)
+                    {
+                        // One that did not answer in its two minutes means the card is taken; the next would wait as long.
+                        Story($"the picture checker ({checks.Model}) is not answering; the rest wait for next time");
+                        silent = true;
+                        break;
+                    }
+                    var name = picture.Name;
+                    if (check.Passed)
+                    {
+                        passed++;
+                        // A picture that was waiting for this goes into play now.
+                        if (picture.AwaitsCheck) MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
+                        continue;
+                    }
+                    failed++;
+                    MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
+                    PictureJobs.Enqueue(name, picture.Category, again: true);
                 }
-                if (check.Passed) { passed++; continue; }
-                failed++;
-                var name = picture.Name;
-                MainThread.BeginInvokeOnMainThread(() => Pictures.Invalidate(name));
-                PictureJobs.Enqueue(name, picture.Category, again: true);
+                if (silent) break;
+                var fetching = System.Diagnostics.Stopwatch.StartNew();
+                while (PictureJobs.Busy && fetching.Elapsed < MaxWaitForReplacements)
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
+                todo = [.. checks.Unchecked().Where(p => !seen.Contains((p.Slug, p.Id)))];
+                all += todo.Count;
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -398,7 +424,7 @@ public sealed class ToyHost : IDisposable
             Story($"picture check stopped: the toy is closing ({passed} looked right, {failed} taken out of play so far)");
             return;
         }
-        Story($"picture check done: {passed} looked right, {failed} taken out of play, {todo.Count - passed - failed} not checked");
+        Story($"picture check done: {passed} looked right, {failed} taken out of play, {all - passed - failed} not checked");
         if (ct.IsCancellationRequested || _quitting) return;
         if (ModelsChecked is { IsCompletedSuccessfully: true, Result: { Reachable: true } known } && !OllamaModels.Has(known.Installed, DirectorModel)) return;
         try { await _author.WarmUpAsync(ct).ConfigureAwait(false); }
