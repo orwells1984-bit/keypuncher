@@ -26,8 +26,10 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
     /// enough that old verdicts should not stand: 1 (November 2026) stopped telling the model the picture "should show
     /// exactly one" and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.
-    /// 2 (later that month) fails a counted heap ("50-60 mangoes", "approximately 20 tulips") and things in bowls.</summary>
-    public const int Rules = 2;
+    /// 2 (later that month) fails a counted heap ("50-60 mangoes", "approximately 20 tulips") and things in bowls.
+    /// 3 (2026-11-20) fails a single bone, a labelled anatomy picture and a second animal "alongside", which had passed
+    /// (a parasaurolophus crest bone, the points of a horse), and no longer fails "close-up" unless it is of a part.</summary>
+    public const int Rules = 3;
 
     public string Model => checker.Model;
 

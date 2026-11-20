@@ -220,7 +220,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// or a group word counts only when the thing itself follows within three words ("two white mice", "a flock of
     /// sheep", "several animals"), since the model also counts legs, petals and wheels; a skeleton, fossil, jaws or skull
     /// (not alive, not whole; "head and skull" is a living seal's); a half or slice; a dish or container, or a bowl holding things (food, not the
-    /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); an animal word for a vehicle or object; and for a plant "a branch" or
+    /// thing); a drawing, diagram or manuscript (but a drawing is how an extinct animal is shown); a close-up of a part ("close-up ... of a single dolphin head"; "close-up" alone is how the model
+    /// speaks of most cut-outs); an animal word for a vehicle or object; and for a plant "a branch" or
     /// "a sprig", or any single "branch" for a tree (a part; trees have branches). A number that is the first half of a
     /// hyphenated word ("five-armed", "three-dimensional") is not a count, and no number or group word counts against
     /// a plant that grows in clusters (<see cref="GrowsInClusters"/>). Nothing after a negation in the same sentence
@@ -250,6 +251,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
                 if (pair is not null && NotWholePairs.Contains(pair)) return pair;
+                if (pair is "close up" && CloseUpOfAPart(words, i + 2, own)) return pair;
                 // "five-armed starfish", "three-dimensional": the number says how the thing is made, not how many.
                 if (Hyphenated(sentence, matches[i]) || pair is "three dimensional" or "two dimensional") continue;
                 if (clustered) continue;
@@ -258,6 +260,23 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
             }
         }
         return null;
+    }
+
+    /// <summary>Whether what follows "close-up" names a part: the thing's name and then a part ("a single dolphin
+    /// head", "the bear's face", "white watercress flowers"), or a part "of" something ("the head of a dolphin").
+    /// The model calls most cut-outs "a close-up, cut-out image", so the words alone say nothing: on 2026-11-20 they
+    /// took a good alpine buttercup and a good caterpillar out of play.</summary>
+    private static bool CloseUpOfAPart(List<string> words, int from, HashSet<string> own)
+    {
+        for (var i = from; i < words.Count; i++)
+        {
+            if (Negations.Contains(words[i])) return false;
+            if (!CloseUpParts.Contains(words[i]) || own.Contains(words[i])) continue;
+            if (i + 1 < words.Count && words[i + 1] is "of") return true;
+            var before = i > 0 && words[i - 1] is "s" ? i - 2 : i - 1;
+            if (before >= from && (own.Contains(words[before]) || own.Contains(Singular(words[before])))) return true;
+        }
+        return false;
     }
 
     /// <summary>A number above one in digits with the thing itself (the last word of its name) within the next three words ("approximately 50-60
@@ -322,7 +341,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "school", "swarm", "litter", "family", "bunch", "stack", "pile", "heap", "collection", "montage", "collage",
     ];
     /// <summary>Words that, with the model's count above one, say a second thing is in the picture.</summary>
-    private static readonly HashSet<string> More = ["second", "another", "others", "twin", "twins", "together"];
+    private static readonly HashSet<string> More = ["second", "another", "others", "twin", "twins", "together", "alongside"];
     private static readonly string[] MorePhrases = ["in the background", "behind it", "beside it", "next to it", "side-by-side", "side by side"];
     /// <summary>Plants that grow as many stalks or stems; berries are known by their name's ending.</summary>
     private static readonly HashSet<string> Clustered =
@@ -331,14 +350,22 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "thyme", "cress", "watercress", "lavender", "grape", "currant",
     ];
     private static readonly HashSet<string> ManyPairs = ["a lot", "lots of", "a number", "a few", "a series", "a set", "a variety"];
-    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bones", "taxidermy", "stuffed", "statue"];
+    private static readonly HashSet<string> NotAlive = ["skeleton", "skeletons", "skulls", "fossil", "fossils", "fossilized", "fossilised", "bone", "bones", "taxidermy", "stuffed", "statue"];
     private static readonly HashSet<string> NotWhole = ["half", "halved", "halves", "slice", "sliced", "slices", "peeled", "partial", "fragment", "decaying", "rotten", "jaws"];
-    private static readonly HashSet<string> NotWholePairs = ["cut in", "cut open", "cut up", "cross section", "close up"];
+    private static readonly HashSet<string> NotWholePairs = ["cut in", "cut open", "cut up", "cross section"];
+    /// <summary>What a close-up may be of that is not the whole thing: "a close-up ... of a single dolphin head",
+    /// "a close-up of several moringa flowers". A close-up of the thing itself is the thing.</summary>
+    private static readonly HashSet<string> CloseUpParts =
+    [
+        "head", "face", "eye", "eyes", "mouth", "snout", "nose", "beak", "bill", "paw", "paws", "foot", "feet", "tail", "wing", "wings",
+        "fur", "feathers", "skin", "scales", "teeth", "flowers", "blossoms", "petals", "leaves", "bark", "buds",
+    ];
     private static readonly HashSet<string> NotTheThing =
     [
         "pie", "pies", "soup", "jam", "juice", "canned", "tin", "jar", "plate", "crate", "basket", "dish",
         "bowls", "baskets", "crates", "jars", "dishes", "stall",
         "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
+        "anatomical", "anatomy", "landmarks", "labelled", "labeled", "labels", "annotated", "annotations",
     ];
     /// <summary>Words that say the picture is a made copy of the thing, not the thing: the plaid cloth that was "a coconut
     /// palm, depicted as a 3D model" passed before these counted. A model is how an extinct animal is shown, so not for it.</summary>

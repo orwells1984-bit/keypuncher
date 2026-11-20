@@ -38,6 +38,7 @@ public sealed class ToyHost : IDisposable
     private readonly HttpClient _ollamaHttp;
     private readonly CancellationTokenSource _stopChecks = new();
     private Task? _checking;
+    private CancellationTokenSource? _thisCheck;
     private volatile bool _quitting;
     private volatile HostMode _mode = HostMode.Play;
 
@@ -318,9 +319,32 @@ public sealed class ToyHost : IDisposable
     {
         if (!Engine.Settings.Pictures || !Engine.Settings.Director || _stopChecks.IsCancellationRequested) return;
         if (_checking is { IsCompleted: false }) return;
-        _checking = Task.Run(() => CheckNewPicturesAsync(_stopChecks.Token));
+        var thisCheck = CancellationTokenSource.CreateLinkedTokenSource(_stopChecks.Token);
+        _thisCheck = thisCheck;
+        _checking = Task.Run(async () =>
+        {
+            try { await CheckNewPicturesAsync(thisCheck.Token).ConfigureAwait(false); }
+            finally { thisCheck.Dispose(); }
+        });
         _checking.LogFailures("pictures", "checking new pictures");
     }
+
+    /// <summary>
+    /// Stops a picture check under way because play is starting; what it had not looked at waits for the goodnight or
+    /// the grown-ups' page. Ollama holds one model, so a check left running takes the card from the director at every
+    /// picture: on 2026-11-20 a check of 60 pictures started on the grown-ups' page ran on through the next play, the
+    /// director's calls took 27 to 64 s (20 to 54 s of each loading its model again) and it made one pick in six
+    /// minutes. The director's model is loaded again at once, so the first pick does not wait for it.
+    /// </summary>
+    public void StopPictureCheckForPlay()
+    {
+        if (_checking is not { IsCompleted: false }) return;
+        Log.Info("pictures", "play is starting; the picture check stops and the rest wait for the goodnight");
+        _stoppedForPlay = true;
+        Log.Safely("pictures", "stopping the picture check for play", () => { try { _thisCheck?.Cancel(); } catch (ObjectDisposedException) { } });
+    }
+
+    private volatile bool _stoppedForPlay;
 
     /// <summary>The longest Quit waits for a picture check under way: the picture being looked at, about. It was two
     /// minutes, and on 2026-11-14 a check that could not get the card (the director's model was still loading) held
@@ -357,6 +381,7 @@ public sealed class ToyHost : IDisposable
 
     private async Task CheckNewPicturesAsync(CancellationToken ct)
     {
+        _stoppedForPlay = false;
         using var http = new HttpClient { BaseAddress = OllamaAddress, Timeout = TimeSpan.FromMinutes(3) };
         var checks = new PictureChecks(PictureFolder, new OllamaVision(http, PictureCheckModel), note: NotePicture);
         var todo = checks.Unchecked();
@@ -421,7 +446,13 @@ public sealed class ToyHost : IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            Story($"picture check stopped: the toy is closing ({passed} looked right, {failed} taken out of play so far)");
+            var forPlay = _stoppedForPlay && !_stopChecks.IsCancellationRequested && !_quitting;
+            Story($"picture check stopped: {(forPlay ? "play has started" : "the toy is closing")} ({passed} looked right, {failed} taken out of play so far)");
+            if (!forPlay) return;
+            // The checker held the card; the director's model goes back on it now rather than at the first pick.
+            try { await _author.WarmUpAsync(_stopChecks.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { Log.Warn("ollama", "loading the director's model again after the picture check failed; the next pick loads it", e); }
             return;
         }
         Story($"picture check done: {passed} looked right, {failed} taken out of play, {all - passed - failed} not checked");

@@ -42,6 +42,37 @@ public class DirectorPicksTests
     }
 
     [Fact]
+    public async Task A_name_made_from_the_site_is_taken_as_the_thing_itself()
+    {
+        // Run of 20 Nov: "reynisfjara reindeer" went to the checker twice and came back "unsure" both times.
+        var author = new ScriptedModel(Pick("Bondi Beach banksia", "Plant", "Cloud"));
+        var checker = new ScriptedModel(Check("an australian shrub", "real", "Plant"));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(Plants);
+
+        Assert.Equal("banksia", outcome.Recipe!.Name);
+        Assert.Contains("taken as banksia", outcome.Attempts.Single().Note);
+        Assert.Contains("banksia", checker.Prompts[0]);
+        Assert.DoesNotContain("bondi", checker.Prompts[0], StringComparison.OrdinalIgnoreCase);
+
+        // What is left may already be in the world: refused without a check.
+        var again = await new RealThingDirector(new ScriptedModel(Pick("bondi beach coconut", "Plant", "Cloud")), new FactChecker(new ScriptedModel(Check("x", "real", "Plant"))))
+            .ProposeAsync(Plants);
+        Assert.Equal("already in the world", again.Attempts[0].Refused);
+    }
+
+    [Theory]
+    [InlineData("reynisfjara reindeer", "at Reynisfjara, Iceland", "reindeer")]
+    [InlineData("Wadi Rum gazelle", "at Wadi Rum, Jordan", "gazelle")]
+    [InlineData("lake bled ferry", "that really sails at Lake Bled, Slovenia", "ferry")]
+    [InlineData("icelandic horse", "at Reynisfjara, Iceland", null)]
+    [InlineData("great white shark", "at Great Barrier Reef, Australia", null)]
+    [InlineData("lake trout", "at Lake Bled, Slovenia", null)]
+    [InlineData("reynisfjara", "at Reynisfjara, Iceland", null)]
+    [InlineData("reindeer", "Iceland", null)]
+    public void Only_the_site_itself_is_taken_off_a_name(string name, string place, string? plain) =>
+        Assert.Equal(plain, RealThingRules.WithoutSite(name, place));
+
+    [Fact]
     public async Task A_vehicle_the_checker_calls_an_object_is_filed_as_an_object()
     {
         // A beach ball can only be offered as a vehicle when a vehicle is asked for; it passes, and is filed as what it is.

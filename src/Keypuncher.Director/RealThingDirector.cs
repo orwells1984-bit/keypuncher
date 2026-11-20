@@ -77,6 +77,21 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 continue;
             }
 
+            // A name made from the site ("reynisfjara reindeer") is taken as the thing itself before anything is checked.
+            var notes = new List<string>();
+            if (asking.MustBe is null && request.GrowInto is null && RealThingRules.WithoutSite(pick!.Subject, request.Here, request.Place) is { } plain)
+            {
+                if (!RealThingRules.TryBuild(pick with { Subject = plain }, asking, out var plainPick, out var plainRecipe, out var plainError))
+                {
+                    attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, plainError, null) { Note = $"taken as {plain}" });
+                    turnedDown.Add($"{plain} ({plainError})");
+                    idea = NextIdea(request, ideas, attempts);
+                    continue;
+                }
+                notes.Add($"taken as {plain}, not {pick.Subject}");
+                (pick, recipe) = (plainPick!, plainRecipe!);
+            }
+
             // The same name again gets the same answer, so it is not checked again. In a test run the model offered
             // "wadi rum gazelle" three times running; in another, "sand dollar" in request after request.
             if (attempts.Any(a => a.Refused is not null && RealThingRules.SameThing(a.Subject, pick!.Subject)))
@@ -93,7 +108,6 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             }
 
             var check = await checker.CheckAsync(pick.Subject, pick.GrowsInto, pick.Category, cancellationToken);
-            var notes = new List<string>();
 
             // A near miss in the spelling is put right, so the picture search finds it ("lilly pillay" is a lilly pilly).
             if (FactChecker.Respelt(pick.Subject, check.Spelling) is { } respelt)
@@ -204,6 +218,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         foreach (var raw in ideas)
         {
             var name = RealThingRules.Tidy(raw);
+            name = RealThingRules.WithoutSite(name, request.Here, request.Place) ?? name;
             if (RealThingRules.NameProblem(name) is not null || attempts.Any(a => RealThingRules.SameThing(a.Subject, name))) continue;
             var key = RealThingRules.PlaceKey(name, request.Place, request.Here);
             if (key.Length == 0 || request.TurnedDownEarlier(name) is not null) continue;

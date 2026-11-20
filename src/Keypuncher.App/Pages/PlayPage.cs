@@ -72,6 +72,8 @@ public sealed class PlayPage : ContentPage
     {
         base.OnAppearing();
         _host.Mode = HostMode.Play;
+        // The card is the director's during play; a check begun on the grown-ups' page carries on after the goodnight.
+        _host.StopPictureCheckForPlay();
         _host.Engine.StartSession();
         var s = _host.Engine.Settings;
         (_keys, _taps, _wasAsleep) = (0, 0, false);
