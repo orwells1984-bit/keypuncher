@@ -4,33 +4,10 @@ using Keypuncher.Core;
 namespace Keypuncher.Director;
 
 /// <summary>Builds the prompts for the director loop. Everything child-facing is constrained elsewhere;
-/// the model only ever chooses shapes, colours, motion and sound. <see cref="System"/> and
-/// <see cref="NewRecipe"/> are the Phase 0 prompts the bench measured; the toy uses <see cref="RealSystem"/>
-/// and <see cref="RealThing"/>, which keep every pick to real things.</summary>
+/// the model only ever chooses shapes, colours, motion and sound. <see cref="RealSystem"/> and
+/// <see cref="RealThing"/> keep every pick to real things.</summary>
 public static class DirectorPrompts
 {
-    public const string System = """
-        You design gentle, friendly creatures, plants and effects for a toy used by a baby.
-        Everything you make is soft, round, bright and kind. Nothing is scary, sharp or loud.
-        You answer only with JSON that matches the schema you are given. Never add text around it.
-        Numbers are fractions unless stated: size, speed and attack are between 0 and 1,
-        decay is between 0.05 and 2 seconds, hue is 0 to 359 degrees, lobes 1 to 12, eyes 0 to 4.
-        Hues snap to a small palette of bright colours, so pick the nearest natural one.
-        For a real animal or dinosaur use its own shape (Cat, Dog, Fish, Bird, Cow, Sheep, Horse, Duck,
-        Elephant, Rabbit, Bear, Mouse, Rex, LongNeck, Triceratops, Stegosaurus, Whale, Dolphin, Shark,
-        Octopus, Crab, Turtle, Seal, Seahorse, Starfish, Jellyfish, Butterfly); it is always a Creature.
-        """;
-
-    public static string NewRecipe(WorldSummary world, string conceptGloss) =>
-        $"""
-        The world is a {world.Biome} at {world.TimeOfDay}; the mood is {world.Mood}.
-        There are {world.LiveEntities} things alive. Recent play energy is {world.RecentInputEnergy:0.0} on a 0 to 1 scale.
-        Things that already exist: {(world.ExistingRecipeNames.Count == 0 ? "none yet" : string.Join(", ", world.ExistingRecipeNames))}.
-
-        Invent one new thing that a child would recognise as "{conceptGloss}", drawn with the shape vocabulary.
-        Give it a short, pronounceable made-up name that is not already used, and a voice that fits its size.
-        """;
-
     /// <summary>The director's standing orders: only real things, named plainly, drawn with the nearest shape.</summary>
     public const string RealSystem = """
         You choose real things for a picture toy used by a baby. Everything you choose must be real: a kind of

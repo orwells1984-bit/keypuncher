@@ -1,43 +1,15 @@
-using System.Text.Json;
 using Keypuncher.Core;
 
 namespace Keypuncher.Director;
 
 /// <summary>
-/// Turns model output into a <see cref="Recipe"/> or a reason it was rejected.
-/// Ollama enforces the schema's structure and enums at decode time but ignores numeric
-/// minimum/maximum, and small models routinely write "size": 8. Numbers are therefore clamped
-/// into range rather than rejected; only a structurally wrong document or an unplayable note is
-/// refused, in which case the old palette stays, which is always safe.
+/// Keeps a recipe the model wrote playable. Ollama enforces the schema's structure and enums at
+/// decode time but ignores numeric minimum/maximum, and small models routinely write "size": 8.
+/// Numbers are therefore clamped into range rather than rejected; only an unplayable note is refused.
 /// </summary>
 public static class RecipeValidator
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
-
-    public static bool TryParse(JsonDocument? json, out Recipe? recipe, out string? error)
-    {
-        recipe = null;
-        error = null;
-        if (json is null) { error = "not JSON"; return false; }
-
-        Recipe? parsed;
-        try { parsed = json.RootElement.Deserialize<Recipe>(Options); }
-        catch (JsonException e)
-        {
-            Log.Warn("director", $"the recipe did not fit the schema: {Log.Short(json.RootElement.GetRawText())}", e);
-            error = e.Message;
-            return false;
-        }
-        if (parsed is null) { error = "empty"; return false; }
-
-        if (parsed.Name.Length < 2) { error = "name length"; return false; }
-        if (!IsNote(parsed.Voice.Root)) { error = "root"; return false; }
-
-        recipe = Normalise(parsed);
-        return true;
-    }
-
-    /// <summary>Clamps every number into the schema's range; ranges mirror <see cref="RecipeSchema"/>.</summary>
+    /// <summary>Clamps every number into the schema's range; ranges mirror the schema in <see cref="RealThingSchema"/>.</summary>
     public static Recipe Normalise(Recipe parsed) => parsed with
     {
         // An animal is alive whatever the model says: a "Plant" cat would grow a stem.
