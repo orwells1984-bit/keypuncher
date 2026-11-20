@@ -323,7 +323,11 @@ public sealed class OllamaVisionTests
     [InlineData("the skull of a cave bear", "cave bear", RealCategory.ExtinctAnimal, "skull")]
     [InlineData("a single, complete, and alive harbor seal skull", "harbour seal", RealCategory.Animal, "skull")]
     [InlineData("a detailed drawing of a paddle boat from an older document", "paddle boat", RealCategory.Vehicle, "drawing")]
-    [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant, "close up")]
+    [InlineData("This is a close-up, cut-out image of a single dolphin head, with its mouth open and teeth visible", "dolphin", RealCategory.Animal, "close up")]
+    [InlineData("The image shows a close-up of several pale green moringa flowers in various stages of bloom", "moringa", RealCategory.Plant, "close up")]
+    [InlineData("a close-up of the head of a brown bear", "bear", RealCategory.Animal, "close up")]
+    [InlineData("This is a cut-out image of a single, elongated, curved bone, likely from the crest of a parasaurolophus dinosaur", "parasaurolophus", RealCategory.ExtinctAnimal, "bone")]
+    [InlineData("a single, dark brown horse standing in a neutral background, with white lines indicating its anatomical landmarks", "horse", RealCategory.Animal, "anatomical")]
     [InlineData("a peeled banana cut in half", "banana", RealCategory.Plant, "peeled")]
     [InlineData("a single, complete coconut palm, depicted as a 3D model with a blue and red plaid texture", "coconut palm", RealCategory.Plant, "model")]
     [InlineData("a whole, unblemished coconut, appearing to be a realistic model", "coconut", RealCategory.Plant, "model")]
@@ -337,6 +341,17 @@ public sealed class OllamaVisionTests
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
         Assert.Equal($"says \"{word}\"", OllamaVision.Fault(saw, 1, true, true, name, category));
     }
+
+    /// <summary>gemma3 calls most cut-outs "a close-up, cut-out image"; on 2026-11-20 those words alone took five good
+    /// pictures out of play. Only a close-up of a part fails.</summary>
+    [Theory]
+    [InlineData("This is a close-up, cut-out image of a single alpine buttercup flower, which is bright yellow and has deeply divided petals, with some green foliage visible in the blurred background.", "alpine buttercup", RealCategory.Plant)]
+    [InlineData("This is a close-up, cut-out image of a vibrant yellow butterfly caterpillar with reddish-orange markings on its wings and body, isolated against a black background.", "caterpillar", RealCategory.Animal)]
+    [InlineData("This is a single, close-up cut-out image of an Icelandic poppy, showcasing its vibrant orange petals and yellow center against a black background.", "icelandic poppy", RealCategory.Plant)]
+    [InlineData("a close-up shot of the plant itself", "crowberry", RealCategory.Plant)]
+    [InlineData("This is a close-up, cut-out image of a vibrant pink flamingo with a long curved neck and a black-tipped beak.", "flamingo", RealCategory.Animal)]
+    public void A_close_up_of_the_whole_thing_passes(string saw, string name, RealCategory category) =>
+        Assert.Null(OllamaVision.GiveAway(saw, name, category));
 
     /// <summary>Both passed on 2026-11-15: the checker counted in digits, which only the animal rule read.</summary>
     [Theory]
@@ -466,6 +481,7 @@ public sealed class OllamaVisionTests
     [InlineData("dog", "This is a cut-out picture featuring three Siberian Huskies standing side-by-side in a snowy environment, with a smaller Shiba Inu dog also included in the image.", 4, false)]
     [InlineData("thylacine", "a black and white cut-out image of a single, complete thylacine standing on a stone surface, with a smaller dog visible in the background.", 2, false)]
     [InlineData("mouse", "one whole, live white mouse lying on its side, and another mouse is slightly behind it.", 2, false)]
+    [InlineData("archaeopteryx", "This is a digitally created illustration of an archaeopteryx, depicted in mid-flight with a smaller juvenile archaeopteryx flying alongside it, against a black background.", 2, false)]
     [InlineData("fish", "The image shows a large group of approximately 20-30 blue tang fish, cut out and arranged against a black background.", 20, false)]
     public void A_count_above_one_fails_only_when_the_description_bears_it_out(string name, string saw, int count, bool passed) =>
         Assert.Equal(passed, OllamaVision.Read(saw, $$"""{"count":{{count}},"is_the_thing":true,"whole":true}""", "gemma3:4b", DateTime.UnixEpoch, name, RealCategory.Animal).Passed);

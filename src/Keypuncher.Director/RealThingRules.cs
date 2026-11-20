@@ -195,6 +195,25 @@ public static class RealThingRules
         return string.Join(' ', kept);
     }
 
+    /// <summary>The name without the site it was made from, or null when it does not begin with the site: "reynisfjara
+    /// reindeer" at Reynisfjara, Iceland is a reindeer, "wadi rum gazelle" a gazelle. The small model makes such names
+    /// though the prompt asks it not to, and the checker cannot say they are real: on 2026-11-20 "reynisfjara reindeer"
+    /// cost two checks to be called "unsure". Only the site itself (what stands before the comma) is taken off; the
+    /// country stays, since it is part of real names (icelandic horse, iceland poppy).</summary>
+    public static string? WithoutSite(string name, params string?[] places)
+    {
+        var tidy = Tidy(name);
+        foreach (var place in places)
+        {
+            if (place is null || !place.Contains(',')) continue;
+            var site = place[..place.IndexOf(',')].Split(' ', StringSplitOptions.RemoveEmptyEntries).SkipWhile(w => !char.IsUpper(w[0])).ToArray();
+            if (site.Length == 0) continue;
+            var prefix = Tidy(string.Join(' ', site)) + " ";
+            if (tidy.StartsWith(prefix, StringComparison.Ordinal) && tidy.Length > prefix.Length) return tidy[prefix.Length..];
+        }
+        return null;
+    }
+
     /// <summary>What a model writes when it means no life stage.</summary>
     private static readonly HashSet<string> Nothing = ["null", "none", "nothing", "n/a", "na", "no", "-"];
 
