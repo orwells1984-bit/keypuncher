@@ -30,11 +30,10 @@ planning document. In short:
 | `src/Keypuncher.Storage` | The world in SQLite, recordings as WAV files, settings |
 | `src/Keypuncher.Platform.Windows` | Keyboard hook (Icelandic layout forced), WASAPI output, microphone, Windows voices |
 | `src/Keypuncher.Director` | The director: real-things prompts, schema, rules, fact checker, loop |
-| `src/Keypuncher.Inference` | `ILanguageModel`, `IImageGenerator`, `IAudioGenerator`, `ISpeech` |
+| `src/Keypuncher.Inference` | `ILanguageModel`, `ISpeech` |
 | `src/Keypuncher.Inference.Ollama` | `ILanguageModel` over a local Ollama server with structured output |
 | `tools/Keypuncher.Preview` | Plays a scripted session with no window and writes PNG frames and a WAV |
 | `tools/Keypuncher.Sandbox` | Run the director against Ollama: a round of picks, or a score for the fact checker |
-| `tools/Keypuncher.KeySpike` | Phase 0: Windows low-level keyboard hook + Icelandic layout reading (Windows only) |
 | `tests/` | xUnit tests; everything except the app and the Windows pieces also runs on Linux |
 
 ## Phase 1: the toy, no model yet
@@ -284,13 +283,13 @@ ollama pull gemma3:4b
 ollama pull qwen3:4b
 
 dotnet test
-dotnet run --project tools/Keypuncher.KeySpike
 ```
 
 Phase 0 gates, from the plan:
 
 - [x] The desktop returns a valid pick in under 5 s median (qwen3:4b, 3.7 s; `Keypuncher.Sandbox bench`, Nov 2026).
 - [ ] Every key on the Icelandic layout reports the right character, including Ð Þ Æ Ö and the
-      accent dead key, and Win / Alt+Tab / Alt+F4 are swallowed (`Keypuncher.KeySpike`).
+      accent dead key, and Win / Alt+Tab / Alt+F4 are swallowed (the toy's own hook in
+      `Keypuncher.Platform.Windows`; keypuncher.log lists the key map at start-up).
 - [ ] SD-Turbo timing on the GTX 1060 (not yet scripted; see the plan).
 - [ ] Piper's Icelandic voice (Salka) runs offline; check whether Windows offers a Bulgarian voice.

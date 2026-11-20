@@ -150,10 +150,6 @@ public sealed class ThingCards
         Changed?.Invoke(slug);
     }
 
-    /// <summary>The words the grown-ups wrote in one language, by the thing's slug.</summary>
-    public IReadOnlyDictionary<string, string> WordsIn(string languageTag) =>
-        All().Select(c => (c.Slug, Word: c.WordIn(languageTag))).Where(c => c.Word is not null).ToDictionary(c => c.Slug, c => c.Word!);
-
     /// <summary>Whether a grown-up chose this picture of the thing for one of its rungs.</summary>
     public bool ChoseByHand(string slug, int picture) => Get(slug)?.Rungs.Uses(picture) == true;
 }

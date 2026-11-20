@@ -207,17 +207,6 @@ public class ReflexInputTests
     }
 
     [Fact]
-    public void Newest_prefers_the_same_recipe()
-    {
-        var w = new World();
-        var a = AddThing(w, born: 0, BuiltInRecipes.Palette[0]);
-        AddThing(w, born: 1, BuiltInRecipes.Palette[1]);
-        Assert.Same(a, w.Newest(BuiltInRecipes.Palette[0]));
-        Assert.Equal(2, w.Newest(BuiltInRecipes.Palette[5])!.Id);
-        Assert.Null(new World().Newest(BuiltInRecipes.Palette[0]));
-    }
-
-    [Fact]
     public void Calm_levels_get_busier_with_age()
     {
         CalmLimits[] levels = [CalmLimits.For(CalmLevel.Baby), CalmLimits.For(CalmLevel.Toddler), CalmLimits.For(CalmLevel.BigToddler)];

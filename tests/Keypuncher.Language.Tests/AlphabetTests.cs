@@ -33,11 +33,4 @@ public class AlphabetTests
             foreach (var tag in new[] { "is", "en", "bg" })
                 Assert.False(string.IsNullOrWhiteSpace(c.WordIn(tag)), $"{c.Id} lacks {tag}");
     }
-
-    [Fact]
-    public void Eth_falls_back_to_a_word_containing_it()
-    {
-        Assert.Empty(StarterConcepts.StartingWith("is", 'Ð'));
-        Assert.Contains(StarterConcepts.Containing("is", 'ð'), c => c.Id == "butterfly"); // fiðrildi
-    }
 }

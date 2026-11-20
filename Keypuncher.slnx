@@ -22,7 +22,6 @@
     <Project Path="tests/Keypuncher.Toy.Tests/Keypuncher.Toy.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
-    <Project Path="tools/Keypuncher.KeySpike/Keypuncher.KeySpike.csproj" />
     <Project Path="tools/Keypuncher.Preview/Keypuncher.Preview.csproj" />
     <Project Path="tools/Keypuncher.Pictures/Keypuncher.Pictures.Tool.csproj" />
     <Project Path="tools/Keypuncher.Sandbox/Keypuncher.Sandbox.csproj" />
