@@ -59,11 +59,4 @@ public static class StarterConcepts
         new("jellyfish", new Dictionary<string, string> { ["is"] = "marglytta", ["en"] = "jellyfish", ["bg"] = "медуза" }),
     ];
 
-    /// <summary>Concepts whose word in <paramref name="languageTag"/> starts with <paramref name="letter"/>.
-    /// Ð has none in Icelandic, so callers fall back to <see cref="Containing"/>.</summary>
-    public static IEnumerable<Concept> StartingWith(string languageTag, char letter) =>
-        All.Where(c => c.WordIn(languageTag) is { } w && char.ToUpperInvariant(w[0]) == char.ToUpperInvariant(letter));
-
-    public static IEnumerable<Concept> Containing(string languageTag, char letter) =>
-        All.Where(c => c.WordIn(languageTag) is { } w && w.Contains(letter, StringComparison.InvariantCultureIgnoreCase));
 }

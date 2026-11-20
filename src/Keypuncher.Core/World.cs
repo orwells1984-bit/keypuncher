@@ -151,21 +151,6 @@ public sealed class World
         return bestPreferred ?? best;
     }
 
-    /// <summary>The most recently born thing made from <paramref name="recipe"/>, or failing that the most
-    /// recent thing of any kind; null in an empty world.</summary>
-    public Entity? Newest(Recipe? recipe)
-    {
-        Entity? any = null;
-        for (var i = _live.Count - 1; i >= 0; i--)
-        {
-            var e = _live[i];
-            if (!e.IsPersistent || e.IsRetiring) continue;
-            if (e.Recipe == recipe) return e;
-            any ??= e;
-        }
-        return any;
-    }
-
     /// <summary>Moves the world to <paramref name="scene"/>; the old one fades out over a while.</summary>
     public void SetScene(Scene scene)
     {

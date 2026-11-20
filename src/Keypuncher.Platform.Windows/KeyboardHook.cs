@@ -9,7 +9,7 @@ namespace Keypuncher.Platform.Windows;
 /// Windows' hook timeout). While the toy's window is in front, keys that <see cref="ShouldSwallow"/> picks
 /// (in play: all of them) are kept from Windows: Win, Alt+Tab, Alt+F4, Ctrl+Esc, media keys and all. Ctrl+Alt+Del,
 /// Win+L and firmware Fn keys cannot be blocked here; <see cref="LockShortcut"/> turns Win+L off another way. Characters are read with the Icelandic layout whatever the
-/// account's layout is. Proven by tools/Keypuncher.KeySpike.
+/// account's layout is. First proven by the Phase 0 key spike (removed).
 /// </summary>
 public sealed class KeyboardHook : IDisposable
 {

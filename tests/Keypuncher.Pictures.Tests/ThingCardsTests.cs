@@ -46,11 +46,12 @@ public sealed class ThingCardsTests : IDisposable
         _folder.Cards.Save(new ThingCard("plastic-straw", "plastic straw").WithWord("is", "rör").WithWord("en", "straw"), _now);
         _folder.Cards.Save(new ThingCard("teapot", "teapot") { Climb = ClimbChoice.Real }, _now);
 
-        var icelandic = _folder.Cards.WordsIn("is");
+        using var book = new WordBook(_folder.Cards);
+        var icelandic = book.In("is");
         Assert.Equal(["octopus", "plastic-straw"], icelandic.Keys.Order());
         Assert.Equal("rör", icelandic["plastic-straw"]);
-        Assert.Equal(["plastic-straw"], _folder.Cards.WordsIn("en").Keys);
-        Assert.Empty(_folder.Cards.WordsIn("bg"));
+        Assert.Equal(["plastic-straw"], book.In("en").Keys);
+        Assert.Empty(book.In("bg"));
     }
 
     [Fact]
@@ -157,7 +158,6 @@ public sealed class ThingCardsTests : IDisposable
         var puffin = _folder.Cards.Get("puffin")!;
         Assert.Equal(("puffin", "lundi"), (puffin.Slug, puffin.WordIn("is")));
         Assert.Null(puffin.WordIn("en"));
-        Assert.Equal("lundi", _folder.Cards.WordsIn("is")["puffin"]);
         using var book = new WordBook(_folder.Cards);
         Assert.Equal("lundi", book.In("is")["puffin"]);
     }

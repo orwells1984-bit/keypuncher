@@ -161,8 +161,6 @@ public sealed class SdCli(SdCliSetup setup, Func<int?>? freeVram = null, Action<
 
     public bool IsAvailable => setup.AllPresent;
 
-    public SdCliSetup Setup => setup;
-
     public async Task<(MadeImage? Image, string? Reason)> MakeAsync(string prompt, long seed, CancellationToken ct = default)
     {
         if (!IsAvailable) return (null, $"image model missing: {string.Join(", ", setup.Missing())}");
