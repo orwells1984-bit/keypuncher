@@ -7,86 +7,42 @@ namespace Keypuncher.Director.Tests;
 public class RecipeTests
 {
     private const string Sample = """
-        {"kind":"Creature","name":"puffbird","body":{"shape":"Blob","lobes":5,"hue":32,"size":0.6},
-         "eyes":2,"motion":{"type":"Hop","speed":0.4},
-         "voice":{"wave":"Triangle","attack":0.01,"decay":0.3,"scale":"pentatonic","root":"C5"},
-         "growsInto":"puffbird-adult"}
+        {"kind":"Creature","name":"brown trout","body":{"shape":"Fish","lobes":3,"hue":30,"size":0.3},
+         "eyes":2,"motion":{"type":"Drift","speed":0.4},
+         "voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"}}
         """;
 
-    [Fact]
-    public void Schema_is_valid_json_with_required_keys()
-    {
-        var required = RecipeSchema.Element.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToList();
-        Assert.Contains("voice", required);
-        Assert.Contains("body", required);
-    }
-
-    [Fact]
-    public void Sample_recipe_parses()
-    {
-        Assert.True(RecipeValidator.TryParse(JsonDocument.Parse(Sample), out var recipe, out var error), error);
-        Assert.Equal(RecipeKind.Creature, recipe!.Kind);
-        Assert.Equal(Shape.Blob, recipe.Body.Shape);
-        Assert.Equal(Waveform.Triangle, recipe.Voice.Wave);
-        Assert.Equal("puffbird-adult", recipe.GrowsInto);
-    }
+    private static Recipe Parse(string json) => JsonSerializer.Deserialize<Recipe>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
     [Fact]
     public void Out_of_range_numbers_are_clamped_not_rejected()
     {
         // What gemma3:4b actually returned on the desktop bench: Ollama ignores min/max.
-        var loose = Sample.Replace("\"size\":0.6", "\"size\":8")
+        var loose = Sample.Replace("\"size\":0.3", "\"size\":8")
                           .Replace("\"speed\":0.4", "\"speed\":3")
-                          .Replace("\"attack\":0.01", "\"attack\":2")
-                          .Replace("\"hue\":32", "\"hue\":400");
-        Assert.True(RecipeValidator.TryParse(JsonDocument.Parse(loose), out var recipe, out var error), error);
-        Assert.Equal(1.0, recipe!.Body.Size);
+                          .Replace("\"attack\":0.05", "\"attack\":2")
+                          .Replace("\"hue\":30", "\"hue\":400");
+        var recipe = RecipeValidator.Normalise(Parse(loose));
+        Assert.Equal(1.0, recipe.Body.Size);
         Assert.Equal(1.0, recipe.Motion.Speed);
         Assert.Equal(0.5, recipe.Voice.Attack);
         Assert.Equal(40, recipe.Body.Hue);
     }
 
-    [Theory]
-    [InlineData("\"root\":\"C5\"", "\"root\":\"H9\"", "root")]
-    [InlineData("\"name\":\"puffbird\"", "\"name\":\"x\"", "name length")]
-    public void Unusable_values_are_rejected(string from, string to, string expectedError)
-    {
-        var bad = Sample.Replace(from, to);
-        Assert.False(RecipeValidator.TryParse(JsonDocument.Parse(bad), out _, out var error));
-        Assert.Equal(expectedError, error);
-    }
-
     [Fact]
     public void An_animal_is_always_a_creature()
     {
-        var plantCat = Sample.Replace("\"Creature\"", "\"Plant\"").Replace("\"Blob\"", "\"Cat\"");
-        Assert.True(RecipeValidator.TryParse(JsonDocument.Parse(plantCat), out var recipe, out var error), error);
-        Assert.Equal(Shape.Cat, recipe!.Body.Shape);
+        var plantCat = Sample.Replace("\"Creature\"", "\"Plant\"").Replace("\"Fish\"", "\"Cat\"");
+        var recipe = RecipeValidator.Normalise(Parse(plantCat));
+        Assert.Equal(Shape.Cat, recipe.Body.Shape);
         Assert.Equal(RecipeKind.Creature, recipe.Kind);
     }
 
-    [Fact]
-    public void Schema_offers_every_shape_but_the_pictures()
-    {
-        var shapes = RecipeSchema.Element.GetProperty("properties").GetProperty("body").GetProperty("properties")
-            .GetProperty("shape").GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
-        // The apple, moon, house and boat are drawings of one thing each, not shapes for the model to build with.
-        Assert.Equal(Enum.GetValues<Shape>().Where(s => !s.IsPicture()).Select(s => s.ToString()), shapes);
-    }
-
-    [Fact]
-    public void Null_document_is_rejected()
-    {
-        Assert.False(RecipeValidator.TryParse(null, out _, out var error));
-        Assert.Equal("not JSON", error);
-    }
-
-    [Fact]
-    public void Prompt_mentions_the_concept_and_existing_names()
-    {
-        var world = new WorldSummary("meadow", "dusk", "calm", 3, 0.5, ["puffbird"]);
-        var prompt = DirectorPrompts.NewRecipe(world, "a smiling sun");
-        Assert.Contains("a smiling sun", prompt);
-        Assert.Contains("puffbird", prompt);
-    }
+    [Theory]
+    [InlineData("C5", true)]
+    [InlineData("F#3", true)]
+    [InlineData("H9", false)]
+    [InlineData("C7", false)]
+    public void Only_playable_notes_are_notes(string note, bool expected) =>
+        Assert.Equal(expected, RecipeValidator.IsNote(note));
 }

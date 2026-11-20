@@ -33,7 +33,6 @@ planning document. In short:
 | `src/Keypuncher.Inference` | `ILanguageModel`, `IImageGenerator`, `IAudioGenerator`, `ISpeech` |
 | `src/Keypuncher.Inference.Ollama` | `ILanguageModel` over a local Ollama server with structured output |
 | `tools/Keypuncher.Preview` | Plays a scripted session with no window and writes PNG frames and a WAV |
-| `tools/Keypuncher.Bench` | Phase 0: tokens/s and valid-recipe rate per model on this PC |
 | `tools/Keypuncher.Sandbox` | Run the director against Ollama: a round of picks, or a score for the fact checker |
 | `tools/Keypuncher.KeySpike` | Phase 0: Windows low-level keyboard hook + Icelandic layout reading (Windows only) |
 | `tests/` | xUnit tests; everything except the app and the Windows pieces also runs on Linux |
@@ -283,19 +282,14 @@ Needs the .NET 10 SDK, [Ollama](https://ollama.com) and the Icelandic keyboard l
 ```powershell
 ollama pull gemma3:4b
 ollama pull qwen3:4b
-ollama pull llama3.1:8b          # tight on 6 GB; worth measuring
 
 dotnet test
-dotnet run --project tools/Keypuncher.Bench -- --models gemma3:4b,qwen3:4b,llama3.1:8b --runs 5
-dotnet run --project tools/Keypuncher.Sandbox -- recipe gemma3:4b "a round sleepy cat"
 dotnet run --project tools/Keypuncher.KeySpike
 ```
 
-The bench writes a Markdown table to `bench-results/`; commit it so the numbers live with the code.
-
 Phase 0 gates, from the plan:
 
-- [ ] The desktop returns a valid recipe in under 5 s median (`Keypuncher.Bench`).
+- [x] The desktop returns a valid pick in under 5 s median (qwen3:4b, 3.7 s; `Keypuncher.Sandbox bench`, Nov 2026).
 - [ ] Every key on the Icelandic layout reports the right character, including Ð Þ Æ Ö and the
       accent dead key, and Win / Alt+Tab / Alt+F4 are swallowed (`Keypuncher.KeySpike`).
 - [ ] SD-Turbo timing on the GTX 1060 (not yet scripted; see the plan).

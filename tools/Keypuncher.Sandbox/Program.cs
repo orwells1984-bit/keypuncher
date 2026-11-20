@@ -8,7 +8,6 @@
 //   dotnet run --project tools/Keypuncher.Sandbox -- facts [model]             score the place-fact check on true and false sentences
 //   dotnet run --project tools/Keypuncher.Sandbox -- fits [model]              score ways of asking whether a thing is found at a place
 //   dotnet run --project tools/Keypuncher.Sandbox -- check [model]             score the fact checker on known names
-//   dotnet run --project tools/Keypuncher.Sandbox -- recipe [model] "a round sleepy cat"   the Phase 0 prompt
 //   dotnet run --project tools/Keypuncher.Sandbox -- bench --models qwen3:4b,gemma3:4b --variants baseline,A1,A4 [--sets author,checker,habitat,scene] [--runs 3] [--temperature 0.8] [--think] [--out bench-results]
 //                                                                    the reliability bench: labelled sets, every model and prompt variant, a CSV row a call (see Bench.cs)
 //
@@ -54,13 +53,10 @@ switch (mode)
     case "fits":
         await Fits();
         break;
-    case "recipe":
-        await OldRecipe(args.Length > 2 ? args[2] : "a smiling sun");
-        break;
     case "bench":
         return await Keypuncher.Sandbox.Bench.RunAsync(args.Skip(1).ToArray(), host);
     default:
-        Console.WriteLine("modes: picks, extinct, scenes, places, climates, facts, fits, check, recipe, bench");
+        Console.WriteLine("modes: picks, extinct, scenes, places, climates, facts, fits, check, bench");
         break;
 }
 return 0;
@@ -362,15 +358,3 @@ async Task Check()
     Console.WriteLine($"{right} of {cases.Length} right; {inventedThrough} inventions got through, {realRefused} real things refused; {clock.Elapsed.TotalSeconds / cases.Length:0.0} s a check.");
 }
 
-async Task OldRecipe(string gloss)
-{
-    var world = new WorldSummary("meadow", "morning", "playful", 0, 0.2, []);
-    var result = await author.GenerateJsonAsync(DirectorPrompts.System, DirectorPrompts.NewRecipe(world, gloss), RecipeSchema.Element);
-    Console.WriteLine(result.RawText);
-    Console.WriteLine();
-    if (RecipeValidator.TryParse(result.Json, out var recipe, out var error))
-        Console.WriteLine("valid: " + JsonSerializer.Serialize(recipe, new JsonSerializerOptions { WriteIndented = true }));
-    else
-        Console.WriteLine("rejected: " + error);
-    Console.WriteLine($"{result.Timing.OutputTokens} tokens at {result.Timing.OutputTokensPerSecond:0.0} tok/s, total {result.Timing.Total.TotalSeconds:0.0}s");
-}
