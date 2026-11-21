@@ -13,9 +13,14 @@ namespace Keypuncher.Inference.Ollama;
 /// </summary>
 public sealed class OllamaLanguageModel : ILanguageModel
 {
-    /// <summary>How long one call may take, loading the model included. HttpClient's default of 100 s was too short
-    /// for a cold load on the desktop (a 1060 loading qwen3:4b from disk), and the timeout looked like a silent cancel.</summary>
-    public static readonly TimeSpan CallTimeout = TimeSpan.FromMinutes(5);
+    /// <summary>How long loading the model may take. HttpClient's default of 100 s was too short for a cold load
+    /// on the desktop (a 1060 loading qwen3:4b from disk), and the timeout looked like a silent cancel.</summary>
+    public static readonly TimeSpan LoadTimeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long one question may take, a load included. A healthy call takes 2 to 8 s and a cold load
+    /// about 20 s; one that has said nothing after this long is waiting behind another job in Ollama's queue.
+    /// At 5 minutes one stuck call was a whole play (2026-11-21); given up sooner, the next one gets its turn.</summary>
+    public static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(90);
 
     /// <summary>How long Ollama keeps the model loaded after a call. Its default of 5 minutes let the model unload
     /// between the director's requests, so each one paid the load again.</summary>
@@ -36,7 +41,7 @@ public sealed class OllamaLanguageModel : ILanguageModel
     public OllamaLanguageModel(Uri baseUri, string modelName, int numCtx = 4096, float temperature = 0.8f, bool think = false, string? role = null)
     {
         _role = role ?? "model";
-        _http = new HttpClient { BaseAddress = baseUri, Timeout = CallTimeout };
+        _http = new HttpClient { BaseAddress = baseUri, Timeout = LoadTimeout };
         _client = new OllamaApiClient(_http, modelName);
         ModelName = modelName;
         _numCtx = numCtx;
@@ -84,9 +89,11 @@ public sealed class OllamaLanguageModel : ILanguageModel
         GenerateDoneResponseStream? done = null;
         var clock = Stopwatch.StartNew();
         TimeSpan? firstToken = null;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(CallTimeout);
         try
         {
-            await foreach (var chunk in _client.GenerateAsync(request, cancellationToken))
+            await foreach (var chunk in _client.GenerateAsync(request, limit.Token))
             {
                 if (chunk is null) continue;
                 firstToken ??= clock.Elapsed;
@@ -101,8 +108,8 @@ public sealed class OllamaLanguageModel : ILanguageModel
         }
         catch (OperationCanceledException e)
         {
-            // HttpClient's timeout surfaces as a cancellation nobody asked for.
-            Log.Error("ollama", $"{call} no answer within {CallTimeout.TotalMinutes:0} min (gave up after {clock.Elapsed.TotalSeconds:0.0} s{(firstToken is { } f ? $"; first words came at {f.TotalSeconds:0.0} s" : "; not a word came back")}). Is the model loading, or is something else using the card?", e);
+            // The time limit surfaces as a cancellation nobody asked for.
+            Log.Error("ollama", $"{call} no answer within {CallTimeout.TotalSeconds:0} s (gave up after {clock.Elapsed.TotalSeconds:0.0} s{(firstToken is { } f ? $"; first words came at {f.TotalSeconds:0.0} s" : "; not a word came back")}). Is the model loading, or is something else using the card?", e);
             throw;
         }
         catch (Exception e)

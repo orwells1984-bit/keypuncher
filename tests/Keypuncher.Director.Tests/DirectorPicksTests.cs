@@ -290,4 +290,30 @@ public class DirectorPicksTests
         }
         Assert.False(loop.Busy);
     }
+
+    [Fact]
+    public async Task An_example_from_the_prompt_handed_back_is_refused_and_asked_again()
+    {
+        // 2026-11-21: asked for a vehicle people use at an Icelandic beach, the model returned the prompt's own fire engine.
+        var example = DirectorPrompts.FewShotExamples.Split('\n').Select(l => l.Trim()).Last(l => l.StartsWith('{'));
+        var author = new ScriptedModel(example, Pick("jeep", "Vehicle", "Car"));
+        var outcome = await new RealThingDirector(author, new FactChecker(new ScriptedModel())).ProposeAsync(Objects with { Category = RealCategory.Vehicle });
+
+        Assert.Equal("jeep", outcome.Recipe!.Name);
+        Assert.Equal(RealThingDirector.EchoedExample, outcome.Attempts[0].Refused);
+        Assert.Equal(2, author.Prompts.Count);
+        // The example's own ideas (tractor, double-decker bus) are not asked for by name; the model is told why.
+        Assert.DoesNotContain("subject must be", author.Prompts[1]);
+        Assert.Contains("fire engine (copied from the examples", author.Prompts[1]);
+    }
+
+    [Fact]
+    public void Only_an_example_with_its_own_fact_counts_as_handed_back()
+    {
+        Assert.True(DirectorPrompts.IsExampleEcho("fire engine", "a big red truck that firefighters drive to put out fires"));
+        Assert.True(DirectorPrompts.IsExampleEcho("Oak Tree", "grows in woods and fields across Europe and lives for hundreds of years."));
+        Assert.False(DirectorPrompts.IsExampleEcho("fire engine", "carries water and ladders to fires in towns"));
+        Assert.False(DirectorPrompts.IsExampleEcho("jeep", "a big red truck that firefighters drive to put out fires"));
+        Assert.False(DirectorPrompts.IsExampleEcho("fire engine", null));
+    }
 }

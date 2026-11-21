@@ -53,6 +53,21 @@ public static class DirectorPrompts
         {"ideas":["fire engine","tractor","double-decker bus"],"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
         """;
 
+    private static readonly Lazy<IReadOnlyList<(string Subject, string Fact)>> Examples = new(() =>
+        [.. FewShotExamples.Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith('{')).Select(l =>
+        {
+            using var doc = JsonDocument.Parse(l);
+            return (doc.RootElement.GetProperty("subject").GetString()!, doc.RootElement.GetProperty("fact").GetString()!);
+        })]);
+
+    /// <summary>Whether an answer is one of <see cref="FewShotExamples"/> handed back: the same subject with the
+    /// same fact, word for word. A model that is unsure copies what it was shown; on 2026-11-21 the one new thing
+    /// of a play at an Icelandic beach was the example fire engine, fact and numbers included.</summary>
+    public static bool IsExampleEcho(string? subject, string? fact) =>
+        subject is not null && fact is not null && Examples.Value.Any(e =>
+            string.Equals(e.Subject, subject.Trim(), StringComparison.OrdinalIgnoreCase)
+            && string.Equals(e.Fact.TrimEnd('.'), fact.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>The three prompts the author needs for one try, arranged as <paramref name="variant"/> asks.
     /// <see cref="RealThingDirector"/> and the bench both go through here, so what the bench measures is what the toy sends.</summary>
     public static (string System, string User, JsonElement Schema) Author(DirectorRequest request, IReadOnlyList<string> turnedDown,

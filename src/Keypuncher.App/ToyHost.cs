@@ -109,7 +109,17 @@ public sealed class ToyHost : IDisposable
         // play could pass without that key being pressed again.
         Director.Restyled += (_, recipe) => Engine.Show(recipe);
         Story($"started; model {model} at {ollama}; pictures checked by {PictureCheckModel}");
-        if (Engine.Settings.Director) Task.Run(() => WarmUpAsync(author, ModelsChecked)).LogFailures("ollama", "warming up the model");
+        if (Engine.Settings.Director)
+        {
+            // The card is looked at before the model is asked for, so the look sees what was there before the toy
+            // came; the app warns the grown-up before play when another job holds the card or Ollama.
+            var card = CardAtStart = Task.Run(CheckCardAsync);
+            Task.Run(async () =>
+            {
+                await card.ConfigureAwait(false);
+                await WarmUpAsync(author, ModelsChecked).ConfigureAwait(false);
+            }).LogFailures("ollama", "warming up the model");
+        }
         else Log.Info("director", "model changes are off in the settings; the model is not loaded");
 
         // Pictures of real things: fetched in the background as the director picks them, cut out on the CPU, and
@@ -183,6 +193,49 @@ public sealed class ToyHost : IDisposable
         {
             Log.Warn("ollama", "the start-up look at Ollama's models failed", e);
             return [];
+        }
+    }
+
+    /// <summary>The look at the card and at what Ollama has loaded that began with the toy, before its own model
+    /// was asked for; never fails. With model changes off nothing is looked at.</summary>
+    public Task<CardState> CardAtStart { get; } = Task.FromResult(CardState.Unknown);
+
+    /// <summary>Asks the card for its free memory and Ollama for what it has loaded, and writes both to the log. Never throws.</summary>
+    public async Task<CardState> CheckCardAsync()
+    {
+        var state = await Ollama.CardAsync(Vram.FreeMiB).ConfigureAwait(false);
+        Log.Info("gpu", $"{(state.FreeMiB is { } free ? $"{free} MiB free on the card" : "the card's free memory is unknown (no nvidia-smi)")}; "
+            + (state.OllamaReachable ? $"Ollama has loaded: {(state.Loaded.Count == 0 ? "nothing" : string.Join(", ", state.Loaded.Select(m => $"{m.Name} ({m.SizeVram / 1e9:0.0} GB on the card)")))}" : "Ollama did not say what it has loaded"));
+        return state;
+    }
+
+    /// <summary>Why the director's model will be slow or silent with the card as <paramref name="state"/> has it, in
+    /// words for a grown-up; null when all looks well, nothing is known, or model changes are off.</summary>
+    public string? CardTrouble(CardState state)
+    {
+        if (!Engine.Settings.Director) return null;
+        long? size = ModelsChecked is { IsCompletedSuccessfully: true, Result: var known }
+            && known.Installed.FirstOrDefault(m => OllamaModels.Same(m.Name, DirectorModel)) is { Size: > 0 } installed ? installed.Size : null;
+        // Both of the toy's models count as its own whatever is switched on: Ollama swaps between them itself.
+        return state.Trouble(DirectorModel, [DirectorModel, PictureCheckModel], size);
+    }
+
+    /// <summary>The trouble the start-up look found, waiting at most <paramref name="wait"/> for it; null when there
+    /// is none or the look has not answered by then, since play must not wait on it.</summary>
+    public string? CardTroubleAtStart(TimeSpan wait)
+    {
+        var looking = CardAtStart;
+        try
+        {
+            if (!looking.Wait(wait)) return null;
+            var trouble = CardTrouble(looking.Result);
+            if (trouble is not null) Story($"warning the grown-up before play: {trouble}");
+            return trouble;
+        }
+        catch (AggregateException e)
+        {
+            Log.Warn("gpu", "the start-up look at the card failed", e);
+            return null;
         }
     }
 

@@ -258,19 +258,45 @@ public sealed class CameraRecorder : IDisposable
         group.SourceInfos.FirstOrDefault(i => i.SourceKind == MediaFrameSourceKind.Color && i.MediaStreamType == MediaStreamType.VideoRecord)
         ?? group.SourceInfos.FirstOrDefault(i => i.SourceKind == MediaFrameSourceKind.Color && i.MediaStreamType == MediaStreamType.VideoPreview);
 
+    /// <summary>How long the camera a grown-up chose is looked for before the first one Windows lists is taken.</summary>
+    public static readonly TimeSpan WaitForChosen = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan LookAgainEvery = TimeSpan.FromSeconds(1);
+
+    private static async Task<List<MediaFrameSourceGroup>> ColorGroupsAsync() =>
+        [.. (await MediaFrameSourceGroup.FindAllAsync()).Where(g => ColorSource(g) is not null)];
+
+    private int Chosen(List<MediaFrameSourceGroup> groups) =>
+        DeviceChoice.Find([.. groups.Select(g => new CaptureDevice(g.Id, g.DisplayName))], _cameraId, _cameraName);
+
     private async Task StartCameraAsync()
     {
         try
         {
-            var groups = (await MediaFrameSourceGroup.FindAllAsync()).Where(g => ColorSource(g) is not null).ToList();
+            var groups = await ColorGroupsAsync();
+            var chosen = Chosen(groups);
+            if (chosen < 0 && (_cameraId ?? _cameraName) is not null)
+            {
+                // Windows does not always list a camera straight away: on 2026-11-21 the chosen one was missing 4 s
+                // after the toy started and there a minute later, and the play was filmed by the other camera, at
+                // the floor. It is looked for again for a while before another is taken; nothing waits on this.
+                var looking = Stopwatch.StartNew();
+                while (chosen < 0 && looking.Elapsed < WaitForChosen && !_stopping)
+                {
+                    await Task.Delay(LookAgainEvery);
+                    groups = await ColorGroupsAsync();
+                    chosen = Chosen(groups);
+                }
+                if (_stopping) return;
+                if (chosen >= 0) Log.Info("camera", $"the chosen camera {groups[chosen].DisplayName} was not listed at first; Windows listed it after {looking.Elapsed.TotalSeconds:0.0} s");
+                else if (groups.Count > 0)
+                    Log.Warn("camera", $"the chosen camera {_cameraName ?? _cameraId} is not plugged in (looked for {looking.Elapsed.TotalSeconds:0} s; Windows lists {string.Join(", ", groups.Select(g => g.DisplayName))}); "
+                        + $"filming with the first camera Windows lists, {groups[0].DisplayName}");
+            }
             if (groups.Count == 0)
             {
                 Log.Warn("camera", "no camera found; play is not filmed");
                 return;
             }
-            var chosen = DeviceChoice.Find([.. groups.Select(g => new CaptureDevice(g.Id, g.DisplayName))], _cameraId, _cameraName);
-            if (chosen < 0 && (_cameraId ?? _cameraName) is not null)
-                Log.Warn("camera", $"the chosen camera {_cameraName ?? _cameraId} is not plugged in; filming with the first camera Windows lists, {groups[0].DisplayName}");
             var group = groups[Math.Max(0, chosen)];
             var info = ColorSource(group)!;
             var capture = new MediaCapture();
