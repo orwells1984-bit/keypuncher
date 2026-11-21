@@ -63,6 +63,16 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             var suggestions = idea is null ? Suggestions(request, attempts) : null;
             var result = await AskAsync(asking, turnedDown, suggestions, cancellationToken);
             var built = RealThingRules.TryBuild(result.Json, asking, out var pick, out var recipe, out var error);
+            // One of the prompt's own examples handed back is no choice at all, and its ideas are the example's too:
+            // it is asked again, told why. Not when that very thing was asked for by name.
+            if (pick is not null && asking.MustBe is null && request.GrowInto is null && _variant.FewShot
+                && DirectorPrompts.IsExampleEcho(pick.Subject, pick.Fact))
+            {
+                attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, EchoedExample, null));
+                turnedDown.Add($"{pick.Subject} ({EchoedExample}; choose something of your own that fits this request)");
+                idea = NextIdea(request, ideas, attempts);
+                continue;
+            }
             if (pick?.Ideas is { } offered) ideas.AddRange(offered);
             if (!built)
             {
@@ -209,6 +219,9 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         && check.Verdict == "real" && Enum.TryParse<RealCategory>(check.Kind, out var kind) && Enum.IsDefined(kind)
         && RealThingPick.KindOf(kind) == request.Kind && !FactCheck.SameKind(kind, request.Category)
             ? kind : null;
+
+    /// <summary>Why an answer copied from the prompt's examples is refused, as the log and the next prompt say it.</summary>
+    public const string EchoedExample = "copied from the examples";
 
     /// <summary>The first of the model's ideas this request has not tried and that is not already in the world or turned
     /// down, or null to ask openly again. None while growing, which has its answer already.</summary>

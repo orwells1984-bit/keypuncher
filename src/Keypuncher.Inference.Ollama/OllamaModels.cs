@@ -77,6 +77,41 @@ public sealed class OllamaModels(HttpClient http)
         return [.. found.Select((m, i) => m with { Capabilities = able[i] })];
     }
 
+    /// <summary>The models Ollama holds in memory now, from <c>/api/ps</c>. Throws when Ollama does not answer.</summary>
+    public async Task<IReadOnlyList<LoadedModel>> LoadedAsync(CancellationToken cancellationToken = default)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(ShortCall);
+        using var doc = JsonDocument.Parse(await http.GetStringAsync("api/ps", limit.Token).ConfigureAwait(false));
+        var found = new List<LoadedModel>();
+        if (doc.RootElement.TryGetProperty("models", out var models) && models.ValueKind == JsonValueKind.Array)
+            foreach (var m in models.EnumerateArray())
+            {
+                var name = m.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                found.Add(new LoadedModel(name, m.TryGetProperty("size_vram", out var v) && v.TryGetInt64(out var vram) ? vram : 0));
+            }
+        return found;
+    }
+
+    /// <summary>What Ollama has loaded and how much of the card is free, for the start-up warning. Never throws.</summary>
+    /// <param name="freeMiB">Asks the card for its free memory (nvidia-smi); null when it cannot say.</param>
+    public async Task<CardState> CardAsync(Func<int?> freeMiB, CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<LoadedModel> loaded = [];
+        var reachable = true;
+        try { loaded = await LoadedAsync(cancellationToken).ConfigureAwait(false); }
+        catch (Exception e) when (e is HttpRequestException or JsonException or OperationCanceledException)
+        {
+            Log.Debug("ollama", $"Ollama did not say what it has loaded: {e.Message}");
+            reachable = false;
+        }
+        int? free = null;
+        try { free = freeMiB(); }
+        catch (Exception e) { Log.Debug("gpu", "the card's free memory could not be asked", e); }
+        return new CardState(reachable, loaded, free);
+    }
+
     /// <summary>What Ollama says one model can do, from <c>/api/show</c>; empty when it does not say or does not answer.</summary>
     public async Task<IReadOnlyList<string>> CapabilitiesAsync(string name, CancellationToken cancellationToken = default)
     {

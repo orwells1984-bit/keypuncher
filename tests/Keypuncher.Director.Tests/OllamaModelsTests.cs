@@ -141,6 +141,72 @@ public class OllamaModelsTests
     private static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
     /// <summary>Reports on the calling thread, where <see cref="Progress{T}"/> would post to the pool and arrive late.</summary>
+    private const string LagunaLoaded = """
+        {"models":[{"name":"laguna-xs-2.1:latest","size":4100000000,"size_vram":3000000000}]}
+        """;
+
+    [Fact]
+    public async Task What_ollama_has_loaded_is_read_with_its_share_of_the_card()
+    {
+        var loaded = await new FakeOllama().On("api/ps", LagunaLoaded).Models().LoadedAsync();
+        Assert.Equal([new LoadedModel("laguna-xs-2.1:latest", 3_000_000_000)], loaded);
+        Assert.Empty(await new FakeOllama().On("api/ps", """{"models":[]}""").Models().LoadedAsync());
+    }
+
+    [Fact]
+    public async Task The_look_at_the_card_never_throws()
+    {
+        var state = await new FakeOllama().Models().CardAsync(() => 4900);
+        Assert.False(state.OllamaReachable);
+        Assert.Equal(4900, state.FreeMiB);
+        Assert.Null(state.Trouble("qwen3:4b", ["qwen3:4b", "gemma3:4b"]));
+
+        var broken = await new FakeOllama().On("api/ps", LagunaLoaded).Models().CardAsync(() => throw new InvalidOperationException("no nvidia-smi"));
+        Assert.True(broken.OllamaReachable);
+        Assert.Null(broken.FreeMiB);
+    }
+
+    private static readonly string[] Ours = ["qwen3:4b", "gemma3:4b"];
+
+    [Fact]
+    public void The_run_of_21_November_is_caught_another_jobs_model_holds_ollama()
+    {
+        var state = new CardState(true, [new LoadedModel("laguna-xs-2.1:latest", 3_000_000_000)], 1847);
+        Assert.Equal(["laguna-xs-2.1:latest"], state.Others(Ours));
+        Assert.Contains("Ollama is running laguna-xs-2.1:latest for something else", state.Trouble("qwen3:4b", Ours));
+    }
+
+    [Fact]
+    public void A_card_too_full_for_the_model_is_caught_even_when_ollama_shows_nothing_loaded()
+    {
+        // At 07:54 that morning the other model was still loading, so Ollama listed nothing; the card said it all.
+        var trouble = new CardState(true, [], 1847).Trouble("qwen3:4b", Ours, 2_497_293_931);
+        Assert.Contains("Only 1,847 MiB", trouble);
+        Assert.Contains("3,097 MiB", trouble);
+        Assert.Contains("Only 1,847 MiB", new CardState(false, [], 1847).Trouble("qwen3:4b", Ours));
+    }
+
+    [Fact]
+    public void A_free_card_or_the_toys_own_model_loaded_is_no_trouble()
+    {
+        Assert.Null(new CardState(true, [], 4900).Trouble("qwen3:4b", Ours, 2_497_293_931));
+        // The director's model is still loaded from a play a few minutes ago: the card looks full and is not.
+        Assert.Null(new CardState(true, [new LoadedModel("qwen3:4b", 3_200_000_000)], 1600).Trouble("qwen3:4b", Ours));
+        // The picture checker is loaded: Ollama swaps it out, so its memory counts as free.
+        Assert.Null(new CardState(true, [new LoadedModel("gemma3:4b", 3_900_000_000)], 900).Trouble("qwen3:4b", Ours));
+        // Nothing known, nothing said.
+        Assert.Null(CardState.Unknown.Trouble("qwen3:4b", Ours));
+        Assert.Null(new CardState(true, [], null).Trouble("qwen3:4b", Ours));
+    }
+
+    [Fact]
+    public void What_a_model_needs_follows_its_size_on_disk()
+    {
+        Assert.Equal(CardState.DefaultNeededMiB, CardState.NeededMiB(null));
+        Assert.Equal(CardState.DefaultNeededMiB, CardState.NeededMiB(0));
+        Assert.Equal(3097, CardState.NeededMiB(2_497_293_931));
+    }
+
     private sealed class Immediate(Action<PullProgress> report) : IProgress<PullProgress>
     {
         public void Report(PullProgress value) => report(value);
