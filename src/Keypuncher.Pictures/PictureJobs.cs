@@ -79,11 +79,12 @@ public sealed class PictureJobs : IDisposable
     public bool Enqueue(string name, RealCategory category, bool categoryGuessed = false, bool again = false)
     {
         var slug = Slugs.For(name);
+        WantedEntry? wanted;
         try
         {
             // A guess gives way to what is known: the kind a grown-up chose, or one the director said before. Every start
             // used to queue the world's things by guess and fetch a plastic straw and a safari jeep as animals.
-            var wanted = _folder.Wanted.Get(slug);
+            wanted = _folder.Wanted.Get(slug);
             if (categoryGuessed && (_folder.Cards.Get(slug)?.Category ?? (wanted is { CategoryGuessed: false } ? wanted.Category : (RealCategory?)null)) is { } known)
                 (category, categoryGuessed) = (known, false);
             if (wanted is null)
