@@ -192,6 +192,56 @@ public sealed class FactChecker(ILanguageModel model, PromptVariant? variant = n
         return Among(a, "thingContinents", Text(a, "placeContinent")) && Among(a, "thingClimates", Text(a, "placeClimate"));
     }
 
+    private static readonly JsonElement VerdictSchema = JsonDocument.Parse("""
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verdict"],
+          "properties": { "verdict": { "type": "string", "enum": ["yes", "no", "unsure"] } }
+        }
+        """).RootElement.Clone();
+
+    /// <summary>Whether people use a vehicle or everyday object at the place, asked of a pick that passed as real
+    /// without a call (<see cref="TrustWellKnown"/>): on 2026-11-22 a "ferry used by tourists to cross the Reynisfjara
+    /// cliffs" went into play at a black-sand beach with no harbour.</summary>
+    public static string UsedHerePrompt(string subject, string here) =>
+        $"""
+        Thing: "{subject}"
+        Place: "{here}"
+
+        verdict: "yes" if people really use a {subject} at this place or right beside it on an ordinary day.
+        "no" if nobody would use one there: no water for it, no road or track for it, nothing for it to do there.
+        "unsure" if you do not know.
+        """;
+
+    /// <summary>Whether a vehicle or object could be in use <paramref name="here"/> ("at Reynisfjara, Iceland"). Only a
+    /// plain "no" turns it down: the small model is unsure of most places, and before this check every vehicle of a
+    /// well-known name went in unasked. No answer is not a no.</summary>
+    public async Task<bool> UsedHereAsync(string subject, string here, CancellationToken cancellationToken = default)
+    {
+        var result = await model.GenerateJsonAsync(System, UsedHerePrompt(subject, here), VerdictSchema, cancellationToken);
+        return !(result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.ValueKind == JsonValueKind.String && v.GetString() == "no");
+    }
+
+    /// <summary>The question whether the author's sentence about a thing is true.</summary>
+    public static string FactPrompt(string subject, string fact) =>
+        $"""
+        Thing: "{subject}"
+        Sentence: "{fact}"
+
+        verdict: "yes" only if everything in the sentence is true of the {subject}, including where and when it lived
+        and any numbers. "no" if any part is wrong. "unsure" if you do not know.
+        """;
+
+    /// <summary>Whether a cold call agrees that the author's fact is true of the thing; "unsure" and no answer are no.
+    /// Asked of extinct animals, which a well-known name lets through without a call: on 2026-11-22 the author said
+    /// Steller's sea cow "lived in the Caribbean Sea and died out around 1600" (the Bering Sea, 1768).</summary>
+    public async Task<bool> ConfirmFactAsync(string subject, string fact, CancellationToken cancellationToken = default)
+    {
+        var result = await model.GenerateJsonAsync(System, FactPrompt(subject, fact), VerdictSchema, cancellationToken);
+        return result.Json?.RootElement.TryGetProperty("verdict", out var v) == true && v.ValueKind == JsonValueKind.String && v.GetString() == "yes";
+    }
+
     /// <summary>The gentler prompt for a second look at an animal or plant the strict first pass was unsure of.</summary>
     public const string SecondLookSystem = """
         You know the world's animals and plants well, common and obscure. Answer only with JSON that matches

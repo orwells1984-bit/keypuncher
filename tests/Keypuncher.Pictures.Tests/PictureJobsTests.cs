@@ -104,6 +104,34 @@ public sealed class PictureJobsTests : IDisposable
         Assert.Equal(6, _fetcher.Calls.Count);
     }
 
+    /// <summary>Every start used to look up the same 19 hopeless leftovers again (run 16, 2026-11-22).</summary>
+    [Fact]
+    public void A_thing_that_failed_three_times_rests_a_week_unless_a_grown_up_asks()
+    {
+        _folder.Wanted.Add("viking rose", RealCategory.Plant, _now.AddDays(-30));
+        for (var i = 0; i < PictureJobs.RestAfterTries; i++) _folder.Wanted.Bump("viking-rose", "no article", _now.AddHours(-1));
+        _folder.Wanted.Add("puffin", RealCategory.Animal, _now);
+        using var jobs = Jobs();
+
+        Assert.Equal(1, jobs.RetryWanted());
+        jobs.WaitIdle(Patience);
+        Assert.Equal(0, _fetcher.CallsFor("viking rose"));
+        Assert.False(jobs.Enqueue("viking rose", RealCategory.Plant));
+        Assert.True(jobs.Enqueue("viking rose", RealCategory.Plant, again: true));
+        jobs.WaitIdle(Patience);
+        Assert.Equal(1, _fetcher.CallsFor("viking rose"));
+    }
+
+    [Fact]
+    public void Resting_ends_after_a_week_and_never_starts_for_the_network()
+    {
+        var wanted = new WantedEntry("viking-rose", "viking rose", RealCategory.Plant, _now.AddDays(-30)) { Tries = 5, LastTry = _now.AddDays(-1), Reason = "no article" };
+        Assert.True(PictureJobs.Resting(wanted, _now));
+        Assert.False(PictureJobs.Resting(wanted, _now.AddDays(7)));
+        Assert.False(PictureJobs.Resting(wanted with { Reason = "offline" }, _now));
+        Assert.False(PictureJobs.Resting(wanted with { Tries = 2 }, _now));
+    }
+
     [Fact]
     public void Switched_off_nothing_is_fetched_but_the_thing_is_still_wanted()
     {

@@ -289,6 +289,43 @@ public class RealThingTests
         Assert.Equal("rowing boat", boat.Recipe!.Name);
     }
 
+    /// <summary>On 2026-11-22 a "ferry used by tourists to cross the Reynisfjara cliffs" went in at a beach with no
+    /// harbour: a well-known vehicle passed unasked. Now it is asked whether people use one there, and only "no" refuses.</summary>
+    [Fact]
+    public async Task A_vehicle_nobody_uses_at_the_place_is_refused_and_one_people_use_is_taken()
+    {
+        var here = Vehicles with { Here = "at Reynisfjara, Iceland" };
+        var author = new ScriptedModel(Pick("ferry", "Vehicle", "Stripe"), Pick("bus", "Vehicle", "Stripe"));
+        var checker = new ScriptedModel(Verdict("no"), Verdict("unsure"));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(here);
+
+        Assert.Equal("bus", outcome.Recipe!.Name);
+        Assert.Equal("checker: not used at Reynisfjara, Iceland", outcome.Attempts[0].Refused);
+        Assert.Equal(new TurnedDown("ferry", "not used at Reynisfjara, Iceland", RealCategory.Vehicle, "at Reynisfjara, Iceland"), outcome.Attempts[0].Lasting);
+        Assert.Contains("\"ferry\"", checker.Prompts[0]);
+        Assert.Contains("Reynisfjara", checker.Prompts[0]);
+        Assert.Contains("ferry (nobody uses one at Reynisfjara, Iceland)", author.Prompts[1]);
+    }
+
+    /// <summary>On 2026-11-22 the author said Steller's sea cow "lived in the Caribbean Sea and died out around 1600".
+    /// The animal is real and stays; the sentence is marked, as a scene's unconfirmed fact is.</summary>
+    [Theory]
+    [InlineData("yes", false)]
+    [InlineData("no", true)]
+    [InlineData("unsure", true)]
+    public async Task An_extinct_animals_fact_is_checked_and_marked_when_not_confirmed(string verdict, bool marked)
+    {
+        var author = new ScriptedModel(Pick("dodo", "ExtinctAnimal", "Bird"));
+        var checker = new ScriptedModel(Verdict(verdict));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker)).ProposeAsync(Extinct);
+
+        Assert.Equal("dodo", outcome.Recipe!.Name);
+        var fact = outcome.Attempts[^1].Fact!;
+        Assert.Equal(marked, fact.StartsWith(RealThingDirector.FactNotConfirmed));
+        Assert.Contains("Lives on sea cliffs in Iceland.", fact);
+        Assert.Contains("Sentence: \"Lives on sea cliffs in Iceland.\"", Assert.Single(checker.Prompts));
+    }
+
     [Fact]
     public async Task A_living_animal_offered_as_extinct_is_refused_by_the_checkers_own_call()
     {
@@ -313,7 +350,8 @@ public class RealThingTests
 
         Assert.Equal("moa", outcome.Recipe!.Name);
         Assert.Equal("turned down already", outcome.Attempts[1].Refused);
-        Assert.Single(checker.Prompts);   // the puffin; the moa is well known and goes unasked
+        Assert.Equal(2, checker.Prompts.Count);   // the puffin, then the moa's fact; the moa is well known and goes unasked
+        Assert.Contains("Sentence:", checker.Prompts[1]);
         Assert.Contains("choose one of these", author.Prompts[0]);
         var last = author.Prompts[2];
         Assert.Contains("choose one of these: ", last);
@@ -334,7 +372,8 @@ public class RealThingTests
         Assert.Equal("dodo", outcome.Recipe!.Name);
         Assert.Equal(RealThingDirector.MaxAttempts + 1, outcome.Attempts.Count);
         Assert.Contains("subject must be \"dodo\"", author.Prompts[3]);
-        Assert.Empty(checker.Prompts);   // the group words never reached the checker, and the dodo is well known
+        // The group words never reached the checker, and the dodo is well known: only its fact is asked about.
+        Assert.Contains("Sentence:", Assert.Single(checker.Prompts));
     }
 
     [Fact]
@@ -510,6 +549,8 @@ public class RealThingTests
          "voice":{"wave":"Sine","attack":0.01,"decay":0.4,"scale":"pentatonic","root":"E5"},
          "growsInto":{{(growsInto is null ? "null" : $"\"{growsInto}\"")}}}
         """;
+
+    private static string Verdict(string verdict) => JsonSerializer.Serialize(new { verdict });
 
     private static string Check(string what, string verdict, string kind = "Animal", string growsInto = "none") =>
         JsonSerializer.Serialize(new { whatItIs = what, verdict, kind, growsInto });

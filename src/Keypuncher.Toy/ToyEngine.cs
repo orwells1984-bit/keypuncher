@@ -635,13 +635,47 @@ public sealed class ToyEngine
         var placeY = recipe.Kind == RecipeKind.Plant
             ? PlaceY(recipe, y) + (jitter * 0.5)
             : Math.Clamp(PlaceY(recipe, y) + jitter, 0.08, 0.7);
+        var placeX = Math.Clamp(x + jitter, 0.03, 0.97);
+        if (recipe.Kind != RecipeKind.Effect) (placeX, placeY) = FreeSpot(placeX, placeY, recipe.Kind == RecipeKind.Plant);
         return _world.Add(new Entity
         {
             Id = _world.NextId(), Role = recipe.Kind == RecipeKind.Effect ? EntityRole.Effect : EntityRole.Thing,
-            Recipe = recipe, X = Math.Clamp(x + jitter, 0.03, 0.97), Y = placeY,
+            Recipe = recipe, X = placeX, Y = placeY,
             Born = _world.Time, Scale = scale, Phase = _random.NextDouble(),
             Lifetime = recipe.Kind == RecipeKind.Effect ? 6 : double.PositiveInfinity,
         });
+    }
+
+    /// <summary>How close, in screen heights, two things' middles may come before the new one is moved aside.</summary>
+    public const double ClearRadius = 0.16;
+    /// <summary>The screen's width over its height, for distances: the toy runs full screen on 16:9 displays.</summary>
+    private const double Aspect = 16.0 / 9.0;
+
+    /// <summary>A spot near (<paramref name="x"/>, <paramref name="y"/>) where the new thing does not cover one already
+    /// there: the spot itself when it is clear, else the nearest clear one, up or down first (the key's column is
+    /// where it belongs), then a little to the side. When nothing near is clear, the spot farthest from the others.
+    /// In run 16 (2026-11-22) a dog landed on a bean and a sheep on an apple, because every thing came up exactly
+    /// at its key.</summary>
+    private (double X, double Y) FreeSpot(double x, double y, bool plant)
+    {
+        var others = _world.Live.Where(e => e.Role == EntityRole.Thing && e.IsPersistent && !e.IsRetiring).ToList();
+        if (others.Count == 0) return (x, y);
+        double Nearest(double cx, double cy) => others.Min(e => Math.Sqrt(Math.Pow((e.X - cx) * Aspect, 2) + Math.Pow(e.Y - cy, 2)));
+        var (low, high) = plant ? (0.72, 0.96) : (0.08, 0.7);
+        double[] ups = plant ? [0, -0.06, 0.06] : [0, -0.1, 0.1, -0.2, 0.2];
+        double[] sides = [0, -0.06, 0.06, -0.12, 0.12];
+        var best = (X: x, Y: y);
+        var bestRoom = Nearest(x, y);
+        if (bestRoom >= ClearRadius) return best;
+        foreach (var dx in sides)
+            foreach (var dy in ups)
+            {
+                var spot = (X: Math.Clamp(x + dx, 0.03, 0.97), Y: Math.Clamp(y + dy, low, high));
+                var room = Nearest(spot.X, spot.Y);
+                if (room >= ClearRadius) return spot;
+                if (room > bestRoom) (best, bestRoom) = (spot, room);
+            }
+        return best;
     }
 
     private void SpawnEffect(Recipe recipe, double x, double y, double scale, double lifetime) =>

@@ -101,6 +101,11 @@ public sealed class PictureJobs : IDisposable
             Log.Warn("pictures", $"could not note {name} as wanted", e);
             return false;
         }
+        if (!again && wanted is not null && Resting(wanted, _clock()))
+        {
+            Log.Debug("pictures", $"{name} not queued: tried {wanted.Tries} times ({wanted.Reason}), last on {wanted.LastTry:d MMM}; resting until {wanted.LastTry + RestFor:d MMM}");
+            return false;
+        }
         if (!_enabled())
         {
             Log.Debug("pictures", $"{name} not queued: fetching pictures is switched off");
@@ -116,6 +121,20 @@ public sealed class PictureJobs : IDisposable
         _signal.Release();
         return true;
     }
+
+    /// <summary>How long a thing the photo sources keep failing is left alone before it is tried again.</summary>
+    public static readonly TimeSpan RestFor = TimeSpan.FromDays(7);
+    /// <summary>How many failed tries put a thing to rest.</summary>
+    public const int RestAfterTries = 3;
+
+    /// <summary>Whether a wanted thing is resting: it failed <see cref="RestAfterTries"/> times or more for a reason that
+    /// is not the network or a missing cut-out model, and the last try was less than <see cref="RestFor"/> ago. Every
+    /// start used to look up all 19 leftovers again (made-up names like "viking rose", and things whose every photo had
+    /// been turned down), and none ever found a picture. A grown-up's Fetch wanted pictures now still tries them, and
+    /// the console tool's <c>nightly</c> draws them with the image model.</summary>
+    public static bool Resting(WantedEntry wanted, DateTime now) =>
+        wanted.Tries >= RestAfterTries && wanted.Reason is not ("offline" or PhotoFetcher.ModelMissing)
+        && wanted.LastTry is { } last && now - last < RestFor;
 
     /// <summary>Queues everything on the wanted list that has not been tried this run; returns how many.</summary>
     public int RetryWanted(bool again = false) =>

@@ -61,6 +61,36 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Contains(_log, l => l.Contains("looks WRONG") && l.Contains("taken out of play"));
     }
 
+    /// <summary>On 2026-11-22 the coconut and the coconut palm both showed "Coconut 4.jpg".</summary>
+    [Fact]
+    public async Task A_picture_whose_photo_another_thing_shows_fails_for_the_thing_the_file_fits_less()
+    {
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Coconut 4.jpg", Shoal), []);
+        await Fetcher().FetchAsync("coconut", RealCategory.Plant);
+        // The fetch now tells the search the photo is taken; this finder hands it over anyway, as before that rule.
+        await Fetcher().FetchAsync("coconut palm", RealCategory.Plant);
+        Assert.Contains("File:Coconut 4.jpg", _finder.Asked[^1].Exclude);
+        Assert.Empty(_folder.ReadSidecar("coconut-palm")!.Alternatives);
+
+        var palm = await Checks().CheckAsync("coconut-palm");
+        var coconut = await Checks().CheckAsync("coconut");
+
+        Assert.False(palm!.Passed);
+        Assert.Equal(PictureChecks.SharedPhotoRule, palm.Model);
+        Assert.Contains("the same photo as coconut", palm.Saw);
+        Assert.True(_folder.IsHidden("coconut-palm"));
+        Assert.Equal(["File:Coconut 4.jpg"], _folder.Wanted.Get("coconut-palm")!.Exclude);
+        Assert.True(coconut!.Passed);
+        Assert.True(_folder.HasPicture("coconut"));
+    }
+
+    [Theory]
+    [InlineData("coconut", "File:Coconut 4.jpg", 1.0)]
+    [InlineData("coconut palm", "File:Coconut 4.jpg", 0.5)]
+    [InlineData("mango", "File:Coconut 4.jpg", 0.0)]
+    public void A_file_title_fits_the_name_it_spells_out(string name, string title, double claim) =>
+        Assert.Equal(claim, PictureChecks.Claim(name, title));
+
     [Fact]
     public async Task A_picture_a_grown_up_chose_for_a_rung_stays_in_play_when_it_fails_and_keeps_its_verdict()
     {

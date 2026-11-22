@@ -47,6 +47,9 @@ public static class PhotoRules
         "badge", "wheel", "blueprint", "cutaway", "skeleton", "skull", "fossil", "bones", "taxidermy", "mounted", "specimen",
         // "Parasaurolophus holotype skulls" and "Points of a horse" (a labelled diagram) were taken on 2026-11-15.
         "skeletons", "skulls", "fossils", "holotype", "paratype", "points", "parts", "labelled", "labeled", "annotated", "schematic",
+        // A page of an old book is not the animal, even an extinct one: "Der naturen bloeme - Jacob van Maerlant - KB KA 16
+        // - 110v.jpg", a 13th-century manuscript, went into play as Steller's sea cow on 2026-11-22.
+        "manuscript", "manuscripts", "codex", "folio", "bestiary", "psalter", "illuminated", "incunabulum", "page",
     };
 
     /// <summary>Category name beginnings (lower case) that mean the same.</summary>
@@ -56,6 +59,8 @@ public static class PhotoRules
         "chart", "anatomy", "herbari", "stamp", "coin", "screenshot", "collage", "silhouette", "cutaway", "blueprint",
         "scale model", "toy", "model of", "interior", "engine", "cockpit", "botanical illustration", "seeds of", "leaves of",
         "wood of", "bark of", "svg", "range map", "distribution map", "locator map", "size comparison",
+        "manuscript", "medieval manuscript", "illuminated manuscript", "bestiar", "codex", "codices", "incunab", "der naturen bloeme",
+        "books of hours", "pages of",
     ];
 
     /// <summary>Words in a file name that mean the photo shows more than one of the thing, a mother with her young, the
@@ -105,6 +110,8 @@ public static class PhotoRules
         var categories = facts.Categories.Select(c => c.StartsWith("Category:") ? c[9..] : c).Select(c => c.ToLowerInvariant()).ToList();
 
         if (Group(words, categories, name) is { } group) return (Rejection.Hard, group);
+        // "110v", "12r": a manuscript leaf, recto or verso.
+        if (words.FirstOrDefault(IsFolio) is { } leaf) return (Rejection.Hard, $"file name says {leaf}: a page of a book");
 
         if (category == RealCategory.ExtinctAnimal)
         {
@@ -138,6 +145,10 @@ public static class PhotoRules
             return $"file name says {plural}: more than one";
         return null;
     }
+
+    /// <summary>Whether a word numbers a manuscript leaf: digits and then r or v ("110v").</summary>
+    public static bool IsFolio(string word) =>
+        word.Length >= 2 && word[^1] is 'r' or 'v' && word[..^1].All(char.IsAsciiDigit);
 
     /// <summary>Whether, for an extinct animal, a file is the kind we hope for: a life restoration.</summary>
     public static bool IsRestoration(FileFacts facts) =>

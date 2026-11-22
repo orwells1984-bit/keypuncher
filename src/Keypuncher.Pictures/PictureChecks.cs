@@ -22,14 +22,19 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     public const string FailedCheck = "failed check";
     /// <summary>The "model" recorded on a check the cut-out floor made without asking the checker.</summary>
     public const string CutOutRule = "cut-out rule";
+    /// <summary>The "model" recorded on a check failed because another thing in play has the same photo.</summary>
+    public const string SharedPhotoRule = "same-photo rule";
 
     /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
     /// enough that old verdicts should not stand: 1 (November 2026) stopped telling the model the picture "should show
     /// exactly one" and failed "model" and cloth descriptions; before it, a school of fish and a flock of sheep had passed.
     /// 2 (later that month) fails a counted heap ("50-60 mangoes", "approximately 20 tulips") and things in bowls.
     /// 3 (2026-11-20) fails a single bone, a labelled anatomy picture and a second animal "alongside", which had passed
-    /// (a parasaurolophus crest bone, the points of a horse), and no longer fails "close-up" unless it is of a part.</summary>
-    public const int Rules = 3;
+    /// (a parasaurolophus crest bone, the points of a horse), and no longer fails "close-up" unless it is of a part.
+    /// 4 (2026-11-22) fails a second animal "next to a" or "perched on" the first (a thylacine on a dingo), hand-made
+    /// pictures of living things (illustration, painting, engraving), a plant "in various stages", and a photo another
+    /// thing in play already has (the coconut and the coconut palm shared one).</summary>
+    public const int Rules = 4;
 
     public string Model => checker.Model;
 
@@ -59,7 +64,12 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
         var (real, realCategory) = ToyNames.LookUp(sidecar.Name, folder.Cards.Get(sidecar.Slug)?.Category ?? sidecar.Category);
         var now = (clock ?? (() => DateTime.Now))();
         VisionCheck? check;
-        if (CutOutChain.ZoomedTooLittle(sidecar.CutOut))
+        if (SharedWith(sidecar) is { } owner)
+        {
+            // Two things cannot both be this photo; the one whose name it fits better keeps it, and this one gets another.
+            check = new VisionCheck(SharedPhotoRule, false, 0, $"the same photo as {owner.Name} ({sidecar.Photo!.FileTitle}) [another thing's photo]", now);
+        }
+        else if (CutOutChain.ZoomedTooLittle(sidecar.CutOut))
         {
             // Cut out before the floor on closer looks: what would not be cut out today needs no model to turn it down.
             check = new VisionCheck(CutOutRule, false, 0, $"a closer look kept too little of the crop ({sidecar.CutOut}) [a part or another thing]", now);
@@ -102,6 +112,32 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
         folder.Wanted.Bump(sidecar.Slug, FailedCheck, now, exclude: sidecar.Photo?.FileTitle);
         Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; taken out of play, another picture is wanted");
         return check;
+    }
+
+    /// <summary>The other thing in play (or held for the check) whose picture comes from the same photo and has the
+    /// better claim to it, or null. The better claim is the name the file title spells out more of ("Coconut 4.jpg" is
+    /// the coconut's, not the coconut palm's), then the picture made first.</summary>
+    public PictureSidecar? SharedWith(PictureSidecar sidecar)
+    {
+        if (sidecar.Photo?.FileTitle is not { Length: > 0 } title) return null;
+        var rivals = folder.All().Where(p => p.Slug != sidecar.Slug
+                && string.Equals(p.Photo?.FileTitle, title, StringComparison.OrdinalIgnoreCase)
+                && (folder.HasPicture(p.Slug) || (p.AwaitsCheck && folder.IsHidden(p.Slug))))
+            .ToList();
+        if (rivals.Count == 0) return null;
+        var mine = Claim(sidecar.Name, title);
+        return rivals.Where(r => Claim(r.Name, title) is var theirs && (theirs > mine || (theirs == mine && r.MadeAt < sidecar.MadeAt)))
+            .OrderByDescending(r => Claim(r.Name, title)).ThenBy(r => r.MadeAt).FirstOrDefault();
+    }
+
+    /// <summary>How well a file title fits a name: the share of the name's words (singular) it spells out.</summary>
+    public static double Claim(string name, string fileTitle)
+    {
+        var words = PhotoRules.Words(fileTitle).Select(OllamaVision.Singular).ToHashSet();
+        var own = PhotoRules.Words(name).Select(OllamaVision.Singular).ToList();
+        if (own.Count == 0) return 0;
+        var found = own.Count(words.Contains);
+        return found / (double)own.Count;
     }
 
     private void Note(string line) => note?.Invoke(line);

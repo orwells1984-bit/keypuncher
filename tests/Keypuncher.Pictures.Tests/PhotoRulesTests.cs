@@ -182,4 +182,25 @@ public sealed class PhotoRulesTests
     [Fact]
     public void A_category_of_groups_is_turned_down() =>
         Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Sheep 12.jpg", categories: "Category:Flocks of sheep in Wales"), RealCategory.Animal, "sheep")!.Value.Kind);
+
+    /// <summary>On 2026-11-22 a 13th-century manuscript page went into play as Steller's sea cow: art is welcome for an
+    /// extinct animal, a page of an old book is not.</summary>
+    [Theory]
+    [InlineData("File:Der naturen bloeme - Jacob van Maerlant - KB KA 16 - 110v.jpg")]
+    [InlineData("File:Aberdeen Bestiary folio 12.jpg")]
+    [InlineData("File:Sea cow manuscript.jpg")]
+    public void A_manuscript_page_is_turned_down_even_for_an_extinct_animal(string title) =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts(title), RealCategory.ExtinctAnimal, "steller's sea cow")!.Value.Kind);
+
+    [Fact]
+    public void A_manuscript_category_is_turned_down() =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:KB KA 16 sea cow.jpg", categories: "Category:Der naturen bloeme"), RealCategory.ExtinctAnimal, "steller's sea cow")!.Value.Kind);
+
+    [Theory]
+    [InlineData("110v", true)]
+    [InlineData("12r", true)]
+    [InlineData("v", false)]
+    [InlineData("4x4", false)]
+    [InlineData("river", false)]
+    public void A_folio_number_is_known(string word, bool folio) => Assert.Equal(folio, PhotoRules.IsFolio(word));
 }

@@ -251,6 +251,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 if (category == RealCategory.Plant && PlantPart.Contains(word) && (own.Contains("tree") || i > 0 && words[i - 1] is "a" or "one" or "single")) return word;
                 var pair = i + 1 < words.Count ? $"{word} {words[i + 1]}" : null;
                 if (pair is not null && NotWholePairs.Contains(pair)) return pair;
+                if (category != RealCategory.ExtinctAnimal && pair is not null && ArtPairs.Contains(pair)) return pair;
+                if (word is "stages" && i + 2 < words.Count && words[i + 1] is "of" && StagesOf.Contains(words[i + 2])) return $"stages of {words[i + 2]}";
                 if (pair is "close up" && CloseUpOfAPart(words, i + 2, own)) return pair;
                 // "five-armed starfish", "three-dimensional": the number says how the thing is made, not how many.
                 if (Hyphenated(sentence, matches[i]) || pair is "three dimensional" or "two dimensional") continue;
@@ -342,7 +344,14 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     ];
     /// <summary>Words that, with the model's count above one, say a second thing is in the picture.</summary>
     private static readonly HashSet<string> More = ["second", "another", "others", "twin", "twins", "together", "alongside"];
-    private static readonly string[] MorePhrases = ["in the background", "behind it", "beside it", "next to it", "side-by-side", "side by side"];
+    /// <summary>Phrases that, with the model's count above one, put a second thing in the picture: "a thylacine standing
+    /// next to a dingo, with the thylacine seemingly perched on the dingo's back" (count 2) passed on 2026-11-22.</summary>
+    private static readonly string[] MorePhrases =
+    [
+        "in the background", "behind it", "beside it", "next to it", "side-by-side", "side by side",
+        "next to a ", "next to an ", "next to the ", "beside a ", "beside an ", "beside the ", "perched on", "on the back of",
+        "'s back", "\u2019s back", "on top of a ", "on top of an ", "riding a ", "riding an ",
+    ];
     /// <summary>Plants that grow as many stalks or stems; berries are known by their name's ending.</summary>
     private static readonly HashSet<string> Clustered =
     [
@@ -366,10 +375,22 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
         "bowls", "baskets", "crates", "jars", "dishes", "stall",
         "drawing", "drawn", "sketch", "cartoon", "diagram", "logo", "ticket", "label", "map", "chart", "poster", "manuscript", "illuminated",
         "anatomical", "anatomy", "landmarks", "labelled", "labeled", "labels", "annotated", "annotations",
+        // A picture made by hand is not a photo of a living thing; for an extinct animal these are let through (Art).
+        // "Illustration" alone is not here: the model calls good cut-outs "a realistic cut-out illustration" by habit.
+        "painting", "paintings", "artwork", "engraving", "woodcut", "lithograph",
     ];
+    /// <summary>An illustration of a kind that is never a photo ("a medieval illustration of two steller's sea cows",
+    /// a botanical plate), and the life-cycle plate: "a single red tulip flower in various stages of development"
+    /// passed on 2026-11-22. Not against an extinct animal, which is shown by a restoration.</summary>
+    private static readonly HashSet<string> ArtPairs =
+    [
+        "botanical illustration", "medieval illustration", "vintage illustration", "scientific illustration", "historical illustration",
+        "old illustration", "antique illustration", "hand drawn", "life cycle", "growth stages",
+    ];
+    private static readonly HashSet<string> StagesOf = ["development", "growth", "life", "its", "maturity"];
     /// <summary>Words that say the picture is a made copy of the thing, not the thing: the plaid cloth that was "a coconut
     /// palm, depicted as a 3D model" passed before these counted. A model is how an extinct animal is shown, so not for it.</summary>
-    private static readonly HashSet<string> Made = ["model", "models", "figurine", "figurines", "replica", "toy", "toys", "plush", "render", "rendered", "rendering", "cgi", "sculpture"];
+    private static readonly HashSet<string> Made = ["model", "models", "figurine", "figurines", "replica", "toy", "toys", "plush", "render", "rendered", "rendering", "cgi", "sculpture", "digitally"];
     /// <summary>Words that say a living thing or a vehicle is in fact cloth (the coconut sellers' plaid cloth); an object may be cloth.</summary>
     private static readonly HashSet<string> Cloth = ["fabric", "cloth", "textile", "plaid", "tartan", "blanket", "quilt"];
     /// <summary>Words that say a vehicle or an object is in fact a living thing (the "paddle boat" that was a duck).</summary>
@@ -377,7 +398,7 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     private static readonly HashSet<string> PlantPart = ["branch", "twig", "sprig"];
     /// <summary>Art words that do not count against an extinct animal, which is shown by a life restoration by nature
     /// (a Lodge drawing of a great auk, a palaeo-painting of a brachiosaurus).</summary>
-    private static readonly HashSet<string> Art = ["drawing", "drawn", "sketch", "cartoon", "painting", "illustration"];
+    private static readonly HashSet<string> Art = ["drawing", "drawn", "sketch", "cartoon", "painting", "paintings", "illustration", "artwork", "engraving", "woodcut", "lithograph"];
 
     [GeneratedRegex("[a-z]+")]
     private static partial Regex Words();
