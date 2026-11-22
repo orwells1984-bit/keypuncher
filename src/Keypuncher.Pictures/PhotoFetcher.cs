@@ -91,6 +91,9 @@ public sealed class PhotoFetcher : IPictureFetcher
         // goes when a try succeeds), and, when another is asked for, the photo in play itself.
         var exclude = asked.Concat(sidecar?.Alternatives ?? []).Concat(inPlay && sidecar?.Photo?.FileTitle is { } shown ? [shown] : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Nor a photo another thing already shows: the coconut palm took the coconut's "Coconut 4.jpg" twice, so the toy
+        // showed one picture under two names. Not kept in the sidecar: it is turned down for being taken, not for itself.
+        var taken = TakenByOthers(slug).Where(t => !exclude.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList();
 
         // A photo kept from an earlier visit, when the cut-out model was missing, is cut now rather than fetched again.
         if (!inPlay && sidecar is { Source: PictureSource.Photo, Photo: { } kept }
@@ -103,7 +106,7 @@ public sealed class PhotoFetcher : IPictureFetcher
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(Limit);
         PhotoSearch search;
-        try { search = await _finder.FindAsync(name, category, exclude, cts.Token); }
+        try { search = await _finder.FindAsync(name, category, [.. exclude, .. taken], cts.Token); }
         catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
         {
             Log.Warn("pictures", $"looking for a photo of {name} took longer than {Limit.TotalSeconds:0} s", e);
@@ -203,6 +206,11 @@ public sealed class PhotoFetcher : IPictureFetcher
         Note($"{sidecar.Name}: picture in play ({result.Model})");
         return FetchOutcome.Pictured;
     }
+
+    /// <summary>The Commons file titles of the photos other things show or hold for the check.</summary>
+    private IEnumerable<string> TakenByOthers(string slug) =>
+        _folder.All().Where(p => p.Slug != slug && p.Photo?.FileTitle is { Length: > 0 } && (_folder.HasPicture(p.Slug) || (p.AwaitsCheck && _folder.IsHidden(p.Slug))))
+            .Select(p => p.Photo!.FileTitle);
 
     private FetchOutcome Offline(string slug, string name, string why, DateTime now)
     {

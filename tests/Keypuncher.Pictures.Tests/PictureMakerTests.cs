@@ -336,6 +336,10 @@ public sealed class OllamaVisionTests
     [InlineData("three brown beans arranged in a row on a dark gray surface", "brown bean", RealCategory.Plant, "three")]
     [InlineData("A branch with several bright red beach berries", "beach berry", RealCategory.Plant, "branch")]
     [InlineData("a stack of six colorful towels", "beach towel", RealCategory.Object, "six")]
+    [InlineData("This is a cut-out image depicting a single red tulip flower in various stages of development, including its stem, leaves, and fully opened blossom, against a black background.", "tulip", RealCategory.Plant, "stages of development")]
+    [InlineData("a botanical illustration of a sunflower with its roots", "sunflower", RealCategory.Plant, "botanical illustration")]
+    [InlineData("an oil painting of a red fox in the snow", "red fox", RealCategory.Animal, "painting")]
+    [InlineData("a medieval illustration of a whale in a decorative border", "whale", RealCategory.Animal, "medieval illustration")]
     public void A_description_that_gives_the_picture_away_fails_it(string saw, string name, RealCategory category, string word)
     {
         Assert.Equal(word, OllamaVision.GiveAway(saw, name, category));
@@ -483,6 +487,8 @@ public sealed class OllamaVisionTests
     [InlineData("mouse", "one whole, live white mouse lying on its side, and another mouse is slightly behind it.", 2, false)]
     [InlineData("archaeopteryx", "This is a digitally created illustration of an archaeopteryx, depicted in mid-flight with a smaller juvenile archaeopteryx flying alongside it, against a black background.", 2, false)]
     [InlineData("fish", "The image shows a large group of approximately 20-30 blue tang fish, cut out and arranged against a black background.", 20, false)]
+    [InlineData("thylacine", "This is a black and white cut-out image depicting a thylacine standing next to a dingo, with the thylacine seemingly perched on the dingo\u2019s back.", 2, false)]
+    [InlineData("horse", "a brown horse with a foal next to it, and a rider perched on its back", 2, false)]
     public void A_count_above_one_fails_only_when_the_description_bears_it_out(string name, string saw, int count, bool passed) =>
         Assert.Equal(passed, OllamaVision.Read(saw, $$"""{"count":{{count}},"is_the_thing":true,"whole":true}""", "gemma3:4b", DateTime.UnixEpoch, name, RealCategory.Animal).Passed);
 

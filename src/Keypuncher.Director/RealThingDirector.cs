@@ -183,10 +183,24 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 continue;
             }
 
+            // A vehicle or object must be one people use there: a well-known name passes the checker unasked.
+            if (request.Here is { } site && request.GrowInto is null && filedAs is RealCategory.Vehicle or RealCategory.Object
+                && !await checker.UsedHereAsync(pick.Subject, site, cancellationToken))
+            {
+                attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, $"checker: not used {site}", check)
+                {
+                    Lasting = new TurnedDown(pick.Subject, $"not used {site}", pick.Category, request.Here),
+                });
+                turnedDown.Add($"{pick.Subject} (nobody uses one {site})");
+                idea = NextIdea(request, ideas, attempts);
+                continue;
+            }
+
             // The thing is real; a life stage the checker does not confirm is dropped rather than the thing.
             if (recipe!.GrowsInto is not null && !check.GrowsIntoConfirmed) recipe = recipe with { GrowsInto = null };
             recipe = recipe with { Category = filedAs };
-            attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, null, check) { Note = notes.Count == 0 ? null : string.Join("; ", notes) });
+            var fact = await CheckedFactAsync(pick.Subject, pick.Fact, filedAs, cancellationToken);
+            attempts.Add(new DirectorAttempt(pick.Subject, fact, null, check) { Note = notes.Count == 0 ? null : string.Join("; ", notes) });
             return new DirectorOutcome(request, recipe, attempts, DateTime.UtcNow - started);
         }
 
@@ -201,7 +215,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                 if (check.Passes(pick.Category))
                 {
                     if (recipe!.GrowsInto is not null && !check.GrowsIntoConfirmed) recipe = recipe with { GrowsInto = null };
-                    attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, null, check));
+                    attempts.Add(new DirectorAttempt(pick.Subject, await CheckedFactAsync(pick!.Subject, pick.Fact, pick.Category, cancellationToken), null, check));
                     return new DirectorOutcome(request, recipe, attempts, DateTime.UtcNow - started);
                 }
                 attempts.Add(new DirectorAttempt(pick.Subject, pick.Fact, $"checker: {check.Verdict}, {check.Kind}", check));
@@ -219,6 +233,18 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         && check.Verdict == "real" && Enum.TryParse<RealCategory>(check.Kind, out var kind) && Enum.IsDefined(kind)
         && RealThingPick.KindOf(kind) == request.Kind && !FactCheck.SameKind(kind, request.Category)
             ? kind : null;
+
+    /// <summary>How the fact of a used extinct animal is kept: as the author gave it when the checker agrees, else
+    /// marked unconfirmed, as a scene's fact is. The pick stays (the animal is real; only the sentence is doubted),
+    /// and the grown-ups' page shows the mark. Other kinds keep their fact unasked.</summary>
+    private async Task<string?> CheckedFactAsync(string subject, string? fact, RealCategory filedAs, CancellationToken cancellationToken)
+    {
+        if (filedAs != RealCategory.ExtinctAnimal || string.IsNullOrWhiteSpace(fact)) return fact;
+        return await checker.ConfirmFactAsync(subject, fact, cancellationToken) ? fact : $"{FactNotConfirmed}: {fact})";
+    }
+
+    /// <summary>How an unconfirmed fact begins, as scenes write it.</summary>
+    public const string FactNotConfirmed = "(fact not confirmed";
 
     /// <summary>Why an answer copied from the prompt's examples is refused, as the log and the next prompt say it.</summary>
     public const string EchoedExample = "copied from the examples";

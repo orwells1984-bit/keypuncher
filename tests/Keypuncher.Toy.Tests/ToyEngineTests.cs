@@ -375,6 +375,23 @@ public sealed class ToyEngineTests : IDisposable
         if (q.Recipe!.Kind != RecipeKind.Plant && digit.Recipe!.Kind != RecipeKind.Plant) Assert.True(digit.Y < q.Y + 0.05);
     }
 
+    /// <summary>In run 16 (2026-11-22) a dog came up on a bean and a sheep on an apple: two neighbouring keys put their
+    /// things in the same place. The second is moved, up or down first, until it is clear of the first.</summary>
+    [Fact]
+    public void A_thing_by_a_neighbouring_key_comes_up_clear_of_the_one_already_there()
+    {
+        _engine.Settings = _engine.Settings with { SayWords = false };
+        Press(0x10, "q");
+        Step(3);
+        var first = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing);
+        Press(0x11, "w");
+        var second = Assert.Single(_world.Live, e => e.Role == EntityRole.Thing && e != first);
+
+        var apart = Math.Sqrt(Math.Pow((second.X - first.X) * 16 / 9, 2) + Math.Pow(second.Y - first.Y, 2));
+        Assert.True(apart >= ToyEngine.ClearRadius, $"only {apart:0.000} apart");
+        Assert.InRange(second.X, KeyboardGeometry.Position(0x11).X - 0.15, KeyboardGeometry.Position(0x11).X + 0.15);
+    }
+
     private void ThingWords(params (string Slug, string Word)[] words)
     {
         IReadOnlyDictionary<string, string> icelandic = words.ToDictionary(w => w.Slug, w => w.Word);
