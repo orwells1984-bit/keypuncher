@@ -365,7 +365,6 @@ public sealed class PictureChecksTests : IDisposable
         await Fetcher().FetchAsync("fish", RealCategory.Animal);
         _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Adriaen Coenen's Visboeck - KB 78 E 54 - folio 395v.jpg", Trout), []);
         await Fetcher().FetchAsync("trout", RealCategory.Animal);
-        await Checks().CheckAsync("trout");   // passed by the model, as on the desktop
         Assert.True(_folder.HasPicture("trout"));
         var asked = _checker.Asked.Count;
 
