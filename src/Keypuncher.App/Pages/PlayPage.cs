@@ -64,6 +64,13 @@ public sealed class PlayPage : ContentPage
     }
 
     private readonly HashSet<(int, string)> _shown = [];
+    private StallWatch? _stalls;
+
+    /// <summary>Names what the drawing thread is doing, for the pause watch.</summary>
+    private void Doing(string phase)
+    {
+        if (_stalls is { } stalls) stalls.Phase = phase;
+    }
 
     /// <summary>Frames per second over the last few seconds, for the parent screen.</summary>
     public static double FramesPerSecond { get; private set; }
@@ -88,10 +95,14 @@ public sealed class PlayPage : ContentPage
         _last = _lastDrawLog = _clock.Elapsed;
         _renderer.Timings.Reset();
         _timer.Start();
+        // From here a frame is owed every 15 ms; a second without one is written down with what was going on.
+        _stalls ??= new StallWatch(_host.WhatIsGoingOn, line => _host.Story(line));
+        _stalls.Start();
     }
 
     protected override void OnDisappearing()
     {
+        _stalls?.Stop();
         _timer.Stop();
         _host.SaveWorld();
         StopRecording();
@@ -111,6 +122,8 @@ public sealed class PlayPage : ContentPage
         var now = _clock.Elapsed;
         var elapsed = (now - _last).TotalSeconds;
         _last = now;
+        if (_stalls?.Beat() is { } paused) _timeline?.Add("pause", ("seconds", paused.TotalSeconds));
+        Doing("taking the keys");
 
         foreach (var key in _host.DrainKeys())
         {
@@ -123,6 +136,7 @@ public sealed class PlayPage : ContentPage
             }
             _host.Engine.OnKey(key);
         }
+        Doing("moving the world on");
         _host.Engine.Advance(elapsed);
         if (_host.Engine.IsAsleep && !_wasAsleep)
         {
@@ -132,16 +146,21 @@ public sealed class PlayPage : ContentPage
             _host.CheckNewPictures();
         }
         _wasAsleep = _host.Engine.IsAsleep;
+        Doing("looking at the camera");
         WatchCamera();
+        Doing("turning to the director");
         var settings = _host.Engine.Settings;
         _host.Director.Update(_host.World, settings.Limits, settings.Director && !_host.Engine.IsAsleep);
+        Doing("asking for the screen to be drawn");
         _canvas.InvalidateSurface();
 
         if (now - _lastSave > SaveEvery)
         {
             _lastSave = now;
+            Doing("saving the world");
             _host.SaveWorld();
         }
+        Doing("between frames");
 
         _frames++;
         if (now - _fpsStart > TimeSpan.FromSeconds(3))
@@ -163,11 +182,13 @@ public sealed class PlayPage : ContentPage
     {
         try { DrawFrame(e); }
         catch (Exception ex) { Log.Error("drawing", "drawing a frame failed; play carries on", ex); }
+        finally { Doing("between frames (the last one is drawn)"); }
     }
 
     private void DrawFrame(SKPaintSurfaceEventArgs e)
     {
         (_width, _height) = (e.Info.Width, e.Info.Height);
+        Doing("drawing the scene");
         var gate = _host.Engine.Gate;
         var touchGate = _host.Engine.TouchGate;
         var now = _host.World.Time;
@@ -187,6 +208,7 @@ public sealed class PlayPage : ContentPage
         DrawCameraPicture(e.Surface.Canvas, e.Info.Width, e.Info.Height);
 
         // Once the goodnight has faded to dark there is nothing more to see.
+        Doing("handing the frame to the video");
         if (_host.World.Night < 1) _recorder?.Offer(e.Surface, e.Info.Width, e.Info.Height, _clock.Elapsed.TotalSeconds);
     }
 
@@ -351,6 +373,7 @@ public sealed class PlayPage : ContentPage
     {
         Story("a grown-up passed the gate; showing the grown-ups' page");
         _host.Engine.GrownUpRequested -= OnGrownUp;
+        _stalls?.Dispose();
         _timer.Stop();
         StopRecording();
         // This page is never shown again: the grown-ups' page makes a new one.

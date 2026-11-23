@@ -116,7 +116,7 @@ async Task<int> CheckAsync(string? slug)
     var checks = new PictureChecks(folder, checker, note: line => Console.WriteLine("  " + line));
     // A thing whose cut-out failed has a story but no picture, in play or hidden: nothing to show the checker. On
     // 2026-11-15 two of those (archaeopteryx, moringa) printed nothing and were counted as "unanswered".
-    var slugs = slug is { } one ? [one] : folder.All().Where(p => (options.Again || PictureChecks.Stale(p.Check)) && (folder.HasPicture(p.Slug) || folder.IsHidden(p.Slug))).Select(p => p.Slug).ToList();
+    var slugs = slug is { } one ? [one] : folder.All().Where(p => (options.Again || PictureChecks.Stale(p.Check, p.Category)) && (folder.HasPicture(p.Slug) || folder.IsHidden(p.Slug))).Select(p => p.Slug).ToList();
     Console.WriteLine($"{slugs.Count} to check with {checker.Model}" + (options.Until is { } u ? $"; stops by {u:HH:mm}" : ""));
     int passed = 0, flagged = 0, silent = 0;
     foreach (var s in slugs)

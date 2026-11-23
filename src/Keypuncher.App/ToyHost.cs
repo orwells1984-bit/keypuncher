@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using Keypuncher.Audio;
 using Keypuncher.Core;
 using Keypuncher.Rendering;
@@ -40,6 +41,7 @@ public sealed class ToyHost : IDisposable
     private Task? _checking;
     private CancellationTokenSource? _thisCheck;
     private volatile bool _quitting;
+    private readonly SdCliSetup? _imageModel;
     private volatile HostMode _mode = HostMode.Play;
 
     /// <summary>Where the toy keeps its data: KEYPUNCHER_DATA if set, otherwise %LOCALAPPDATA%\Keypuncher.</summary>
@@ -153,7 +155,20 @@ public sealed class ToyHost : IDisposable
         // The built-in animals and dinosaurs too, under their nursery names: the finder knows a rex is a Tyrannosaurus.
         foreach (var animal in BuiltInRecipes.Animals.All)
             PictureJobs.Enqueue(animal.Name, ToyNames.LookUp(animal.Name, RealCategory.Animal).Category);
+        // Photos fetched under older file-name rules are held to today's before anything is shown or fetched: no
+        // model is asked, and what is taken out is on the wanted list for the fetch below.
+        Log.Safely("pictures", "holding the photos in play to today's file-name rules", () =>
+        {
+            var sweep = new PictureChecks(PictureFolder, new OllamaVision(_ollamaHttp, PictureCheckModel), note: NotePicture);
+            if (sweep.SweepFileNames() is not { Count: > 0 } taken) return;
+            foreach (var name in taken) Pictures.Invalidate(name);
+            Story($"{taken.Count} photo{(taken.Count == 1 ? "" : "s")} taken out of play by file name: {string.Join(", ", taken)}");
+        });
         PictureJobs.RetryWanted();
+        _imageModel = FindImageModel(DataFolder);
+        Log.Info("pictures", _imageModel is null
+            ? "no image model found (KEYPUNCHER_SD, the data folder's sd, or a keypuncher-sd folder beside the program); things with no usable photo keep their shape"
+            : $"image model {SdCliSetup.ModelName} found at {Path.GetDirectoryName(_imageModel.Exe)}; things with no usable photo are drawn while the toy sleeps");
 
         Speech.PreloadAsync(KeyMeanings.Languages.SelectMany(tag => ClipCatalog.For(tag, Words.In(tag))).Select(e => e.Id)).LogFailures("speech", "loading the recordings");
         Log.Info("app", $"ready in {starting.ElapsedMilliseconds} ms; {PictureFolder.Wanted.All().Count} pictures wanted, "
@@ -413,6 +428,124 @@ public sealed class ToyHost : IDisposable
     public const int MaxCheckRounds = 4;
     public static readonly TimeSpan MaxWaitForReplacements = TimeSpan.FromSeconds(45);
 
+    /// <summary>The most pictures the image model draws in one sleep: each takes the card for half a minute or more.</summary>
+    public const int MaxDrawnPerSleep = 4;
+    /// <summary>The least free memory on the card, in MiB, at which the image model is started.</summary>
+    public const int MinFreeToDraw = 3000;
+
+    /// <summary>Where the image model is, complete: the folder named by KEYPUNCHER_SD, else <c>sd</c> in the data
+    /// folder (the console tool's default), else a <c>keypuncher-sd</c> folder beside the program or any folder above
+    /// it (beside the clone, when the toy is run from its sources). Null when none has every piece.</summary>
+    public static SdCliSetup? FindImageModel(string dataFolder)
+    {
+        IEnumerable<string> Places()
+        {
+            if (Environment.GetEnvironmentVariable("KEYPUNCHER_SD") is { Length: > 0 } named) yield return named;
+            yield return Path.Combine(dataFolder, "sd");
+            for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+                yield return Path.Combine(dir.FullName, "keypuncher-sd");
+        }
+        try
+        {
+            return Places().Where(Directory.Exists).Select(SdCliSetup.Find).FirstOrDefault(setup => setup.AllPresent);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            Log.Warn("pictures", "looking for the image model failed", e);
+            return null;
+        }
+    }
+
+    /// <summary>The wanted things the image model should draw this sleep: those the photo sources have given up on
+    /// (see <see cref="PictureMaker.IsGap"/>) with nothing in play and no fetch under way, the longest left alone
+    /// first, so one the checker keeps turning down does not hold up the rest. A name the encyclopedia has no article
+    /// for is left to the console tool: most of those are names the model made up ("viking rose", "lilly pillay"),
+    /// and a drawing of something is not a picture of a real thing. Empty without the image model or a cut-out model.</summary>
+    private IReadOnlyList<WantedEntry> GapsToDraw()
+    {
+        if (_imageModel is null || !CutOut.IsAvailable) return [];
+        return [.. PictureFolder.Wanted.All()
+            .Where(w => PictureMaker.IsGap(w) && !string.Equals(w.Reason, "no article", StringComparison.OrdinalIgnoreCase)
+                && !PictureFolder.HasPicture(w.Slug) && !PictureJobs.IsPending(w.Name))
+            .OrderBy(w => w.LastTry ?? DateTime.MinValue).Take(MaxDrawnPerSleep)];
+    }
+
+    /// <summary>
+    /// Draws pictures for things no usable photo was found for, with the image model, while the toy sleeps: laver's
+    /// only photo was laverbread on toast, the checker turned it down, and the thing stayed a shape. Ollama is asked
+    /// to let go of the toy's own models first, since the image model needs the card to itself; when another job's
+    /// model is on the card, or too little of it is free, nothing is drawn. Each drawing waits out of play for the
+    /// picture check. Returns how many were drawn.
+    /// </summary>
+    private async Task<int> DrawGapsAsync(IReadOnlyList<WantedEntry> gaps, CancellationToken ct)
+    {
+        if (_imageModel is not { } setup || gaps.Count == 0) return 0;
+        var card = await Ollama.CardAsync(() => null).ConfigureAwait(false);
+        string[] own = [DirectorModel, PictureCheckModel];
+        if (card.Loaded.Where(m => !own.Any(o => OllamaModels.Same(m.Name, o))).Select(m => m.Name).ToList() is { Count: > 0 } others)
+        {
+            Story($"{gaps.Count} picture{(gaps.Count == 1 ? "" : "s")} not drawn: Ollama holds {string.Join(", ", others)} for another job");
+            return 0;
+        }
+        foreach (var mine in card.Loaded)
+        {
+            // A call with keep_alive 0 and no prompt drops the model from the card at once.
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            limit.CancelAfter(TimeSpan.FromSeconds(30));
+            try { using var _ = await _ollamaHttp.PostAsJsonAsync("api/generate", new { model = mine.Name, keep_alive = 0 }, limit.Token).ConfigureAwait(false); }
+            catch (Exception e) when (e is HttpRequestException || (e is OperationCanceledException && !ct.IsCancellationRequested))
+            {
+                Log.Warn("ollama", $"asking Ollama to let go of {mine.Name} before drawing failed", e);
+            }
+        }
+        // The card takes a moment to be given back.
+        int? free = null;
+        for (var i = 0; i < 10; i++)
+        {
+            free = Vram.FreeMiB();
+            if (free is null or >= MinFreeToDraw) break;
+            await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
+        }
+        if (free is < MinFreeToDraw)
+        {
+            Story($"{gaps.Count} picture{(gaps.Count == 1 ? "" : "s")} not drawn: only {free} MiB free on the card");
+            return 0;
+        }
+        Story($"drawing {gaps.Count} picture{(gaps.Count == 1 ? "" : "s")} with {SdCliSetup.ModelName} while the toy sleeps ({(free is { } mib ? $"{mib} MiB free on the card" : "the card's free memory is unknown")}): {string.Join(", ", gaps.Select(g => g.Name))}");
+        var maker = new PictureMaker(PictureFolder, new SdCli(setup, note: NotePicture), CutOut, note: NotePicture);
+        int drawn = 0, failures = 0;
+        foreach (var gap in gaps)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_quitting) break;
+            // What the grown-ups or the director filed the thing as wins over the wanted list's older guess. The seed
+            // is the picture's number, so a thing drawn again after the checker turned its drawing down is drawn anew.
+            var category = PictureFolder.Cards.Get(gap.Slug)?.Category ?? gap.Category;
+            var outcome = await maker.MakeAsync(gap.Name, category, seed: PictureFolder.NextId(gap.Slug), ct: ct, hold: true).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (outcome == MakeOutcome.Made) drawn++;
+            if (outcome == MakeOutcome.ModelMissing) break;
+            // Two that fail one after the other mean the card or the program, not the thing.
+            failures = outcome == MakeOutcome.Failed ? failures + 1 : 0;
+            if (failures >= 2) break;
+        }
+        Story($"drawing done: {drawn} of {gaps.Count} drawn; they wait for the picture check");
+        return drawn;
+    }
+
+    /// <summary>What the model, the director, the picture work and the card are doing now, in one line, for the
+    /// drawing's pause watch. Called off the drawing thread; it asks nvidia-smi, which takes a moment.</summary>
+    public string WhatIsGoingOn()
+    {
+        var jobs = PictureJobs.Status;
+        var free = Vram.FreeMiB();
+        return FormattableString.Invariant($"{OllamaLanguageModel.CallsUnderWay()}; director {(Director.Busy ? "choosing" : "idle")}; ")
+            + $"picture check {(PictureCheckRunning ? "running" : "idle")}; {(jobs.Fetching is { } fetching ? $"fetching a picture of {fetching}" : "no picture fetch")}"
+            + $"{(jobs.Queued > 0 ? $" ({jobs.Queued} waiting)" : "")}; card {(free is { } mib ? $"{mib} MiB free" : "not read")}; "
+            + FormattableString.Invariant($"collections {GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)} with {GC.GetTotalPauseDuration().TotalSeconds:0.0} s paused in all; ")
+            + $"{ThreadPool.PendingWorkItemCount} waiting for {ThreadPool.ThreadCount} pool threads";
+    }
+
     /// <summary>True while the vision model is looking at new pictures.</summary>
     public bool PictureCheckRunning => _checking is { IsCompleted: false };
 
@@ -438,12 +571,14 @@ public sealed class ToyHost : IDisposable
         using var http = new HttpClient { BaseAddress = OllamaAddress, Timeout = TimeSpan.FromMinutes(3) };
         var checks = new PictureChecks(PictureFolder, new OllamaVision(http, PictureCheckModel), note: NotePicture);
         var todo = checks.Unchecked();
-        if (todo.Count == 0) return;
+        var gaps = GapsToDraw();
+        if (todo.Count == 0 && gaps.Count == 0) return;
         // A checker that is not installed answers nothing; said once here rather than as two pictures "not answered".
         var models = await Ollama.CheckAsync([checks.Model], cancellationToken: ct).ConfigureAwait(false);
         if (models.Reachable && models.Missing.Count > 0)
         {
-            Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {checks.Model} is not installed in Ollama (the grown-ups' page can download it)");
+            // Without the checker nothing is drawn either: a drawing goes into play only once it has been looked at.
+            Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked{(gaps.Count > 0 ? $" and {gaps.Count} not drawn" : "")}: {checks.Model} is not installed in Ollama (the grown-ups' page can download it)");
             return;
         }
         // The director's model and the checker cannot share the card; a pick under way is let finish first.
@@ -452,19 +587,19 @@ public sealed class ToyHost : IDisposable
             await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
         if (Director.Busy || _quitting)
         {
-            Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {(_quitting ? "the toy is closing" : "the director is still choosing")}; they wait for next time");
+            if (todo.Count > 0) Story($"{todo.Count} new picture{(todo.Count == 1 ? "" : "s")} not checked: {(_quitting ? "the toy is closing" : "the director is still choosing")}; they wait for next time");
             return;
         }
-        Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
         int passed = 0, failed = 0, all = todo.Count;
         var seen = new HashSet<(string Slug, int Id)>();
-        try
+        var silent = false;
+        // A failed picture's replacement is fetched at once and waits out of play for this same check, so the
+        // rounds go on until nothing new has come; MaxCheckRounds stops a thing with no good photo at all.
+        async Task LookAsync()
         {
-            // A failed picture's replacement is fetched at once and waits out of play for this same check, so the
-            // rounds go on until nothing new has come; MaxCheckRounds stops a thing with no good photo at all.
+            if (todo.Count > 0) Story($"checking {todo.Count} new picture{(todo.Count == 1 ? "" : "s")} with {checks.Model} while the toy sleeps");
             for (var round = 0; todo.Count > 0 && round < MaxCheckRounds; round++)
             {
-                var silent = false;
                 foreach (var picture in todo)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -495,6 +630,18 @@ public sealed class ToyHost : IDisposable
                     await Task.Delay(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
                 todo = [.. checks.Unchecked().Where(p => !seen.Contains((p.Slug, p.Id)))];
                 all += todo.Count;
+            }
+        }
+        try
+        {
+            await LookAsync().ConfigureAwait(false);
+            // With the photos settled, what still has none is drawn, and the drawings are looked at in their turn.
+            // The list is read again: a photo the check has just turned down may have had no other to take its place.
+            if (!silent && !_quitting && (gaps = GapsToDraw()).Count > 0 && await DrawGapsAsync(gaps, ct).ConfigureAwait(false) > 0)
+            {
+                todo = [.. checks.Unchecked().Where(p => !seen.Contains((p.Slug, p.Id)))];
+                all += todo.Count;
+                await LookAsync().ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

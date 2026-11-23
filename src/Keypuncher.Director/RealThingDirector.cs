@@ -34,7 +34,7 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 ///    plant must be confirmed as found where the scene is: continent and climate by the model, and the element by
 ///    code (<see cref="Habitat"/>), so no shark at a lake.
 /// A refused pick is named in the next try's prompt. A request for an extinct animal also offers a few well-known
-/// ones on every try and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
+/// ones on its last try (those of the sea first when the scene is by the sea) and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
 /// Any other request that misses leaves the family as it is, which is always safe.
 /// </summary>
 /// <param name="random">Picks the well-known extinct animals to offer.</param>
@@ -60,7 +60,10 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             // After a miss, the model's own next idea that is still free is asked for by name: asked again openly, a
             // small model mostly gives the same answer.
             var asking = idea is null ? request : request with { MustBe = idea };
-            var suggestions = idea is null ? Suggestions(request, attempts) : null;
+            // The well-known ones are offered on the last try only. Offered on every try, the small model took the
+            // list for the answer: on 2026-11-23 a request for an extinct animal of the beach came back as the list
+            // itself, in order, with its first name (allosaurus) as the pick.
+            var suggestions = idea is null && i == MaxAttempts - 1 ? Suggestions(request, attempts) : null;
             var result = await AskAsync(asking, turnedDown, suggestions, cancellationToken);
             var built = RealThingRules.TryBuild(result.Json, asking, out var pick, out var recipe, out var error);
             // One of the prompt's own examples handed back is no choice at all, and its ideas are the example's too:
@@ -292,6 +295,8 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         var free = RealThingPick.WellKnownExtinct
             .Where(n => !request.Existing.Any(e => RealThingRules.SameThing(e, n)) && !attempts.Any(a => RealThingRules.SameThing(a.Subject, n)))
             .ToList();
-        return [.. free.OrderBy(_ => _random.Next()).Take(5)];
+        // By the sea, the ones that lived in or by it come first, so a last resort still fits where the scene is.
+        var bySea = request.Landscape == Landscape.Beach;
+        return [.. free.OrderBy(n => bySea && RealThingPick.WellKnownExtinctOfTheSea.Contains(n) ? 0 : 1).ThenBy(_ => _random.Next()).Take(5)];
     }
 }

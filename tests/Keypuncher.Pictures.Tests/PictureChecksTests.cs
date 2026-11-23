@@ -357,6 +357,57 @@ public sealed class PictureChecksTests : IDisposable
         Assert.Equal(("Tyrannosaurus", RealCategory.ExtinctAnimal), _checker.Asked.Single());
     }
 
+    /// <summary>The second manuscript page shown as Steller's sea cow was fetched before folios were refused and then
+    /// passed by the vision model: the name rules of the day are run over what is already in play.</summary>
+    [Fact]
+    public async Task A_photo_whose_file_name_would_be_refused_today_is_swept_out_without_asking_the_checker()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Adriaen Coenen's Visboeck - KB 78 E 54 - folio 395v.jpg", Trout), []);
+        await Fetcher().FetchAsync("trout", RealCategory.Animal);
+        await Checks().CheckAsync("trout");   // passed by the model, as on the desktop
+        Assert.True(_folder.HasPicture("trout"));
+        var asked = _checker.Asked.Count;
+
+        var taken = Checks().SweepFileNames();
+
+        Assert.Equal(["trout"], taken);
+        Assert.Equal(asked, _checker.Asked.Count);
+        Assert.True(_folder.HasPicture("fish"));
+        Assert.False(_folder.HasPicture("trout"));
+        Assert.True(_folder.IsHidden("trout"));
+        var sidecar = _folder.ReadSidecar("trout")!;
+        Assert.Equal((PictureChecks.FileNameRule, false), (sidecar.Check!.Model, sidecar.Check.Passed));
+        Assert.Equal(["File:Adriaen Coenen's Visboeck - KB 78 E 54 - folio 395v.jpg"], _folder.Wanted.Get("trout")!.Exclude);
+        Assert.Empty(Checks().SweepFileNames());
+    }
+
+    [Fact]
+    public async Task A_swept_photo_a_grown_up_put_back_stays()
+    {
+        _finder.Answer = PhotoSearch.Found(FakePhotoFinder.Photo("File:Kangaroo and joey03.jpg", Trout), []);
+        await Fetcher().FetchAsync("kangaroo", RealCategory.Animal);
+        Checks().SweepFileNames();
+        Assert.True(_folder.IsHidden("kangaroo"));
+        _folder.Unhide("kangaroo");
+
+        Assert.Empty(Checks().SweepFileNames());
+        Assert.True(_folder.HasPicture("kangaroo"));
+    }
+
+    [Fact]
+    public async Task Only_an_extinct_animals_verdict_goes_stale_under_the_rules_that_changed_only_how_they_are_read()
+    {
+        await Fetcher().FetchAsync("fish", RealCategory.Animal);
+        await Checks().CheckAsync("fish");
+        var sidecar = _folder.ReadSidecar("fish")!;
+        var old = sidecar.Check! with { Rules = PictureChecks.LivingRules };
+        Assert.False(PictureChecks.Stale(old, RealCategory.Animal));
+        Assert.True(PictureChecks.Stale(old, RealCategory.ExtinctAnimal));
+        Assert.True(PictureChecks.Stale(old with { Rules = PictureChecks.LivingRules - 1 }, RealCategory.Animal));
+        Assert.True(PictureChecks.Stale(null, RealCategory.Plant));
+    }
+
     [Fact]
     public async Task A_picture_checked_under_older_rules_is_checked_again()
     {

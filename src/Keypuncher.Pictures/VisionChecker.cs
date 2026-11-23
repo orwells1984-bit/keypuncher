@@ -240,6 +240,8 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
                 var word = words[i];
                 if (Negations.Contains(word)) break;
                 if (own.Contains(word)) continue;
+                // A drawing is how an extinct animal is shown, but a page of an old book is not a drawing of it.
+                if (category == RealCategory.ExtinctAnimal && OldBook.Contains(word)) return word;
                 if (category == RealCategory.ExtinctAnimal && (Art.Contains(word) || Made.Contains(word))) continue;
                 if (Made.Contains(word)) return word;
                 if (category != RealCategory.Object && Cloth.Contains(word)) return word;
@@ -399,6 +401,16 @@ public sealed partial class OllamaVision(HttpClient http, string model = OllamaV
     /// <summary>Art words that do not count against an extinct animal, which is shown by a life restoration by nature
     /// (a Lodge drawing of a great auk, a palaeo-painting of a brachiosaurus).</summary>
     private static readonly HashSet<string> Art = ["drawing", "drawn", "sketch", "cartoon", "painting", "paintings", "illustration", "artwork", "engraving", "woodcut", "lithograph"];
+
+    /// <summary>Words that give away a page of an old book shown as an extinct animal, for which drawings are otherwise
+    /// let through: "a depiction of a Steller's sea cow ... with a decorative border surrounding it and a small ...
+    /// depiction of a ship below" passed on 2026-11-22, a leaf of a 16th-century fish book. Only for extinct animals:
+    /// a ferry is a ship, and the model gives many good cut-outs "a white border".</summary>
+    private static readonly HashSet<string> OldBook =
+    [
+        "page", "pages", "text", "medieval", "ship", "ships", "border", "decorative", "ornate", "parchment", "vellum",
+        "handwritten", "handwriting", "calligraphy", "script", "lettering", "book", "folio", "manuscript", "illuminated",
+    ];
 
     [GeneratedRegex("[a-z]+")]
     private static partial Regex Words();

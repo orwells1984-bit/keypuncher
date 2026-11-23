@@ -24,6 +24,8 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     public const string CutOutRule = "cut-out rule";
     /// <summary>The "model" recorded on a check failed because another thing in play has the same photo.</summary>
     public const string SharedPhotoRule = "same-photo rule";
+    /// <summary>The "model" recorded on a check failed by the photo's file name alone (see <see cref="PhotoRules.NameFault"/>).</summary>
+    public const string FileNameRule = "file-name rule";
 
     /// <summary>The rules checks are made under now. Raised when the questions or the reading of the answers change
     /// enough that old verdicts should not stand: 1 (November 2026) stopped telling the model the picture "should show
@@ -33,8 +35,13 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     /// (a parasaurolophus crest bone, the points of a horse), and no longer fails "close-up" unless it is of a part.
     /// 4 (2026-11-22) fails a second animal "next to a" or "perched on" the first (a thylacine on a dingo), hand-made
     /// pictures of living things (illustration, painting, engraving), a plant "in various stages", and a photo another
-    /// thing in play already has (the coconut and the coconut palm shared one).</summary>
-    public const int Rules = 4;
+    /// thing in play already has (the coconut and the coconut palm shared one).
+    /// 5 (2026-11-23) changes how extinct animals alone are read: a page of an old book fails (a leaf of a 16th-century
+    /// fish book had passed as Steller's sea cow), so only their verdicts go stale (<see cref="LivingRules"/>).</summary>
+    public const int Rules = 5;
+
+    /// <summary>The oldest rules under which a verdict on anything but an extinct animal still stands.</summary>
+    public const int LivingRules = 4;
 
     public string Model => checker.Model;
 
@@ -42,11 +49,41 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
     /// until it has (<see cref="PictureSidecar.AwaitsCheck"/>), then what a play has just fetched, then what the old
     /// rules let through; newest first within each.</summary>
     public IReadOnlyList<PictureSidecar> Unchecked() =>
-        [.. folder.All().Where(p => Stale(p.Check) && (folder.HasPicture(p.Slug) || (p.AwaitsCheck && folder.IsHidden(p.Slug))))
+        [.. folder.All().Where(p => Stale(p.Check, p.Category) && (folder.HasPicture(p.Slug) || (p.AwaitsCheck && folder.IsHidden(p.Slug))))
             .OrderBy(p => p.AwaitsCheck ? 0 : p.Check is null ? 1 : 2)];
 
-    /// <summary>Whether a verdict is missing or was made under older rules.</summary>
-    public static bool Stale(VisionCheck? check) => check is null || check.Rules < Rules;
+    /// <summary>Whether a verdict is missing or was made under rules too old for this kind of thing.</summary>
+    public static bool Stale(VisionCheck? check, RealCategory category) =>
+        check is null || check.Rules < (category == RealCategory.ExtinctAnimal ? Rules : LivingRules);
+
+    /// <summary>
+    /// Takes out of play every fetched photo whose file name would be turned down today, without asking any model:
+    /// the fetch vets a name once, with the rules of its day, and the checker never sees the name. The second
+    /// manuscript page shown as Steller's sea cow ("... KB 78 E 54 - folio 395v.jpg") was fetched four hours before
+    /// the rule against folios, and the full re-check that night asked only the vision model, which passed it. Run
+    /// when the toy starts, so the rules of the day hold for every picture in play. Returns the names taken out.
+    /// </summary>
+    public IReadOnlyList<string> SweepFileNames()
+    {
+        var now = (clock ?? (() => DateTime.Now))();
+        var taken = new List<string>();
+        foreach (var sidecar in folder.All().Where(p => p.Source == PictureSource.Photo && folder.HasPicture(p.Slug)))
+        {
+            if (NameFault(sidecar) is not { } why) continue;
+            var check = new VisionCheck(FileNameRule, false, 0, $"{sidecar.Photo!.FileTitle}: {why} [file name]", now) { Rules = Rules };
+            folder.WriteSidecar(sidecar with { Check = check, AwaitsCheck = false });
+            if (TakeOut(sidecar, check, now)) taken.Add(sidecar.Name);
+        }
+        return taken;
+    }
+
+    /// <summary>Why a fetched photo's file name would be turned down today, or null.</summary>
+    private string? NameFault(PictureSidecar sidecar)
+    {
+        if (sidecar.Source != PictureSource.Photo || sidecar.Photo?.FileTitle is not { Length: > 0 } title) return null;
+        var (real, realCategory) = ToyNames.LookUp(sidecar.Name, folder.Cards.Get(sidecar.Slug)?.Category ?? sidecar.Category);
+        return PhotoRules.NameFault(title, realCategory, real);
+    }
 
     /// <summary>Shows a picture (in play or hidden) to the checker, records its verdict and, on a fail, takes it out of
     /// play and asks for another. Null when there is no such picture or the checker did not answer.</summary>
@@ -64,7 +101,11 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
         var (real, realCategory) = ToyNames.LookUp(sidecar.Name, folder.Cards.Get(sidecar.Slug)?.Category ?? sidecar.Category);
         var now = (clock ?? (() => DateTime.Now))();
         VisionCheck? check;
-        if (SharedWith(sidecar) is { } owner)
+        if (NameFault(sidecar) is { } nameFault)
+        {
+            check = new VisionCheck(FileNameRule, false, 0, $"{sidecar.Photo!.FileTitle}: {nameFault} [file name]", now);
+        }
+        else if (SharedWith(sidecar) is { } owner)
         {
             // Two things cannot both be this photo; the one whose name it fits better keeps it, and this one gets another.
             check = new VisionCheck(SharedPhotoRule, false, 0, $"the same photo as {owner.Name} ({sidecar.Photo!.FileTitle}) [another thing's photo]", now);
@@ -101,17 +142,25 @@ public sealed class PictureChecks(PictureFolder folder, IVisionChecker checker, 
             Note($"{sidecar.Name}: {check.Model} says it looks right: {check.Saw}{(current.AwaitsCheck ? "; it goes into play" : "")}");
             return check;
         }
-        if (current.Source == PictureSource.Hand || current.ShownByGrownUp || folder.Cards.ChoseByHand(sidecar.Slug, current.Id))
+        TakeOut(current, check, now);
+        return check;
+    }
+
+    /// <summary>Acts on a failed check: the picture leaves play and another is wanted, unless a grown-up chose it.
+    /// Returns whether it was taken out.</summary>
+    private bool TakeOut(PictureSidecar current, VisionCheck check, DateTime now)
+    {
+        if (current.Source == PictureSource.Hand || current.ShownByGrownUp || folder.Cards.ChoseByHand(current.Slug, current.Id))
         {
             // A grown-up looked at this picture and chose it, or put it back; the checker's doubt is shown to them, and that is all.
-            Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
-            return check;
+            Note($"{current.Name}: {check.Model} says it looks WRONG: {check.Saw}; a grown-up chose this picture, so it stays in play");
+            return false;
         }
-        folder.Hide(sidecar.Slug);
-        folder.Wanted.Add(sidecar.Name, sidecar.Category, now);
-        folder.Wanted.Bump(sidecar.Slug, FailedCheck, now, exclude: sidecar.Photo?.FileTitle);
-        Note($"{sidecar.Name}: {check.Model} says it looks WRONG: {check.Saw}; taken out of play, another picture is wanted");
-        return check;
+        folder.Hide(current.Slug);
+        folder.Wanted.Add(current.Name, current.Category, now);
+        folder.Wanted.Bump(current.Slug, FailedCheck, now, exclude: current.Photo?.FileTitle);
+        Note($"{current.Name}: {check.Model} says it looks WRONG: {check.Saw}; taken out of play, another picture is wanted");
+        return true;
     }
 
     /// <summary>The other thing in play (or held for the check) whose picture comes from the same photo and has the

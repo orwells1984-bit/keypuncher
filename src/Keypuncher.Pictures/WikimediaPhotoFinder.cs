@@ -24,7 +24,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
     private const string Wikidata = "https://www.wikidata.org";
     private const string INaturalist = "https://api.inaturalist.org";
     private const string ImageInfoProps = "iiprop=url|size|mime|mediatype|sha1|extmetadata&iiurlwidth=1280"
-        + "&iiextmetadatafilter=LicenseShortName|LicenseUrl|Artist|Credit|Attribution|AttributionRequired|Copyrighted|UsageTerms&iiextmetadatalanguage=en";
+        + "&iiextmetadatafilter=LicenseShortName|LicenseUrl|Artist|Credit|Attribution|AttributionRequired|Copyrighted|UsageTerms|DateTimeOriginal&iiextmetadatalanguage=en";
     private static readonly string[] BitmapExtensions = [".jpg", ".jpeg", ".png", ".webp"];
 
     /// <summary>The article and what it points at; nothing found is an article with nothing in it.</summary>
@@ -281,7 +281,7 @@ public sealed partial class WikimediaPhotoFinder(HttpClient http) : IPhotoFinder
             var facts = new FileFacts(
                 title, Text(info, "mime") ?? "", Text(info, "mediatype") ?? "",
                 info.TryGetProperty("width", out var w) ? w.GetInt32() : 0, info.TryGetProperty("height", out var h) ? h.GetInt32() : 0,
-                categories, Meta("LicenseShortName") ?? "", Meta("Copyrighted") ?? "", Text(info, "url"));
+                categories, Meta("LicenseShortName") ?? "", Meta("Copyrighted") ?? "", Text(info, "url"), Plain(Meta("DateTimeOriginal")));
             return new Candidate(facts, Text(info, "descriptionurl") ?? $"{Commons}/wiki/{title.Replace(' ', '_')}", Text(info, "thumburl"),
                 Tidy(Meta("Artist")), Tidy(Meta("Credit")), Meta("LicenseUrl"), Tidy(Meta("Attribution")), Text(info, "sha1"));
         }
