@@ -295,7 +295,7 @@ public class DirectorPicksTests
     public async Task An_example_from_the_prompt_handed_back_is_refused_and_asked_again()
     {
         // 2026-11-21: asked for a vehicle people use at an Icelandic beach, the model returned the prompt's own fire engine.
-        var example = DirectorPrompts.FewShotExamples.Split('\n').Select(l => l.Trim()).Last(l => l.StartsWith('{'));
+        var example = DirectorPrompts.ExamplePool.Single(l => l.Contains("\"fire engine\","));
         var author = new ScriptedModel(example, Pick("jeep", "Vehicle", "Car"));
         var outcome = await new RealThingDirector(author, new FactChecker(new ScriptedModel())).ProposeAsync(Objects with { Category = RealCategory.Vehicle });
 

@@ -88,6 +88,53 @@ public sealed class PhotoRulesTests
         else Assert.Null(verdict);
     }
 
+    [Theory]
+    [InlineData("File:Common Seal Phoca vitulina.jpg", "harbour seal")]
+    [InlineData("File:Harbor Seal, Phoca vitulina - Flickr - GregTheBusker.jpg", "harbour seal")]
+    [InlineData("File:Harbor seal in Holyoke, MA. Connecticut River. 01.jpg", "harbour seal")]
+    public void The_kind_of_thing_is_never_held_against_a_file_that_names_it_another_way(string title, string name)
+    {
+        // 2026-11-24: all three were turned down for "seal", and a museum skull went into play as the harbour seal.
+        Assert.Null(PhotoRules.Vet(Facts(title), RealCategory.Animal, name));
+    }
+
+    [Fact]
+    public void The_kind_of_thing_does_not_excuse_other_bad_words() =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Common seal skull.jpg"), RealCategory.Animal, "harbour seal")!.Value.Kind);
+
+    [Theory]
+    [InlineData("File:Phoca vitulina 05 MWNH 1464.JPG", "MWNH 1464")]
+    [InlineData("File:Puffin NHMUK 1881.5.4.jpg", "NHMUK 1881")]
+    [InlineData("File:Fox USNM49440.jpg", "USNM49440")]
+    public void A_museum_catalogue_number_is_a_specimen(string title, string number)
+    {
+        var verdict = PhotoRules.Vet(Facts(title), RealCategory.Animal, "harbour seal");
+        Assert.Equal(Rejection.Hard, verdict!.Value.Kind);
+        Assert.Contains(number, verdict.Value.Why);
+    }
+
+    [Theory]
+    [InlineData("File:IMG 1234 puffin.jpg")]
+    [InlineData("File:DSC 0042 Puffin.jpg")]
+    [InlineData("File:Puffin by SMITH 2019.jpg")]
+    public void A_cameras_number_is_not_a_museums(string title) =>
+        Assert.Null(PhotoRules.Vet(Facts(title), RealCategory.Animal));
+
+    [Theory]
+    [InlineData("Category:Phoca vitulina skulls")]
+    [InlineData("Category:Phoca vitulina (skeletons)")]
+    [InlineData("Category:Natural history collections of Museum Wiesbaden")]
+    [InlineData("Category:Mammal specimens in the Natural History Museum, London")]
+    [InlineData("Category:Taxidermied Phoca vitulina")]
+    public void A_living_animal_in_a_remains_or_museum_category_is_turned_down(string category) =>
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Phoca vitulina 05.jpg", categories: category), RealCategory.Animal, "harbour seal")!.Value.Kind);
+
+    [Theory]
+    [InlineData("Category:Albula vulpes")]
+    [InlineData("Category:Albula vulpes in the Bahamas")]
+    public void A_word_that_only_contains_a_remains_word_is_not_one(string category) =>
+        Assert.Null(PhotoRules.Vet(Facts("File:Bonefish 1.jpg", categories: category), RealCategory.Animal, "bonefish"));
+
     [Fact]
     public void The_things_own_name_does_not_excuse_other_bad_words() =>
         Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:Seal skull.jpg"), RealCategory.Animal, "seal")!.Value.Kind);

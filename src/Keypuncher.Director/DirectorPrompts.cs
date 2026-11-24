@@ -41,26 +41,44 @@ public static class DirectorPrompts
         Answer only with JSON that matches the schema you are given. Never add text around it.
         """;
 
-    /// <summary>Three complete answers in the shape asked for, appended to <see cref="RealSystem"/> (A2, part of the
-    /// baseline since the Nov 2026 bench). A small model copies the shape of what it is shown far more reliably than
-    /// it follows a description of it. The examples are common things so that, if the model echoes one, the "already
-    /// in the world" rule is all that is lost; the bench counts how often it does.</summary>
-    public const string FewShotExamples = """
+    /// <summary>Complete answers in the shape asked for, one per category; three of them are appended to
+    /// <see cref="RealSystem"/> (A2, part of the baseline since the Nov 2026 bench). A small model copies the shape of
+    /// what it is shown far more reliably than it follows a description of it. The examples are common things so
+    /// that, if the model echoes one, the "already in the world" rule is all that is lost; the bench counts how often
+    /// it does.</summary>
+    public static readonly IReadOnlyList<string> ExamplePool =
+    [
+        """{"ideas":["brown trout","perch","grayling"],"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}""",
+        """{"ideas":["oak tree","silver birch","holly"],"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}""",
+        """{"ideas":["fire engine","tractor","double-decker bus"],"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}""",
+        """{"ideas":["teapot","watering can","wooden spoon"],"subject":"teapot","category":"Object","fact":"a round pot with a spout that people make and pour tea from","shape":"Blob","lobes":2,"hue":200,"size":0.3,"motion":{"type":"Drift","speed":0.2},"voice":{"wave":"Sine","attack":0.05,"decay":0.5,"scale":"major","root":"A4"},"growsInto":null}""",
+    ];
 
-        Three examples of good answers, each for a different request:
-        {"ideas":["brown trout","perch","grayling"],"subject":"brown trout","category":"Animal","fact":"lives in cold clear rivers and lakes across Europe","shape":"Fish","lobes":3,"hue":30,"size":0.3,"motion":{"type":"Drift","speed":0.4},"voice":{"wave":"Sine","attack":0.05,"decay":0.6,"scale":"pentatonic","root":"E5"},"growsInto":null}
-        {"ideas":["oak tree","silver birch","holly"],"subject":"oak tree","category":"Plant","fact":"grows in woods and fields across Europe and lives for hundreds of years","shape":"Cloud","lobes":6,"hue":110,"size":0.9,"motion":{"type":"Sway","speed":0.1},"voice":{"wave":"Triangle","attack":0.2,"decay":1.5,"scale":"major","root":"C3"},"growsInto":null}
-        {"ideas":["fire engine","tractor","double-decker bus"],"subject":"fire engine","category":"Vehicle","fact":"a big red truck that firefighters drive to put out fires","shape":"Car","lobes":2,"hue":0,"size":0.7,"motion":{"type":"Drift","speed":0.5},"voice":{"wave":"Square","attack":0.05,"decay":0.8,"scale":"major","root":"G4"},"growsInto":null}
-        """;
+    /// <summary>Three examples of good answers, none of them in the category asked for: the model sees the shape of
+    /// an answer but has no answer to this request to copy. With one fixed animal example, the author offered the
+    /// example's brown trout on every one of the seven animal asks of the 2026-11-24 morning plays at Reynisfjara
+    /// (refused each time, two asks came to nothing), as it had the fire engine for a vehicle on 2026-11-21. The two
+    /// kinds of animal count as one here, so an extinct animal is not shown a living one to copy either.</summary>
+    public static string ExamplesFor(RealCategory category)
+    {
+        static bool Animalish(RealCategory c) => c is RealCategory.Animal or RealCategory.ExtinctAnimal;
+        var shown = ExamplePool.Where(line =>
+        {
+            using var doc = JsonDocument.Parse(line);
+            var of = Enum.Parse<RealCategory>(doc.RootElement.GetProperty("category").GetString()!);
+            return of != category && !(Animalish(of) && Animalish(category));
+        }).Take(3);
+        return "\n\nThree examples of good answers, each for a different request (none of them answers this one):\n" + string.Join("\n", shown) + "\n";
+    }
 
     private static readonly Lazy<IReadOnlyList<(string Subject, string Fact)>> Examples = new(() =>
-        [.. FewShotExamples.Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith('{')).Select(l =>
+        [.. ExamplePool.Select(l =>
         {
             using var doc = JsonDocument.Parse(l);
             return (doc.RootElement.GetProperty("subject").GetString()!, doc.RootElement.GetProperty("fact").GetString()!);
         })]);
 
-    /// <summary>Whether an answer is one of <see cref="FewShotExamples"/> handed back: the same subject with the
+    /// <summary>Whether an answer is one of <see cref="ExamplePool"/> handed back: the same subject with the
     /// same fact, word for word. A model that is unsure copies what it was shown; on 2026-11-21 the one new thing
     /// of a play at an Icelandic beach was the example fire engine, fact and numbers included.</summary>
     public static bool IsExampleEcho(string? subject, string? fact) =>
@@ -74,13 +92,18 @@ public static class DirectorPrompts
         IReadOnlyList<string>? suggestions = null, PromptVariant? variant = null)
     {
         variant ??= PromptVariant.Baseline;
-        var system = RealSystem + (variant.FewShot ? FewShotExamples : "");
+        var system = RealSystem + (variant.FewShot ? ExamplesFor(ExampleCategory(request)) : "");
         var schema = RealThingSchema.For(request, variant);
         var user = RealThing(request, turnedDown, suggestions);
         if (variant.SchemaInPrompt) user += "\n\nAnswer with JSON of exactly this shape; each field says what it means:\n" + schema.GetRawText();
         var (s, u) = variant.Arrange(system, user);
         return (s, u, schema);
     }
+
+    /// <summary>The category the answer will be in, which is what the examples must stay clear of: a family that grows
+    /// changes into an animal or a plant whatever it was asked as.</summary>
+    public static RealCategory ExampleCategory(DirectorRequest request) =>
+        request.GrowInto is null ? request.Category : request.Kind == RecipeKind.Plant ? RealCategory.Plant : RealCategory.Animal;
 
     /// <summary>The ask for one key family. <paramref name="turnedDown"/> lists earlier picks for this request and
     /// why they were refused, so the model does not offer them again.</summary>

@@ -12,7 +12,7 @@ public class PromptVariantTests
     public void Baseline_is_the_standing_orders_with_the_three_examples_and_plain_is_without()
     {
         var (system, user, schema) = DirectorPrompts.Author(Animals, []);
-        Assert.Equal(DirectorPrompts.RealSystem + DirectorPrompts.FewShotExamples, system);
+        Assert.Equal(DirectorPrompts.RealSystem + DirectorPrompts.ExamplesFor(RealCategory.Animal), system);
         Assert.Equal(DirectorPrompts.RealThing(Animals, []), user);
         Assert.Equal(RealThingSchema.For(Animals).GetRawText(), schema.GetRawText());
         Assert.DoesNotContain("description", schema.GetRawText());
@@ -40,11 +40,11 @@ public class PromptVariantTests
     {
         var (system, user, schema) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A2"));
         Assert.StartsWith(DirectorPrompts.RealSystem, system);
-        Assert.EndsWith(DirectorPrompts.FewShotExamples, system);
+        Assert.EndsWith(DirectorPrompts.ExamplesFor(RealCategory.Animal), system);
         Assert.Equal(DirectorPrompts.RealThing(Animals, []), user);
-        var examples = DirectorPrompts.FewShotExamples.Split('\n').Where(l => l.TrimStart().StartsWith('{')).ToList();
+        var examples = DirectorPrompts.ExamplesFor(RealCategory.Animal).Split('\n').Where(l => l.TrimStart().StartsWith('{')).ToList();
         Assert.Equal(3, examples.Count);
-        foreach (var line in examples)
+        foreach (var line in DirectorPrompts.ExamplePool)
         {
             var json = JsonDocument.Parse(line);
             var category = Enum.Parse<RealCategory>(json.RootElement.GetProperty("category").GetString()!);
@@ -53,13 +53,36 @@ public class PromptVariantTests
         }
     }
 
+    [Theory]
+    [InlineData(RealCategory.Animal, "brown trout")]
+    [InlineData(RealCategory.ExtinctAnimal, "brown trout")]
+    [InlineData(RealCategory.Plant, "oak tree")]
+    [InlineData(RealCategory.Vehicle, "fire engine")]
+    [InlineData(RealCategory.Object, "teapot")]
+    public void The_examples_never_include_one_of_the_category_asked_for(RealCategory category, string own)
+    {
+        // 2026-11-24: shown a brown trout, the author offered it on all seven animal asks of the morning.
+        var request = new DirectorRequest(0, RealThingPick.KindOf(category), null, [], Category: category);
+        var (system, _, _) = DirectorPrompts.Author(request, []);
+        Assert.DoesNotContain($"\"subject\":\"{own}\"", system);
+        Assert.Equal(3, system.Split('\n').Count(l => l.TrimStart().StartsWith('{')));
+    }
+
+    [Fact]
+    public void A_family_that_grows_is_shown_no_example_of_what_it_grows_into()
+    {
+        var tadpole = new DirectorRequest(0, RecipeKind.Creature, "tadpole", [], GrowInto: "frog", Category: RealCategory.Object);
+        var (system, _, _) = DirectorPrompts.Author(tadpole, []);
+        Assert.DoesNotContain("brown trout", system);
+    }
+
     [Fact]
     public void A8_moves_the_standing_orders_into_the_user_prompt()
     {
         var (system, user, _) = DirectorPrompts.Author(Animals, [], variant: PromptVariant.Parse("A8"));
         Assert.DoesNotContain("real things", system);
         Assert.StartsWith(DirectorPrompts.RealSystem, user);
-        Assert.DoesNotContain(DirectorPrompts.FewShotExamples, user);
+        Assert.DoesNotContain(DirectorPrompts.ExamplesFor(RealCategory.Animal), user);
         Assert.EndsWith(DirectorPrompts.RealThing(Animals, []), user);
     }
 

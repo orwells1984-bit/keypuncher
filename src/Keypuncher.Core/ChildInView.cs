@@ -98,6 +98,14 @@ public static class MotionGrid
     /// <summary>A cell's mean brightness must change by more than this (of 255) to count as changed.</summary>
     public const int Threshold = 8;
 
+    /// <summary>A picture whose mean brightness (of 255) is below this is too dark to find a child in: the camera's
+    /// picture was all but black in the 06:05 and 06:34 plays of late November, before the lights were on, and the
+    /// toy said it could not see the child when it could not see anything.</summary>
+    public const int DarkMean = 30;
+
+    /// <summary>Whether a grid from <see cref="Cells"/> is too dark to find a child in.</summary>
+    public static bool TooDark(byte[] cells) => cells.Length > 0 && cells.Average(c => (double)c) < DarkMean;
+
     /// <summary>Mean brightness of each of <see cref="Columns"/>×<see cref="Rows"/> cells, row by row.</summary>
     public static byte[] Cells(ReadOnlySpan<byte> gray, int width, int height, int stride = 0)
     {

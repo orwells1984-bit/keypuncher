@@ -154,4 +154,28 @@ public sealed class ChildInViewTests
         Assert.Equal(1, MotionGrid.ChangedShare(a, b, new ViewBox(0, 0, 0.5, 0.5)), 3);
         Assert.Equal(0, MotionGrid.ChangedShare(a, b, new ViewBox(0.5, 0.5, 0.5, 0.5)), 3);
     }
+
+    [Theory]
+    [InlineData(5, true)]
+    [InlineData(25, true)]
+    [InlineData(40, false)]
+    [InlineData(120, false)]
+    public void A_picture_that_is_all_but_black_is_too_dark(byte level, bool dark)
+    {
+        const int w = 80, h = 60;
+        var gray = Enumerable.Repeat(level, w * h).ToArray();
+        Assert.Equal(dark, MotionGrid.TooDark(MotionGrid.Cells(gray, w, h)));
+    }
+
+    [Fact]
+    public void A_dark_room_with_one_lit_screen_is_still_too_dark()
+    {
+        // The toy's own screen lights a corner of the picture before dawn; the rest is black.
+        const int w = 80, h = 60;
+        var gray = new byte[w * h];
+        for (var y = 0; y < h / 4; y++)
+            for (var x = 0; x < w / 4; x++)
+                gray[y * w + x] = 200;
+        Assert.True(MotionGrid.TooDark(MotionGrid.Cells(gray, w, h)));
+    }
 }
