@@ -123,8 +123,21 @@ public static partial class PhotoRules
         if (facts.Height > 0 && (facts.Width / (double)facts.Height < MinAspect || facts.Width / (double)facts.Height > MaxAspect)) return (Rejection.Hard, $"shape {facts.Width}x{facts.Height}");
         if (string.IsNullOrWhiteSpace(facts.LicenseShortName) && facts.Copyrighted.Equals("True", StringComparison.OrdinalIgnoreCase)) return (Rejection.Hard, "no licence tag");
 
-        var words = WithoutPhrase(Words(facts.FileTitle).ToList(), name is null ? [] : Words(name).ToList());
+        var words = WithoutName(Words(facts.FileTitle).ToList(), name is null ? [] : Words(name).ToList());
         var categories = facts.Categories.Select(c => c.StartsWith("Category:") ? c[9..] : c).Select(c => c.ToLowerInvariant()).ToList();
+
+        // Remains are never the animal: a living one's skull is no more its picture than a dinosaur's is. Categories
+        // are read word by word, not just by their start, because Commons names them "Phoca vitulina skulls" as often
+        // as "Skulls of ...". And a museum's catalogue number marks a specimen in a drawer.
+        if (category is RealCategory.Animal or RealCategory.ExtinctAnimal)
+        {
+            if (words.FirstOrDefault(w => ExtinctHardWords.Contains(w)) is { } remains) return (Rejection.Hard, $"file name says {remains}: remains, not the living animal");
+            if (categories.FirstOrDefault(c => Words(c).Any(w => ExtinctHardWords.Contains(w)) || c.Contains("taxiderm")) is { } remainsCategory)
+                return (Rejection.Hard, $"in category {remainsCategory}: remains, not the living animal");
+            if (MuseumNumber(facts.FileTitle) is { } number) return (Rejection.Hard, $"file name says {number}: a museum specimen");
+            if (category == RealCategory.Animal && categories.FirstOrDefault(c => Words(c).Any(w => w is "museum" or "museums" or "specimens")) is { } museum)
+                return (Rejection.Hard, $"in category {museum}: a museum specimen");
+        }
 
         if (Group(words, categories, name) is { } group) return (Rejection.Hard, group);
         // "110v", "12r": a manuscript leaf, recto or verso.
@@ -194,6 +207,26 @@ public static partial class PhotoRules
     /// <summary>Whether, for an extinct animal, a file is the kind we hope for: a life restoration.</summary>
     public static bool IsRestoration(FileFacts facts) =>
         Words(facts.FileTitle).Any(w => ExtinctGoodWords.Contains(w)) || facts.Categories.Any(c => c.Contains("restoration", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The words less the thing's own name. Where the name is spelt out whole, only that run goes, and a word
+    /// of it elsewhere still counts ("Northern map turtle map.png" is a map, "Fire engine engine.jpg" an engine). Where it
+    /// is not, the file names the thing another way ("Common Seal Phoca vitulina.jpg" for a harbour seal), and the
+    /// name's last word, the kind of thing it is, is never held against it: on 2026-11-24 "seal" (a stamp) turned down
+    /// every photo of a harbour seal but one, a museum skull, which went into play.</summary>
+    private static List<string> WithoutName(List<string> words, List<string> name)
+    {
+        var kept = WithoutPhrase(words, name);
+        if (name.Count == 0 || kept.Count != words.Count) return kept;
+        var head = name[^1];
+        return [.. kept.Where(w => !w.Equals(head, StringComparison.OrdinalIgnoreCase))];
+    }
+
+    /// <summary>A natural history museum's catalogue number in a file name ("MWNH 1464", "NHMUK 1881.5.4", "USNM 49440"),
+    /// or null. Only known collections' letters count, since a camera's "IMG 1234" or "DSC 0042" looks the same.</summary>
+    public static string? MuseumNumber(string fileTitle) => MuseumNumbers().Match(fileTitle) is { Success: true } m ? m.Value : null;
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(?:MWNH|NHMUK|BMNH|MNHN|USNM|AMNH|NMNH|FMNH|MCZ|ZMB|ZMUC|NHMW|RMNH|SMF|ZSM|SMNS|ZFMK|NHMD|MfN|NHMO|NRM|MZLU|ZMH)[\s_.-]?(?:[A-Z]{1,4}[\s_.-]?)?\d+")]
+    private static partial System.Text.RegularExpressions.Regex MuseumNumbers();
 
     /// <summary>The words less every run of them that spells the phrase, in order; a word of the phrase on its own stays.</summary>
     private static List<string> WithoutPhrase(List<string> words, List<string> phrase)

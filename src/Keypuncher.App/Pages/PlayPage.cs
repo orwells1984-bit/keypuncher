@@ -293,8 +293,10 @@ public sealed class PlayPage : ContentPage
         {
             if (inFrame is { } seen)
             {
-                _timeline?.Add(seen ? "inframe" : "outframe", ("faces", _camera?.FacesAtLastLook));
-                Log.Info("camera", seen ? "the camera can see the child" : "the camera cannot see the child; showing the camera picture");
+                _timeline?.Add(seen ? "inframe" : "outframe", ("faces", _camera?.FacesAtLastLook), ("dark", _camera?.TooDark));
+                Log.Info("camera", seen ? "the camera can see the child"
+                    : _camera?.TooDark == true ? "the camera's picture is too dark to see the child; showing the camera picture"
+                    : "the camera cannot see the child; showing the camera picture");
             }
             _childInFrame = inFrame;
         }
@@ -314,7 +316,7 @@ public sealed class PlayPage : ContentPage
     }
 
     /// <summary>While the camera cannot see the child: what it sees, small in the bottom-right corner, with a line
-    /// for the grown-up above it.</summary>
+    /// for the grown-up above it, which says when the picture is too dark to see anyone in.</summary>
     private void DrawCameraPicture(SKCanvas canvas, int width, int height)
     {
         if (_cameraPicture is not { } picture) return;
@@ -323,7 +325,8 @@ public sealed class PlayPage : ContentPage
         var rect = SKRect.Create(width - w - 24, height - h - 24, w, h);
         canvas.DrawImage(picture, rect, new SKSamplingOptions(SKFilterMode.Linear));
         canvas.DrawRect(rect, _cameraFrame);
-        const string text = "The camera can't see the child";
+        // In a dark room the camera sees nothing at all, and the grown-up needs a light, not to move the camera.
+        var text = _camera?.TooDark == true ? "Too dark for the camera to see the child" : "The camera can't see the child";
         var tw = _cameraFont.MeasureText(text);
         canvas.DrawRect(rect.Right - tw - 16, rect.Top - 34, tw + 16, 30, _cameraLabelBack);
         canvas.DrawText(text, rect.Right - 8, rect.Top - 12, SKTextAlign.Right, _cameraFont, _cameraLabelInk);

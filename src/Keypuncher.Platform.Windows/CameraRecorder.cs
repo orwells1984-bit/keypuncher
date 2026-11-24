@@ -100,6 +100,11 @@ public sealed class CameraRecorder : IDisposable
     /// looked for. Read from any thread.</summary>
     public bool? ChildInFrame => !_filming || _facesFailed ? null : _inView;
 
+    /// <summary>Whether the last look found the picture too dark to see anyone in (<see cref="MotionGrid.TooDark"/>):
+    /// the room wants a light, not the child moving. Read from any thread.</summary>
+    public bool TooDark => _tooDark;
+    private volatile bool _tooDark;
+
     /// <summary>How many faces the last look found, for the timeline.</summary>
     public int FacesAtLastLook => _lastFaces;
 
@@ -446,6 +451,9 @@ public sealed class CameraRecorder : IDisposable
             var cells = MotionGrid.Cells(grayPixels, w, h);
             double? moved = _lastCells is null ? null : MotionGrid.ChangedShare(_lastCells, cells, view.Area);
             _lastCells = cells;
+            var dark = MotionGrid.TooDark(cells);
+            if (dark != _tooDark) Log.Info("camera", dark ? "the camera's picture is too dark to see anyone in" : "the camera's picture is light enough again");
+            _tooDark = dark;
             var largest = found.OrderByDescending(f => f.FaceBox.Width).FirstOrDefault();
             ViewBox? face = largest is null ? null
                 : new ViewBox(largest.FaceBox.X / (double)w, largest.FaceBox.Y / (double)h, largest.FaceBox.Width / (double)w, largest.FaceBox.Height / (double)h);
