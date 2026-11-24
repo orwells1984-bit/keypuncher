@@ -184,6 +184,11 @@ holds each drawing out of play until the picture checker has passed it. It looks
 `KEYPUNCHER_SD`, then `sd` in the data folder, then a `keypuncher-sd` folder beside the program or any folder above it.
 Nothing is drawn while another job's model is on the card, or for a name the encyclopedia has no article for.
 
+Quit does not cut this work short. If pictures are still being checked when a grown-up chooses Quit, the toy's window
+shrinks to a corner of the screen, the keyboard and Win+L go back to normal at once, and the check and the drawing
+carry on for up to 15 minutes; then the toy closes by itself. "Close now" in that window stops at once, and what was
+not finished waits for the next time.
+
 When the screen is not drawn for a second or more during play, `director.log` and `keypuncher.log` say so while it
 lasts ("nothing drawn for 1.2 s") and when it ends ("drawing was paused for 21.5 s"), with what the drawing thread was
 doing, any model call under way, the picture work, and the card's free memory.
