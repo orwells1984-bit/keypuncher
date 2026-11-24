@@ -316,4 +316,24 @@ public class DirectorPicksTests
         Assert.False(DirectorPrompts.IsExampleEcho("jeep", "a big red truck that firefighters drive to put out fires"));
         Assert.False(DirectorPrompts.IsExampleEcho("fire engine", null));
     }
+
+    /// <summary>Run of 24 Nov: asked for an extinct animal of the beach, the author gave "baleen whale" with the ideas
+    /// "blue whale" and "humpback whale"; each was asked for by name and refused as still alive, about 30 s in all.</summary>
+    [Fact]
+    public async Task The_ideas_that_came_with_a_living_animal_offered_as_extinct_are_not_asked_for_by_name()
+    {
+        var extinct = new DirectorRequest(0, RecipeKind.Creature, null, ["cat", "dog"], Category: RealCategory.ExtinctAnimal,
+            Place: "that once lived on a beach", Landscape: Landscape.Beach);
+        var author = new ScriptedModel(
+            Pick("baleen whale", "ExtinctAnimal", "Whale", null, "baleen whale", "blue whale", "humpback whale"),
+            Pick("great auk", "ExtinctAnimal", "Bird"));
+        var checker = new ScriptedModel(Check("a large whale that uses baleen to filter food", "real", "Animal"), JsonSerializer.Serialize(new { verdict = "yes" }));
+        var outcome = await new RealThingDirector(author, new FactChecker(checker), new Random(1)).ProposeAsync(extinct);
+
+        Assert.Equal("great auk", outcome.Recipe!.Name);
+        Assert.Equal(2, author.Prompts.Count);
+        Assert.DoesNotContain("subject must be", author.Prompts[1]);
+        Assert.Contains("baleen whale (still alive today, so not extinct)", author.Prompts[1]);
+        Assert.Contains("choose one of these: ", author.Prompts[1]);
+    }
 }

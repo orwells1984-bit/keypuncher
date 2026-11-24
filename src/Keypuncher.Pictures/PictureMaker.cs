@@ -94,15 +94,18 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
         {
             var covers = ((int)Math.Round(result.Coverage * 100)).ToString(CultureInfo.InvariantCulture);
             sidecar = sidecar with { Hidden = false, CutOut = $"{result.Model}, covers {covers}% of the picture" };
-            folder.WriteSidecar(sidecar);
-            folder.WritePicture(slug, picture);
+            if (hold) folder.WriteHeld(sidecar, picture);
+            else
+            {
+                folder.WriteSidecar(sidecar);
+                folder.WritePicture(slug, picture);
+            }
             using var encoded = picture.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
             cutPng = encoded.ToArray();
         }
         folder.Wanted.Remove(slug);
         if (hold)
         {
-            folder.Hold(slug);
             Note($"{name}: picture drawn ({maker.Name}, {result.Model}); it waits out of play for the picture check");
             return MakeOutcome.Made;
         }

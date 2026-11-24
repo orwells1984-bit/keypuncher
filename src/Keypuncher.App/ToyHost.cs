@@ -380,8 +380,8 @@ public sealed class ToyHost : IDisposable
     /// director has stopped choosing. One it fails (a school of fish, a mare and foal, a cloth for a coconut) is taken
     /// out of play and another photo is fetched; see <see cref="PictureChecks"/>. Then the director's model is loaded
     /// again, so a new play straight after does not wait for it. It also runs when the grown-ups' page opens, since
-    /// that is how play usually ends. Quit waits for it (up to <see cref="MaxPictureCheckOnQuit"/>); what was not
-    /// checked waits for the next time, or the console tool's <c>check</c>.
+    /// that is how play usually ends. After Quit it carries on behind a small window (see
+    /// <see cref="FinishPicturesAfterQuit"/>); what was not checked waits for the next time, or the console tool's <c>check</c>.
     /// </summary>
     public void CheckNewPictures()
     {
@@ -414,10 +414,35 @@ public sealed class ToyHost : IDisposable
 
     private volatile bool _stoppedForPlay;
 
-    /// <summary>The longest Quit waits for a picture check under way: the picture being looked at, about. It was two
-    /// minutes, and on 2026-11-14 a check that could not get the card (the director's model was still loading) held
-    /// "Finishing the picture check..." until the toy was closed by force.</summary>
-    public static readonly TimeSpan MaxPictureCheckOnQuit = TimeSpan.FromSeconds(15);
+    /// <summary>The longest the toy stays behind after Quit to finish the pictures. Quit used to wait 15 s and then
+    /// stop the check; the checker's model alone takes 40 s to load, so play after play two or so of a dozen new
+    /// pictures were looked at (2 of 13 on 2026-11-24) and nothing was ever drawn for the things with no photo.</summary>
+    public static readonly TimeSpan MaxFinishing = TimeSpan.FromMinutes(15);
+
+    private volatile bool _finishing;
+    private volatile string _pictureWork = "";
+
+    /// <summary>What the picture check is doing now, in a few words, for the window shown after Quit.</summary>
+    public string PictureWork => _pictureWork;
+
+    /// <summary>
+    /// A grown-up chose Quit while the pictures were still being checked: the toy gives the keyboard, Win+L and the
+    /// screen's sleep back at once and saves the world, and the check (and the drawing of things with no photo)
+    /// carries on. The task ends when the pictures are done or after <see cref="MaxFinishing"/>; the caller then
+    /// closes the toy. The director's model is not loaded again afterwards.
+    /// </summary>
+    public Task FinishPicturesAfterQuit()
+    {
+        _finishing = true;
+        Story("a grown-up chose Quit with the picture check under way; it carries on behind a small window");
+        Mode = HostMode.Parent;
+        Log.Safely("world", "saving the world", SaveWorld);
+        Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
+        Log.Safely("app", "putting the accessibility shortcuts back", _shortcuts.Dispose);
+        Log.Safely("app", "putting Win+L back", _lock.Dispose);
+        Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
+        return _checking is { IsCompleted: false } checking ? Task.WhenAny(checking, Task.Delay(MaxFinishing)) : Task.CompletedTask;
+    }
 
     /// <summary>The longest the check waits for the director to finish a pick before it starts: Ollama holds one model,
     /// so a check started under a pick waits for the card and runs out of time.</summary>
@@ -518,6 +543,7 @@ public sealed class ToyHost : IDisposable
         {
             ct.ThrowIfCancellationRequested();
             if (_quitting) break;
+            _pictureWork = $"Drawing {gap.Name} (this takes a minute or so)";
             // What the grown-ups or the director filed the thing as wins over the wanted list's older guess. The seed
             // is the picture's number, so a thing drawn again after the checker turned its drawing down is drawn anew.
             var category = PictureFolder.Cards.Get(gap.Slug)?.Category ?? gap.Category;
@@ -548,22 +574,6 @@ public sealed class ToyHost : IDisposable
 
     /// <summary>True while the vision model is looking at new pictures.</summary>
     public bool PictureCheckRunning => _checking is { IsCompleted: false };
-
-    /// <summary>Waits for a picture check under way to finish, without loading the director's model again after it,
-    /// for at most <paramref name="max"/>. Returns whether it finished.</summary>
-    public async Task<bool> FinishPictureCheckAsync(TimeSpan max)
-    {
-        _quitting = true;
-        if (_checking is not { IsCompleted: false } checking) return true;
-        Log.Info("pictures", "waiting for the picture check before quitting");
-        var finished = await Task.WhenAny(checking, Task.Delay(max)).ConfigureAwait(false) == checking;
-        if (!finished)
-        {
-            Log.Info("pictures", $"the picture check took longer than {max.TotalSeconds:0} s; it is stopped and the rest wait for next time");
-            Log.Safely("pictures", "stopping the picture check", _stopChecks.Cancel);
-        }
-        return finished;
-    }
 
     private async Task CheckNewPicturesAsync(CancellationToken ct)
     {
@@ -604,6 +614,7 @@ public sealed class ToyHost : IDisposable
                 {
                     ct.ThrowIfCancellationRequested();
                     seen.Add((picture.Slug, picture.Id));
+                    _pictureWork = $"Looking at {picture.Name} (picture {seen.Count} of {all})";
                     var check = await checks.CheckAsync(picture.Slug, ct).ConfigureAwait(false);
                     if (check is null)
                     {
@@ -656,7 +667,9 @@ public sealed class ToyHost : IDisposable
             return;
         }
         Story($"picture check done: {passed} looked right, {failed} taken out of play, {all - passed - failed} not checked");
-        if (ct.IsCancellationRequested || _quitting) return;
+        _pictureWork = "";
+        // After Quit nothing plays again in this run, so the director's model is not put back on the card.
+        if (ct.IsCancellationRequested || _quitting || _finishing) return;
         if (ModelsChecked is { IsCompletedSuccessfully: true, Result: { Reachable: true } known } && !OllamaModels.Has(known.Installed, DirectorModel)) return;
         try { await _author.WarmUpAsync(ct).ConfigureAwait(false); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
@@ -707,6 +720,7 @@ public sealed class ToyHost : IDisposable
     public void Dispose()
     {
         Log.Info("app", "shutting down");
+        _quitting = true;
         // A picture check under way stops at once; the process ending does not wait for it.
         Log.Safely("pictures", "stopping the picture check", _stopChecks.Cancel);
         Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);

@@ -105,6 +105,46 @@ public sealed class PictureFolder
         }
     }
 
+    /// <summary>Puts a finished cut-out out of play until the checker has looked at it: written straight among the
+    /// hidden ones and marked as waiting, never where the toy draws from. On 2026-11-15 the photos fetched in place
+    /// of three the checker had turned down went straight into play unseen: fossil skulls for a parasaurolophus
+    /// among them. And on 2026-11-24 a painting of an ammonite was written into play to be moved out a moment
+    /// later, the toy opened it in between, the move failed and the painting stayed in play unchecked.</summary>
+    public void WriteHeld(PictureSidecar sidecar, SKBitmap cutOut)
+    {
+        lock (_lock)
+        {
+            var slug = sidecar.Slug;
+            Directory.CreateDirectory(Root);
+            Directory.CreateDirectory(ThumbsFolder);
+            Directory.CreateDirectory(HiddenFolder);
+            WriteSidecar(sidecar with { Hidden = true, AwaitsCheck = true });
+            using (var thumb = Thumbnail(cutOut)) WriteAtomically(ThumbPath(slug), thumb);
+            WriteAtomically(HiddenPath(slug), cutOut);
+            // The picture this one takes the place of leaves play: its story is no longer beside it.
+            var inPlay = PicturePath(slug);
+            if (File.Exists(inPlay)) Patiently(() => File.Delete(inPlay));
+        }
+    }
+
+    /// <summary>Does a move or a delete again for up to a second when the file is open elsewhere: the toy holds a
+    /// picture open only for the moment it reads it.</summary>
+    private static void Patiently(Action act)
+    {
+        for (var tries = 1; ; tries++)
+        {
+            try
+            {
+                act();
+                return;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException && tries < 20)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+
     /// <summary>Keeps the image a cut-out was (or will be) made from, in place of any earlier one of another type,
     /// so that <see cref="FindRaw"/> finds the newest and never a stale photo of the thing.</summary>
     public string WriteRaw(string slug, string extension, byte[] bytes)
@@ -129,7 +169,7 @@ public sealed class PictureFolder
             var picture = PicturePath(slug);
             if (!File.Exists(picture)) return;
             Directory.CreateDirectory(HiddenFolder);
-            File.Move(picture, HiddenPath(slug), overwrite: true);
+            Patiently(() => File.Move(picture, HiddenPath(slug), overwrite: true));
             if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = true });
         }
     }
@@ -145,18 +185,6 @@ public sealed class PictureFolder
             if (ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = false, ShownByGrownUp = true, AwaitsCheck = false });
             // A grown-up putting back a picture the checker turned down wants that one, not another.
             Wanted.Remove(slug);
-        }
-    }
-
-    /// <summary>Holds a picture just made out of play until the checker has looked at it: hidden, and marked as
-    /// waiting. On 2026-11-15 the photos fetched in place of three the checker had turned down went straight into
-    /// play unseen: fossil skulls for a parasaurolophus among them.</summary>
-    public void Hold(string slug)
-    {
-        lock (_lock)
-        {
-            Hide(slug);
-            if (IsHidden(slug) && ReadSidecar(slug) is { } sidecar) WriteSidecar(sidecar with { Hidden = true, AwaitsCheck = true });
         }
     }
 

@@ -34,7 +34,7 @@ public sealed record DirectorOutcome(DirectorRequest Request, Recipe? Recipe, IR
 ///    plant must be confirmed as found where the scene is: continent and climate by the model, and the element by
 ///    code (<see cref="Habitat"/>), so no shark at a lake.
 /// A refused pick is named in the next try's prompt. A request for an extinct animal also offers a few well-known
-/// ones on its last try (those of the sea first when the scene is by the sea) and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
+/// ones on its last try, or as soon as it has offered a living animal, (those of the sea first when the scene is by the sea) and, if all <see cref="MaxAttempts"/> miss, has the model draw one of them, still checked.
 /// Any other request that misses leaves the family as it is, which is always safe.
 /// </summary>
 /// <param name="random">Picks the well-known extinct animals to offer.</param>
@@ -55,6 +55,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
         var turnedDown = new List<string>(EarlierTurnedDown(request));
         var ideas = new List<string>();
         string? idea = null;
+        var offeredTheLiving = false;
         for (var i = 0; i < MaxAttempts; i++)
         {
             // After a miss, the model's own next idea that is still free is asked for by name: asked again openly, a
@@ -62,8 +63,9 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
             var asking = idea is null ? request : request with { MustBe = idea };
             // The well-known ones are offered on the last try only. Offered on every try, the small model took the
             // list for the answer: on 2026-11-23 a request for an extinct animal of the beach came back as the list
-            // itself, in order, with its first name (allosaurus) as the pick.
-            var suggestions = idea is null && i == MaxAttempts - 1 ? Suggestions(request, attempts) : null;
+            // itself, in order, with its first name (allosaurus) as the pick. And on the try after a living animal
+            // was offered as extinct: the model has shown it does not have one in mind.
+            var suggestions = idea is null && (i == MaxAttempts - 1 || offeredTheLiving) ? Suggestions(request, attempts) : null;
             var result = await AskAsync(asking, turnedDown, suggestions, cancellationToken);
             var built = RealThingRules.TryBuild(result.Json, asking, out var pick, out var recipe, out var error);
             // One of the prompt's own examples handed back is no choice at all, and its ideas are the example's too:
@@ -156,7 +158,7 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                     var told = check.Verdict switch
                     {
                         "fictional" => "not real",
-                        "real" when check.Kind == nameof(RealCategory.Animal) && pick.Category == RealCategory.ExtinctAnimal => "still alive today, so not extinct",
+                        "real" when check.Kind == nameof(RealCategory.Animal) && pick.Category == RealCategory.ExtinctAnimal => StillAlive,
                         "real" => $"not {RealThingPick.Describe(pick.Category)}",
                         _ => "not sure it is real",
                     };
@@ -165,6 +167,17 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
                         Lasting = check.Verdict is "fictional" or "unsure" ? new TurnedDown(pick.Subject, told, pick.Category) : null,
                     });
                     turnedDown.Add($"{pick.Subject} ({told})");
+                    if (told == StillAlive)
+                    {
+                        // The other ideas that came with a living animal are its neighbours: on 2026-11-24 "baleen
+                        // whale" came with "blue whale" and "humpback whale", each was asked for by name and refused
+                        // in its turn, and half a minute went by before the request got to an extinct animal. They
+                        // are dropped, and the next try is asked openly with the well-known ones to choose from.
+                        ideas.Clear();
+                        offeredTheLiving = true;
+                        idea = null;
+                        continue;
+                    }
                     idea = NextIdea(request, ideas, attempts);
                     continue;
                 }
@@ -248,6 +261,9 @@ public sealed class RealThingDirector(ILanguageModel author, FactChecker checker
 
     /// <summary>How an unconfirmed fact begins, as scenes write it.</summary>
     public const string FactNotConfirmed = "(fact not confirmed";
+
+    /// <summary>Why a living animal offered as an extinct one is refused, as the next prompt says it.</summary>
+    public const string StillAlive = "still alive today, so not extinct";
 
     /// <summary>Why an answer copied from the prompt's examples is refused, as the log and the next prompt say it.</summary>
     public const string EchoedExample = "copied from the examples";

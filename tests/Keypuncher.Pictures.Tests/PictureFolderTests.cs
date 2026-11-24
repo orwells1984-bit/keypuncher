@@ -251,4 +251,70 @@ public sealed class PictureFolderTests : IDisposable
         Assert.Equal(_folder.PicturePath("sable-antelope"), _folder.PathOf("sable-antelope", 2));
         Assert.Null(_folder.PathOf("sable-antelope", 3));
     }
+
+    /// <summary>On 2026-11-24 a painting of an ammonite was written into play and moved out a moment later; the toy
+    /// opened it in between, the move failed and the painting stayed in play unchecked.</summary>
+    [Fact]
+    public void A_held_picture_is_written_out_of_play_and_never_where_the_toy_draws_from()
+    {
+        using var cutOut = SamplePicture.Draw();
+        var seen = 0;
+        using var watcher = new FileSystemWatcher(Directory.CreateDirectory(_folder.Root).FullName, "ammonite.png") { EnableRaisingEvents = true };
+        watcher.Created += (_, _) => Interlocked.Increment(ref seen);
+        watcher.Renamed += (_, _) => Interlocked.Increment(ref seen);
+
+        _folder.WriteHeld(Sidecar("ammonite", _now), cutOut);
+        Thread.Sleep(200);
+
+        Assert.Equal(0, Volatile.Read(ref seen));
+        Assert.False(_folder.HasPicture("ammonite"));
+        Assert.True(_folder.IsHidden("ammonite"));
+        var sidecar = _folder.ReadSidecar("ammonite")!;
+        Assert.True(sidecar.Hidden);
+        Assert.True(sidecar.AwaitsCheck);
+        Assert.True(File.Exists(_folder.ThumbPath("ammonite")));
+        Assert.False(File.Exists(_folder.PicturePath("ammonite")));
+        Assert.Empty(Directory.GetFiles(_folder.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task A_held_picture_takes_the_one_in_play_out_even_while_the_toy_is_reading_it()
+    {
+        using var cutOut = SamplePicture.Draw();
+        _folder.WriteSidecar(Sidecar("ammonite", _now));
+        _folder.WritePicture("ammonite", cutOut);
+        var reading = new FileStream(_folder.PicturePath("ammonite"), FileMode.Open, FileAccess.Read, FileShare.Read);
+        var done = Task.Run(async () =>
+        {
+            await Task.Delay(150);
+            reading.Dispose();
+        });
+
+        _folder.WriteHeld(Sidecar("ammonite", _now.AddMinutes(1)) with { Id = 2 }, cutOut);
+        await done;
+
+        Assert.False(_folder.HasPicture("ammonite"));
+        Assert.True(_folder.IsHidden("ammonite"));
+        Assert.True(_folder.ReadSidecar("ammonite")!.AwaitsCheck);
+    }
+
+    [Fact]
+    public async Task Hiding_waits_out_a_moment_in_which_the_toy_is_reading_the_picture()
+    {
+        using var cutOut = SamplePicture.Draw();
+        _folder.WriteSidecar(Sidecar("ammonite", _now));
+        _folder.WritePicture("ammonite", cutOut);
+        var reading = new FileStream(_folder.PicturePath("ammonite"), FileMode.Open, FileAccess.Read, FileShare.Read);
+        var done = Task.Run(async () =>
+        {
+            await Task.Delay(150);
+            reading.Dispose();
+        });
+
+        _folder.Hide("ammonite");
+        await done;
+
+        Assert.False(_folder.HasPicture("ammonite"));
+        Assert.True(_folder.IsHidden("ammonite"));
+    }
 }
