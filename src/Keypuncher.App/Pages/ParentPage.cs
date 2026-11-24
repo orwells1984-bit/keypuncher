@@ -471,24 +471,22 @@ public sealed class ParentPage : ContentPage
         }
     }
 
-    private async void Quit()
+    private void Quit()
     {
-        // An async void method's exception would go straight to the app's last-chance handler; caught here instead.
         try
         {
             Log.Info("app", "a grown-up chose Quit");
             _host.SaveWorld();
             if (_host.PictureCheckRunning)
             {
-                // A few pictures take a few seconds each; quitting would throw that work away until the next time.
-                _quitButton.IsEnabled = false;
-                _quitButton.Text = "Finishing the picture check...";
-                await _host.FinishPictureCheckAsync(ToyHost.MaxPictureCheckOnQuit);
+                // The check carries on behind a small window that closes the toy when it is done.
+                ToyApp.Show(new FinishingPage(_host));
+                return;
             }
         }
         catch (Exception e)
         {
-            Log.Error("app", "waiting for the picture check before quitting failed; quitting anyway", e);
+            Log.Error("app", "quitting did not go as planned; quitting anyway", e);
         }
         Application.Current!.Quit();
     }

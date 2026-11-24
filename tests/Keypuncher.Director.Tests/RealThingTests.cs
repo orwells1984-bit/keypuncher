@@ -352,9 +352,10 @@ public class RealThingTests
         Assert.Equal("turned down already", outcome.Attempts[1].Refused);
         Assert.Equal(2, checker.Prompts.Count);   // the puffin, then the moa's fact; the moa is well known and goes unasked
         Assert.Contains("Sentence:", checker.Prompts[1]);
-        // Only the last try is offered them: offered at once, the model hands the list back as its answer.
+        // The first try is not offered them: offered at once, the model hands the list back as its answer. After a
+        // living animal they are offered on every try.
         Assert.DoesNotContain("choose one of these", author.Prompts[0]);
-        Assert.DoesNotContain("choose one of these", author.Prompts[1]);
+        Assert.Contains("choose one of these", author.Prompts[1]);
         var last = author.Prompts[2];
         Assert.Contains("choose one of these: ", last);
         var offered = last[(last.IndexOf("choose one of these: ") + 21)..].TrimEnd('.', '\n', ' ').Split(", ");

@@ -198,13 +198,17 @@ public sealed class PhotoFetcher : IPictureFetcher
                 if (_folder.Keep(sidecar.Slug) is { } kept) Note($"{sidecar.Name}: the picture before this one is kept as number {kept}");
                 _folder.WriteRaw(sidecar.Slug, raw.Extension, raw.Bytes);
             }
-            _folder.WriteSidecar(sidecar with { Hidden = false, CutOut = $"{result.Model}, covers {covers}% of the photo" });
-            _folder.WritePicture(sidecar.Slug, picture);
+            var story = sidecar with { Hidden = false, CutOut = $"{result.Model}, covers {covers}% of the photo" };
+            if (hold) _folder.WriteHeld(story, picture);
+            else
+            {
+                _folder.WriteSidecar(story);
+                _folder.WritePicture(sidecar.Slug, picture);
+            }
         }
         _folder.Wanted.Remove(sidecar.Slug);
         if (hold)
         {
-            _folder.Hold(sidecar.Slug);
             Note($"{sidecar.Name}: picture cut out ({result.Model}); it waits for the picture check before it goes into play");
             return FetchOutcome.Pictured;
         }
