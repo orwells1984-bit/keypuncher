@@ -46,6 +46,22 @@ public sealed class PhotoFetcherTests : IDisposable
         Assert.Contains(_log, l => l.Contains("picture in play"));
     }
 
+    /// <summary>There is no photo of an extinct animal: two manuscript pages went into play as Steller's sea cow, each
+    /// for a whole play, before the checker saw them.</summary>
+    [Theory]
+    [InlineData("dodo", RealCategory.ExtinctAnimal)]
+    [InlineData("rex", RealCategory.Animal)]
+    public async Task An_extinct_animals_picture_waits_out_of_play_for_the_check(string name, RealCategory category)
+    {
+        var outcome = await Fetcher().FetchAsync(name, category);
+
+        Assert.Equal(FetchOutcome.Pictured, outcome);
+        Assert.False(_folder.HasPicture(name));
+        Assert.True(_folder.IsHidden(name));
+        Assert.True(_folder.ReadSidecar(name)!.AwaitsCheck);
+        Assert.Contains(_log, l => l.Contains("waits for the picture check"));
+    }
+
     [Fact]
     public async Task Without_the_cut_out_model_the_photo_is_kept_and_the_thing_stays_wanted_without_a_try_counted()
     {

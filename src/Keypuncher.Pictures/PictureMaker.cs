@@ -23,7 +23,7 @@ public enum MakeOutcome
 /// Fills the gaps the photo sources leave: for a thing the finder found nothing for, asks the image model for a
 /// picture, cuts it out like a photo, writes the sidecar with how it was made, and, when a checker is given, shows
 /// the cut-out to the vision model, which takes a picture it fails out of play (see <see cref="PictureChecks"/>). Everything here takes the graphics
-/// card, so it runs from the console tool at night, never from the toy.
+/// card, so it runs from the console tool at night, and from the toy only while it sleeps after its goodnight.
 /// </summary>
 public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOut cutOut, IVisionChecker? checker = null, Func<DateTime>? clock = null, Action<string>? note = null)
 {
@@ -40,8 +40,10 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
             || (wanted.Tries >= 3 && wanted.Reason is not ("offline" or PhotoFetcher.ModelMissing)));
 
     /// <summary>Makes a picture for a thing with none. The seed is the number of tries so far unless given, so the
-    /// next try after a failed cut-out is a different picture.</summary>
-    public async Task<MakeOutcome> MakeAsync(string name, RealCategory category, long? seed = null, CancellationToken ct = default)
+    /// next try after a failed cut-out is a different picture. With <paramref name="hold"/> the picture waits out of
+    /// play for a check made later (see <see cref="PictureFolder.Hold"/>), as the toy does: its checker cannot share
+    /// the card with the image model.</summary>
+    public async Task<MakeOutcome> MakeAsync(string name, RealCategory category, long? seed = null, CancellationToken ct = default, bool hold = false)
     {
         var slug = Slugs.For(name);
         var now = (clock ?? (() => DateTime.Now))();
@@ -98,6 +100,12 @@ public sealed class PictureMaker(PictureFolder folder, IImageMaker maker, ICutOu
             cutPng = encoded.ToArray();
         }
         folder.Wanted.Remove(slug);
+        if (hold)
+        {
+            folder.Hold(slug);
+            Note($"{name}: picture drawn ({maker.Name}, {result.Model}); it waits out of play for the picture check");
+            return MakeOutcome.Made;
+        }
         Note($"{name}: picture in play ({maker.Name}, {result.Model})");
         if (_checks is not null) await _checks.CheckAsync(sidecar, cutPng, ct);
         return MakeOutcome.Made;

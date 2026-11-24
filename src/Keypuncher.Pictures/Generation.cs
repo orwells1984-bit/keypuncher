@@ -22,8 +22,8 @@ public static class GenerationPrompt
 /// <summary>A picture the image model made, as PNG bytes, and how it was made.</summary>
 public sealed record MadeImage(byte[] Png, GenerationProvenance Provenance);
 
-/// <summary>Makes a picture from a prompt with the local image model; the maker downloads nothing and the toy
-/// itself never calls it, since it takes the graphics card for half a minute.</summary>
+/// <summary>Makes a picture from a prompt with the local image model; the maker downloads nothing. It takes the
+/// graphics card for half a minute, so the toy calls it only while it sleeps after its goodnight.</summary>
 public interface IImageMaker
 {
     /// <summary>Which model this is, for the sidecar: "Z-Image-Turbo".</summary>
@@ -151,7 +151,7 @@ public static partial class Vram
 }
 
 /// <summary>Runs stable-diffusion.cpp's <c>sd-cli</c> once per picture. Each run loads the weights afresh (half a
-/// minute on a 6 GB card), so this is for the nightly batch, never for play. A run that fails for want of memory is
+/// minute on a 6 GB card), so this is for the nightly batch and the toy's sleep, never for play. A run that fails for want of memory is
 /// tried once more with a smaller budget.</summary>
 public sealed class SdCli(SdCliSetup setup, Func<int?>? freeVram = null, Action<string>? note = null) : IImageMaker
 {

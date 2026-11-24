@@ -50,6 +50,31 @@ public sealed class PictureMakerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_picture_drawn_to_be_checked_later_waits_out_of_play()
+    {
+        _folder.Wanted.Add("laver", RealCategory.Plant, _now.AddDays(-1));
+        _folder.Wanted.Bump("laver", "no photo found", _now.AddHours(-1));
+
+        // The toy draws while it sleeps and looks at the drawings afterwards: its checker cannot share the card.
+        var outcome = await Maker(_checker).MakeAsync("laver", RealCategory.Plant, seed: 7, hold: true);
+
+        Assert.Equal(MakeOutcome.Made, outcome);
+        Assert.False(_folder.HasPicture("laver"));
+        Assert.True(_folder.IsHidden("laver"));
+        var sidecar = _folder.ReadSidecar("laver")!;
+        Assert.True(sidecar.AwaitsCheck);
+        Assert.Null(sidecar.Check);
+        Assert.Equal(7, sidecar.Generated!.Seed);
+        Assert.Empty(_checker.Asked);
+        Assert.Null(_folder.Wanted.Get("laver"));
+        // The check that comes later finds it and, passing it, puts it in play.
+        var checks = new PictureChecks(_folder, _checker, () => _now);
+        Assert.Equal("laver", Assert.Single(checks.Unchecked()).Slug);
+        Assert.True((await checks.CheckAsync("laver"))!.Passed);
+        Assert.True(_folder.HasPicture("laver"));
+    }
+
+    [Fact]
     public async Task A_nursery_name_is_drawn_under_its_real_name_but_kept_under_its_own()
     {
         var outcome = await Maker().MakeAsync("rex", RealCategory.Animal);
@@ -318,7 +343,9 @@ public sealed class OllamaVisionTests
     [InlineData("a lot of small fish swimming together", "fish", RealCategory.Animal, "a lot")]
     [InlineData("a single oak branch, representing the whole branch of an oak tree", "oak tree", RealCategory.Plant, "branch")]
     [InlineData("a single acacia tree branch with yellow flowers", "acacia tree", RealCategory.Plant, "branch")]
-    [InlineData("depicted in a medieval illuminated manuscript", "steller's sea cow", RealCategory.ExtinctAnimal, "illuminated")]
+    [InlineData("depicted in a medieval illuminated manuscript", "steller's sea cow", RealCategory.ExtinctAnimal, "medieval")]
+    [InlineData("This is a cut-out depiction of a Steller's sea cow, shown as a pale, grey, and somewhat damaged image, with a decorative border surrounding it and a small, partially visible, depiction of a ship below.", "steller's sea cow", RealCategory.ExtinctAnimal, "decorative")]
+    [InlineData("a drawing of a dodo on a page of handwritten text", "dodo", RealCategory.ExtinctAnimal, "page")]
     [InlineData("one whole paddle boat, a brown animal with a white belly", "paddle boat", RealCategory.Vehicle, "animal")]
     [InlineData("the skull of a cave bear", "cave bear", RealCategory.ExtinctAnimal, "skull")]
     [InlineData("a single, complete, and alive harbor seal skull", "harbour seal", RealCategory.Animal, "skull")]
@@ -396,6 +423,8 @@ public sealed class OllamaVisionTests
     [InlineData("a bicycle with two wheels", "bicycle", RealCategory.Vehicle)]
     [InlineData("a realistic cut-out illustration of a polar bear for a children's book", "polar bear", RealCategory.Animal)]
     [InlineData("a ferry with the words BASTO VIII on its side", "ferry", RealCategory.Vehicle)]
+    [InlineData("a white and blue ferry, a single, isolated ship against a black background", "ferry", RealCategory.Vehicle)]
+    [InlineData("a single butterfly, isolated against a black background, with a subtle green border", "butterfly", RealCategory.Animal)]
     [InlineData("a red cabbage, whole, rather than a drawing", "red cabbage", RealCategory.Plant)]
     [InlineData("one whole, living harbour seal, with its head and skull clearly visible", "harbour seal", RealCategory.Animal)]
     [InlineData("one whole wooden spoon with a shallow bowl and a curved handle", "wooden spoon", RealCategory.Object)]

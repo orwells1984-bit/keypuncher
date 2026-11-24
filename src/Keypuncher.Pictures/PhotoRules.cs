@@ -4,6 +4,8 @@ using Keypuncher.Director;
 namespace Keypuncher.Pictures;
 
 /// <summary>What Commons says about one file, as much as the vetting needs.</summary>
+/// <param name="Made">When the picture was made, as Commons words it ("2011-05-03 12:22", "between 1577 and 1580",
+/// "13th century"); null when it does not say.</param>
 public sealed record FileFacts(
     string FileTitle,
     string Mime,
@@ -13,7 +15,8 @@ public sealed record FileFacts(
     IReadOnlyList<string> Categories,
     string LicenseShortName,
     string Copyrighted,
-    string? FileUrl = null);
+    string? FileUrl = null,
+    string? Made = null);
 
 /// <summary>How strongly a file was turned down.</summary>
 public enum Rejection
@@ -30,7 +33,7 @@ public enum Rejection
 /// turning down a good photo costs little (the thing keeps its stock shape, or the image model draws it), while a wrong
 /// picture is the one failure that matters, so they err on the side of no.
 /// </summary>
-public static class PhotoRules
+public static partial class PhotoRules
 {
     public const int MinLongSide = 600;
     public const double MinAspect = 0.5, MaxAspect = 2.0;
@@ -62,6 +65,20 @@ public static class PhotoRules
         "manuscript", "medieval manuscript", "illuminated manuscript", "bestiar", "codex", "codices", "incunab", "der naturen bloeme",
         "books of hours", "pages of",
     ];
+
+    /// <summary>Words in a category name (lower case), wherever they stand, that mean the file is a page of an old book:
+    /// "Der naturen bloeme - KB KA 16", "Visboek by Adriaen Coenen", "Medieval manuscripts".
+    /// Both pages that went into play as Steller's sea cow were tagged on Commons as depicting it; neither book can
+    /// show an animal first described in 1741.</summary>
+    private static readonly string[] BookCategories =
+    [
+        "manuscript", "bestiar", "codex", "codices", "incunab", "illuminat", "visboek", "visboeck", "der naturen bloeme",
+        "book of hours", "books of hours", "folios",
+    ];
+
+    /// <summary>A picture said to be made before this year is a page or a painting from before anyone drew animals from
+    /// life for a book of nature; the dodo's portraits (1620s) and everything since are let through.</summary>
+    public const int OldestYear = 1600;
 
     /// <summary>Words in a file name that mean the photo shows more than one of the thing, a mother with her young, the
     /// thing with people, or the thing cut open. These photos cut out as one blob of several animals (the "Flock of
@@ -112,6 +129,9 @@ public static class PhotoRules
         if (Group(words, categories, name) is { } group) return (Rejection.Hard, group);
         // "110v", "12r": a manuscript leaf, recto or verso.
         if (words.FirstOrDefault(IsFolio) is { } leaf) return (Rejection.Hard, $"file name says {leaf}: a page of a book");
+        if (ShelfMark(facts.FileTitle) is { } mark) return (Rejection.Hard, $"file name says {mark}: a library's scan of a book");
+        if (categories.FirstOrDefault(c => BookCategories.Any(c.Contains)) is { } book) return (Rejection.Hard, $"in category {book}: a page of an old book");
+        if (YearMade(facts.Made) is { } year && year < OldestYear) return (Rejection.Hard, $"made around {year}: an old book or painting");
 
         if (category == RealCategory.ExtinctAnimal)
         {
@@ -150,6 +170,27 @@ public static class PhotoRules
     public static bool IsFolio(string word) =>
         word.Length >= 2 && word[^1] is 'r' or 'v' && word[..^1].All(char.IsAsciiDigit);
 
+    /// <summary>A library's shelf mark in a file name, or null: the library's letters and then a number ("KB 78 E 54",
+    /// "KB KA 16", "BL Royal 12 C", "BnF Latin 3630"), or "MS 1234", "Cod. 12", "fol. 12". Case matters: "kb" in a
+    /// camera's file name is not a library, and "MS Estonia" is a ship.</summary>
+    public static string? ShelfMark(string fileTitle) =>
+        ShelfMarks().Match(fileTitle) is { Success: true } m ? m.Value.Trim() : null;
+
+    /// <summary>The year a picture was made, from Commons' wording of it: a century ("13th century" is 1200) or the
+    /// first year from 1000 on ("between 1577 and 1580", "2011-05-03"); null when there is neither.</summary>
+    public static int? YearMade(string? made)
+    {
+        if (string.IsNullOrWhiteSpace(made)) return null;
+        if (Century().Match(made) is { Success: true } c && int.TryParse(c.Groups[1].Value, out var nth) && nth is >= 1 and <= 21) return (nth - 1) * 100;
+        return Year().Match(made) is { Success: true } y && int.TryParse(y.Value, out var year) ? year : null;
+    }
+
+    /// <summary>Why a photo already in the folder would not be taken today, going by its file name alone (what the
+    /// sidecar keeps), or null: the group, book-page and bad-word rules of <see cref="Vet"/>, never size or licence.
+    /// A soft doubt (a painting) is not a reason: the checker has seen the picture.</summary>
+    public static string? NameFault(string fileTitle, RealCategory category, string? name = null) =>
+        Vet(new FileFacts(fileTitle, "image/jpeg", "", MinLongSide, MinLongSide, [], "kept", ""), category, name) is var (kind, why) && kind == Rejection.Hard ? why : null;
+
     /// <summary>Whether, for an extinct animal, a file is the kind we hope for: a life restoration.</summary>
     public static bool IsRestoration(FileFacts facts) =>
         Words(facts.FileTitle).Any(w => ExtinctGoodWords.Contains(w)) || facts.Categories.Any(c => c.Contains("restoration", StringComparison.OrdinalIgnoreCase));
@@ -174,4 +215,13 @@ public static class PhotoRules
         var name = fileTitle.StartsWith("File:") ? fileTitle[5..] : fileTitle;
         return name.ToLowerInvariant().Split([' ', '_', '-', '.', '(', ')', ','], StringSplitOptions.RemoveEmptyEntries);
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(?:KB|KBR|BL|BnF|BNF|ONB|ÖNB|BSB)\s(?:[A-Z][A-Za-z]*\.?\s){0,2}\d+|\b(?:MS|Ms|Cod|Hs)\.?\s?\d+|\b[Ff]ol\.\s?\d+")]
+    private static partial System.Text.RegularExpressions.Regex ShelfMarks();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(\d{1,2})(?:st|nd|rd|th)[\s-]century", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex Century();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b[12]\d{3}\b")]
+    private static partial System.Text.RegularExpressions.Regex Year();
 }

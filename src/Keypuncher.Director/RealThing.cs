@@ -43,6 +43,13 @@ public sealed record RealThingPick
         "thylacine", "steller's sea cow", "passenger pigeon",
     ];
 
+    /// <summary>Those of <see cref="WellKnownExtinct"/> that lived in the sea or on its shores: offered first when the
+    /// scene is a beach.</summary>
+    public static readonly IReadOnlySet<string> WellKnownExtinctOfTheSea = new HashSet<string>
+    {
+        "ichthyosaur", "plesiosaur", "megalodon", "ammonite", "trilobite", "steller's sea cow", "great auk", "pteranodon",
+    };
+
     public static RecipeKind KindOf(RealCategory category) => category == RealCategory.Plant ? RecipeKind.Plant : RecipeKind.Creature;
 
     public static string Describe(RealCategory category) => category switch

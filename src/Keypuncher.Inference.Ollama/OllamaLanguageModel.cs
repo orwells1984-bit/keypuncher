@@ -34,6 +34,24 @@ public sealed class OllamaLanguageModel : ILanguageModel
     private readonly string _role;
     private readonly HashSet<string> _systemsLogged = [];
     private static int _calls;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Waiting> _waiting = new();
+
+    private sealed class Waiting
+    {
+        public long Asked = Stopwatch.GetTimestamp();
+        public volatile bool Words;
+    }
+
+    /// <summary>The calls waiting for an answer now, each with how long ago it was asked and whether any words have
+    /// come back ("#1 author (qwen3:4b) asked 3.2 s ago, no words yet"), or "no model call under way". Read from any
+    /// thread: the drawing's pause watch writes it down, so a pause can be set beside what the model was doing.</summary>
+    public static string CallsUnderWay()
+    {
+        var calls = _waiting.ToArray();
+        return calls.Length == 0 ? "no model call under way"
+            : "model call " + string.Join(", ", calls.Select(c =>
+                FormattableString.Invariant($"{c.Key} asked {Stopwatch.GetElapsedTime(c.Value.Asked).TotalSeconds:0.0} s ago, {(c.Value.Words ? "answering" : "no words yet")}")));
+    }
 
     /// <param name="think">Whether a reasoning model (qwen3) may think before it answers. Off for the toy: the bench
     /// measured 60 to 130 s a recipe with it on. The bench turns it on to see what it buys the checker.</param>
@@ -91,12 +109,14 @@ public sealed class OllamaLanguageModel : ILanguageModel
         TimeSpan? firstToken = null;
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(CallTimeout);
+        var waiting = _waiting[call] = new Waiting();
         try
         {
             await foreach (var chunk in _client.GenerateAsync(request, limit.Token))
             {
                 if (chunk is null) continue;
                 firstToken ??= clock.Elapsed;
+                waiting.Words = true;
                 text.Append(chunk.Response);
                 if (chunk is GenerateDoneResponseStream d) done = d;
             }
@@ -117,6 +137,7 @@ public sealed class OllamaLanguageModel : ILanguageModel
             Log.Error("ollama", $"{call} failed after {clock.Elapsed.TotalSeconds:0.0} s, {text.Length} chars received", e);
             throw;
         }
+        finally { _waiting.TryRemove(call, out _); }
 
         var raw = text.ToString();
         JsonDocument? json = null;

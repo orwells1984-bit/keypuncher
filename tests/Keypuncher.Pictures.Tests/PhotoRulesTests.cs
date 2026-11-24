@@ -192,6 +192,50 @@ public sealed class PhotoRulesTests
     public void A_manuscript_page_is_turned_down_even_for_an_extinct_animal(string title) =>
         Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts(title), RealCategory.ExtinctAnimal, "steller's sea cow")!.Value.Kind);
 
+    /// <summary>On 2026-11-23 the page that took its place was another one: fetched before "folio" counted, and passed by
+    /// the checker. A library's shelf mark, an old-book category or a date before 1600 each turn a file down, whatever
+    /// the thing is.</summary>
+    [Theory]
+    [InlineData("File:Visboeck zeekoe KB 78 E 54.jpg", null, null)]
+    [InlineData("File:Bestiary whale BL Royal 12 C xix.jpg", null, null)]
+    [InlineData("File:Zeekoe.jpg", "Category:Visboek by Adriaen Coenen", null)]
+    [InlineData("File:Zeekoe.jpg", "Category:Medieval manuscripts of fish", null)]
+    [InlineData("File:Zeekoe.jpg", null, "between 1577 and 1580")]
+    [InlineData("File:Zeekoe.jpg", null, "13th century")]
+    public void A_scan_of_an_old_book_is_turned_down_for_anything(string title, string? category, string? made)
+    {
+        var facts = new FileFacts(title, "image/jpeg", "BITMAP", 2000, 1400, category is null ? [] : [category], "Public domain", "False", null, made);
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(facts, RealCategory.ExtinctAnimal, "steller's sea cow")!.Value.Kind);
+        Assert.Equal(Rejection.Hard, PhotoRules.Vet(facts, RealCategory.Animal, "whale")!.Value.Kind);
+    }
+
+    [Theory]
+    [InlineData("File:MS Estonia 1993.jpg", RealCategory.Vehicle, "ferry", "1993-06-01")]
+    [InlineData("File:Allosaurus Juvenile Reconstruction.jpg", RealCategory.ExtinctAnimal, "allosaurus", "2019")]
+    [InlineData("File:Dodo 1.JPG", RealCategory.ExtinctAnimal, "dodo", "circa 1626")]
+    [InlineData("File:IMG 2034 480kb.jpg", RealCategory.Animal, "cat", "2011-05-03 12:22:11")]
+    public void A_ship_a_restoration_and_a_dated_photo_are_not_taken_for_old_books(string title, RealCategory category, string name, string made) =>
+        Assert.Null(PhotoRules.Vet(new FileFacts(title, "image/jpeg", "BITMAP", 2000, 1400, [], "CC BY-SA 4.0", "True", null, made), category, name));
+
+    [Theory]
+    [InlineData("between 1577 and 1580", 1577)]
+    [InlineData("13th century", 1200)]
+    [InlineData("2011-05-03 12:22:11", 2011)]
+    [InlineData("Unknown date", null)]
+    [InlineData(null, null)]
+    public void The_year_a_picture_was_made_is_read_from_commons_wording(string? made, int? year) =>
+        Assert.Equal(year, PhotoRules.YearMade(made));
+
+    [Fact]
+    public void A_kept_photo_is_judged_again_by_its_file_name_alone()
+    {
+        Assert.NotNull(PhotoRules.NameFault("File:Adriaen Coenen's Visboeck - KB 78 E 54 - folio 395v.jpg", RealCategory.ExtinctAnimal, "steller's sea cow"));
+        Assert.Null(PhotoRules.NameFault("File:Allosaurus Juvenile Reconstruction.jpg", RealCategory.ExtinctAnimal, "allosaurus"));
+        // A painting is only a doubt, and the checker has seen it; a photo from iNaturalist has no file name to judge.
+        Assert.Null(PhotoRules.NameFault("File:Red fox painting.jpg", RealCategory.Animal, "red fox"));
+        Assert.Null(PhotoRules.NameFault("inaturalist:116758814", RealCategory.Animal, "red fox"));
+    }
+
     [Fact]
     public void A_manuscript_category_is_turned_down() =>
         Assert.Equal(Rejection.Hard, PhotoRules.Vet(Facts("File:KB KA 16 sea cow.jpg", categories: "Category:Der naturen bloeme"), RealCategory.ExtinctAnimal, "steller's sea cow")!.Value.Kind);

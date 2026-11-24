@@ -178,6 +178,16 @@ the Qwen3-4B text encoder GGUF and FLUX's `ae.safetensors`) live under the folde
 `sd\` and `models\` inside it; the toy downloads none of them. A made picture's sidecar records the model, weights,
 prompt and seed, and its credit line on the grown-ups' page says so.
 
+The toy draws gaps itself too, while it sleeps after its goodnight or on the grown-ups' page: once the picture check
+is done it asks Ollama to let go of its own models, draws up to four things the photo sources have given up on, and
+holds each drawing out of play until the picture checker has passed it. It looks for the image model under
+`KEYPUNCHER_SD`, then `sd` in the data folder, then a `keypuncher-sd` folder beside the program or any folder above it.
+Nothing is drawn while another job's model is on the card, or for a name the encyclopedia has no article for.
+
+When the screen is not drawn for a second or more during play, `director.log` and `keypuncher.log` say so while it
+lasts ("nothing drawn for 1.2 s") and when it ends ("drawing was paused for 21.5 s"), with what the drawing thread was
+doing, any model call under way, the picture work, and the card's free memory.
+
 ## Phase 2: the director
 
 With [Ollama](https://ollama.com) running and `ollama pull qwen3:4b` done, the toy's director keeps the

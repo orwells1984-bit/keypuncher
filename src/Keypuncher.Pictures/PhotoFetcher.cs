@@ -87,6 +87,7 @@ public sealed class PhotoFetcher : IPictureFetcher
         // too: the first photo of a thing is the search's best, and the ones after it are worse more often.
         var hold = _folder.IsHidden(slug) && sidecar is { Check.Passed: false } && wanted?.Reason != AskedForAnother;
         wanted ??= _folder.Wanted.Add(name, category, now);
+        var extinct = ToyNames.LookUp(name, category).Category == RealCategory.ExtinctAnimal && wanted.Reason != AskedForAnother;
         // Everything turned down so far: what the wanted entry says, what earlier tries left in the sidecar (the entry
         // goes when a try succeeds), and, when another is asked for, the photo in play itself.
         var exclude = asked.Concat(sidecar?.Alternatives ?? []).Concat(inPlay && sidecar?.Photo?.FileTitle is { } shown ? [shown] : [])
@@ -100,7 +101,7 @@ public sealed class PhotoFetcher : IPictureFetcher
             && _folder.FindRaw(slug) is { } rawPath && !exclude.Contains(kept.FileTitle, StringComparer.OrdinalIgnoreCase) && _cutOut.IsAvailable)
         {
             using var raw = Decode(File.ReadAllBytes(rawPath));
-            if (raw is not null) { Note($"{name}: cutting the photo kept earlier"); return Cut(sidecar, raw, now, hold: sidecar.CutOut?.StartsWith(Doubted) == true); }
+            if (raw is not null) { Note($"{name}: cutting the photo kept earlier"); return Cut(sidecar, raw, now, hold: sidecar.CutOut?.StartsWith(Doubted) == true || extinct); }
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -146,6 +147,10 @@ public sealed class PhotoFetcher : IPictureFetcher
         // not leave the old picture credited to a photo nobody sees.
         // So does a photo the search itself doubted (a drawing rather than a photo).
         hold |= photo.Doubt is not null;
+        // And every picture of an extinct animal: there is no photo of one, so what comes is a painting, a model or
+        // worse (two manuscript pages for Steller's sea cow, shown to the child for a whole play each). Not when a
+        // grown-up asked for another: that one is theirs to judge.
+        hold |= extinct;
         if (inPlay) return Cut(fresh, bitmap, now, pending: (ExtensionFor(mime), got.Bytes), hold);
         _folder.WriteRaw(slug, ExtensionFor(mime), got.Bytes);
         _folder.WriteSidecar(fresh);
