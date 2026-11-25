@@ -247,17 +247,35 @@ public sealed class OtherJobPause
     public string WatcherScript()
     {
         static string Q(string s) => "'" + s.Replace("'", "''") + "'";
-        var flagCheck = _job.PauseFlag is { } flag && FlagHash is { } hash
-            ? $"if (-not (Test-Path -LiteralPath {Q(flag)})) {{ $ok = $false }} elseif ((Get-FileHash -LiteralPath {Q(flag)} -Algorithm SHA256).Hash -ne {Q(hash)}) {{ $ok = $false }}; "
-            : "";
+        // Fails closed: the job is resumed only on a positive match of the flag, so an error anywhere (a cmdlet
+        // missing, a file that cannot be read) leaves it paused rather than lifting someone else's pause. The hash
+        // is taken with .NET itself: Get-FileHash lives in a script module that Windows PowerShell cannot find when
+        // it inherits PowerShell 7's module path.
+        var decide = _job.PauseFlag is { } flag && FlagHash is { } hash
+            ? $"$f = {Q(flag)}; if (Test-Path -LiteralPath $f) {{ $h = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes($f))).Replace('-', ''); if ($h -eq {Q(hash)}) {{ $ok = $true }} }}; "
+            : "$ok = $true; ";
         return "$ErrorActionPreference = 'SilentlyContinue'; "
             + $"Wait-Process -Id {_pid}; "
             + $"$lease = {Q(_leaseFile)}; "
             + "if (-not (Test-Path -LiteralPath $lease)) { exit 0 }; "
             + $"if ((Get-Content -LiteralPath $lease -Raw | ConvertFrom-Json).pid -ne {_pid}) {{ exit 0 }}; "
-            + "$ok = $true; " + flagCheck
+            + "$ok = $false; " + decide
             + $"if ($ok) {{ Start-Process -FilePath {Q(_job.Program)} -ArgumentList {Q(_job.ResumeArguments)} -WindowStyle Hidden -Wait }}; "
             + "Remove-Item -LiteralPath $lease";
+    }
+
+    /// <summary>How to start the watcher: Windows PowerShell, hidden, with the script encoded, and without an inherited
+    /// PSModulePath (PowerShell 7's hides Windows PowerShell's own modules).</summary>
+    public System.Diagnostics.ProcessStartInfo WatcherStartInfo()
+    {
+        var script = Convert.ToBase64String(Encoding.Unicode.GetBytes(WatcherScript()));
+        var info = new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {script}")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        info.Environment.Remove("PSModulePath");
+        return info;
     }
 
     private void Take(string? flagHash)

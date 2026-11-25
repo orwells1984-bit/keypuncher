@@ -203,9 +203,10 @@ public sealed class OtherJobPauseTests : IDisposable
         var pause = new OtherJobPause(job, LeaseFile, new FakeJob(Flag), _story.Add, toy.Id, toy.StartTime.ToUniversalTime().Ticks, (_, _) => true);
         await pause.PauseAsync();
         Assert.True(pause.Owned);
-        var script = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(pause.WatcherScript()));
-        using var watcher = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
-            $"-NoProfile -NonInteractive -EncodedCommand {script}") { CreateNoWindow = true, UseShellExecute = false })!;
+        var start = pause.WatcherStartInfo();
+        // As when the toy is started from a PowerShell 7 prompt, whose module path hid Windows PowerShell's own.
+        start.Environment["PSModulePath"] = @"C:\Program Files\PowerShell\7\Modules";
+        using var watcher = System.Diagnostics.Process.Start(start)!;
         // Still waiting while the toy runs.
         await Task.Delay(1000);
         Assert.False(File.Exists(resumed));
@@ -225,9 +226,10 @@ public sealed class OtherJobPauseTests : IDisposable
         var pause = new OtherJobPause(job, LeaseFile, new FakeJob(Flag), _story.Add, toy.Id, toy.StartTime.ToUniversalTime().Ticks, (_, _) => true);
         await pause.PauseAsync();
         File.WriteAllText(Flag, "{\"hold\":true,\"by\":\"someone else\"}");
-        var script = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(pause.WatcherScript()));
-        using var watcher = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
-            $"-NoProfile -NonInteractive -EncodedCommand {script}") { CreateNoWindow = true, UseShellExecute = false })!;
+        var start = pause.WatcherStartInfo();
+        // As when the toy is started from a PowerShell 7 prompt, whose module path hid Windows PowerShell's own.
+        start.Environment["PSModulePath"] = @"C:\Program Files\PowerShell\7\Modules";
+        using var watcher = System.Diagnostics.Process.Start(start)!;
         Assert.True(watcher.WaitForExit(TimeSpan.FromSeconds(60)));
         Assert.False(File.Exists(resumed));
         Assert.True(File.Exists(Flag));

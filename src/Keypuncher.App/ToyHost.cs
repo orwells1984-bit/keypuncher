@@ -208,13 +208,7 @@ public sealed class ToyHost : IDisposable
     {
         try
         {
-            var script = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(pause.WatcherScript()));
-            using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
-                $"-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {script}")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            });
+            using var _ = System.Diagnostics.Process.Start(pause.WatcherStartInfo());
             Log.Info("other job", "watcher started: the paused job is resumed when the toy's process ends");
             return true;
         }
