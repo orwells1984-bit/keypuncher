@@ -260,6 +260,31 @@ models that can see); the choice is saved in `settings.json` and wins over `KEYP
 is listed there with a download button too. Before this, a play after both models had been removed from Ollama
 got 404 on every request and only the log said so.
 
+**Another job that uses Ollama can be paused while the toy runs.** Ollama holds one model at a time on a small
+card, so a long job of your own (a model benchmark overnight, say) leaves the toy with no model. Name the job in
+`settings.json` under `PauseWhileRunning`, and the toy runs its pause command when it starts (before it loads its
+own model) and its resume command at the very end, after the pictures checked behind the small window that
+follows Quit, but only if the toy was what paused it:
+
+```json
+"PauseWhileRunning": {
+  "Name": "model tournament",
+  "Program": "pwsh",
+  "PauseArguments": "-NoProfile -File \"C:\\jobs\\Control.ps1\" -Action Pause -Hold -Now -Wait -WaitMinutes 1",
+  "ResumeArguments": "-NoProfile -File \"C:\\jobs\\Control.ps1\" -Action Resume -NoStart",
+  "PauseFlag": "C:\\jobs\\logs\\PAUSE",
+  "PauseTimeoutSeconds": 90
+}
+```
+
+The pause command should return once the job has let go of Ollama. `PauseFlag` is optional: the file the job's
+own pause writes. If it is there when the toy starts, someone else paused the job, and the toy leaves it alone; at
+the end the toy resumes only if the file is still exactly as its pause left it. Without it, exit code 0 from the
+pause command means the toy paused the job. What the toy paused is noted in `other-job-paused.json` in the data
+folder, and a hidden Windows PowerShell watcher resumes the job when the toy's process ends, however it ends, so a
+killed toy does not leave the job paused; if even that is missed (a restart), the next toy takes the pause over and
+resumes the job at its end. Every step is in `director.log`.
+
 ### What the bench chose (5-6 Nov 2026)
 
 The reliability bench (`dotnet run --project tools/Keypuncher.Sandbox -- bench`, steps in

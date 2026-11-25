@@ -33,6 +33,9 @@ namespace Keypuncher.Storage;
 /// Windows lists.</param>
 /// <param name="CameraName">The chosen camera's name, to find it by when its id changes (another USB port).</param>
 /// <param name="Microphone">The microphone a grown-up chose to record with, by name; null for Windows' default.</param>
+/// <param name="PauseWhileRunning">Another job on this computer that uses the model server and is paused while the
+/// toy runs (and resumed at its end, if the toy paused it); set by hand in settings.json, null for none. See
+/// <see cref="OtherJob"/>.</param>
 public sealed record ToySettings(
     Dictionary<string, double> LanguageWeights,
     bool UpperCase = false,
@@ -51,7 +54,8 @@ public sealed record ToySettings(
     bool RecordCamera = true,
     string? Camera = null,
     string? CameraName = null,
-    string? Microphone = null)
+    string? Microphone = null,
+    OtherJob? PauseWhileRunning = null)
 {
     public static ToySettings Default => new(new Dictionary<string, double> { ["is"] = 0.7, ["en"] = 0.15, ["bg"] = 0.15 });
 
