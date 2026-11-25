@@ -77,6 +77,10 @@ while it is in front; use the grown-up exit below to get back.
   levelled, saved, played back, and the next one comes up. Left arrow redoes the last one.
   Until a clip is recorded the toy stays quiet for letters, and uses a Windows voice for numbers and
   words if one is installed for that language.
+- **Sticky Keys:** from start-up until the toy closes, Windows' Sticky, Filter and Toggle Keys shortcuts (Shift five
+  times, right Shift held 8 seconds, Num Lock held 5 seconds) are off, so mashing cannot switch them on. Sticky Keys or
+  Filter Keys already on at start-up is turned off and stays off afterwards, since a child's mashing is the likeliest
+  cause. Nothing is written to the Windows profile; if the toy is killed, its next start puts the shortcuts back.
 - The screen stays on during play, so a pause or the goodnight never ends at a dark screen or the sign-in;
   the grown-ups' page and quitting hand it back to the power plan.
 - Data lives in `%LOCALAPPDATA%\Keypuncher` (`world.db`, `recordings\`, `settings.json`). Set
@@ -185,7 +189,8 @@ holds each drawing out of play until the picture checker has passed it. It looks
 Nothing is drawn while another job's model is on the card, or for a name the encyclopedia has no article for.
 
 Quit does not cut this work short. If pictures are still being checked when a grown-up chooses Quit, the toy's window
-shrinks to a corner of the screen, the keyboard and Win+L go back to normal at once, and the check and the drawing
+shrinks to a corner of the screen, the keyboard and Win+L go back to normal at once (the Sticky, Filter and Toggle
+Keys shortcuts stay off until the toy closes, in case the child is still at the keyboard), and the check and the drawing
 carry on for up to 15 minutes; then the toy closes by itself. "Close now" in that window stops at once, and what was
 not finished waits for the next time.
 
