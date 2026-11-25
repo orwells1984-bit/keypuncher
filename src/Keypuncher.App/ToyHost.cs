@@ -114,9 +114,16 @@ public sealed class ToyHost : IDisposable
         Story($"started; model {model} at {ollama}; pictures checked by {PictureCheckModel}");
         if (Engine.Settings.Director)
         {
+            // Another job of the grown-up's that uses Ollama is paused first, and has let go of the card before the
+            // toy looks at it or loads its model: the job's pause unloads every model, the toy's too.
+            var paused = PauseOtherJob(settings.PauseWhileRunning);
             // The card is looked at before the model is asked for, so the look sees what was there before the toy
             // came; the app warns the grown-up before play when another job holds the card or Ollama.
-            var card = CardAtStart = Task.Run(CheckCardAsync);
+            var card = CardAtStart = Task.Run(async () =>
+            {
+                await paused.ConfigureAwait(false);
+                return await CheckCardAsync().ConfigureAwait(false);
+            });
             Task.Run(async () =>
             {
                 await card.ConfigureAwait(false);
@@ -177,6 +184,72 @@ public sealed class ToyHost : IDisposable
     }
 
     public const string DefaultModel = "qwen3:4b";
+
+    private OtherJobPause? _otherJob;
+    private bool _watcherStarted;
+
+    /// <summary>Pauses the other job named in the settings, if any, and once the toy holds it paused starts the
+    /// watcher that resumes it when the toy's process ends, however it ends. Never fails.</summary>
+    private Task PauseOtherJob(OtherJob? job)
+    {
+        if (job is null || string.IsNullOrWhiteSpace(job.Program)) return Task.CompletedTask;
+        var pause = _otherJob = new OtherJobPause(job, Path.Combine(DataFolder, OtherJobPause.LeaseName), new ProcessCommandRunner(), line => Story(line));
+        return Task.Run(async () =>
+        {
+            await pause.PauseAsync().ConfigureAwait(false);
+            if (pause.Owned) _watcherStarted = StartWatcher(pause);
+        });
+    }
+
+    /// <summary>Starts Windows PowerShell, hidden and on its own, to wait for this process to end and then resume the
+    /// paused job (see <see cref="OtherJobPause.WatcherScript"/>). False when it could not be started; the toy then
+    /// resumes the job itself as it closes.</summary>
+    private static bool StartWatcher(OtherJobPause pause)
+    {
+        try
+        {
+            var script = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(pause.WatcherScript()));
+            using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                $"-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {script}")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            Log.Info("other job", "watcher started: the paused job is resumed when the toy's process ends");
+            return true;
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Log.Warn("other job", "could not start the watcher; the toy resumes the paused job itself as it closes, but not if it is killed", e);
+            return false;
+        }
+    }
+
+    /// <summary>At the very end, with the toy finished with Ollama: its own models are dropped from the card so the
+    /// other job finds it free, and the job is resumed by the watcher once the process has ended, or here when there
+    /// is no watcher.</summary>
+    private void ReleaseOtherJob()
+    {
+        if (_otherJob is not { Owned: true } job) return;
+        foreach (var model in new[] { DirectorModel, PictureCheckModel }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var _ = _ollamaHttp.PostAsJsonAsync("api/generate", new { model, keep_alive = 0 }, limit.Token).GetAwaiter().GetResult();
+            }
+            catch (Exception e) when (e is HttpRequestException or OperationCanceledException or ObjectDisposedException)
+            {
+                Log.Debug("ollama", $"dropping {model} from the card before resuming the other job failed", e);
+            }
+        }
+        if (_watcherStarted)
+        {
+            Story($"{job.Name}: the toy has finished with Ollama; it is resumed as the toy's process ends{(job.ShouldResume() ? "" : " (or not, as its pause was changed by someone else)")}");
+            return;
+        }
+        job.ResumeAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+    }
 
     /// <summary>The model for real things: the grown-ups' choice, else KEYPUNCHER_MODEL, else <see cref="DefaultModel"/>.</summary>
     public static string PreferredDirectorModel(ToySettings settings) =>
@@ -729,6 +802,9 @@ public sealed class ToyHost : IDisposable
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
         Log.Safely("app", "stopping the director", Director.Dispose);
+        // Everything that asks Ollama has stopped (the pictures after Quit are done by now), so another job the toy
+        // paused may have it back.
+        Log.Safely("other job", "letting the paused job go on", ReleaseOtherJob);
         Log.Safely("ollama", "closing the connection to Ollama", _ollamaHttp.Dispose);
         // The cut-out models are closed only once the worker has stopped: a cut it is still running cannot be
         // interrupted, so closing under it would hold the window; the process ending reclaims them instead.
