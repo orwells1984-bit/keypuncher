@@ -87,6 +87,7 @@ public sealed class ToyHost : IDisposable
         Engine = new ToyEngine(World, Mixer, Speech, settings, clock: () => DateTime.Now);
         Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
         _shortcuts = new AccessibilityShortcuts();
+        Log.Info("windows", _shortcuts.Summary);
         _lock = new LockShortcut();
         Log.Info("windows", $"keyboard hook installed; Win+L {(_lock.Active ? "turned off for this run" : "left as it was")}");
 
@@ -427,7 +428,7 @@ public sealed class ToyHost : IDisposable
 
     /// <summary>
     /// A grown-up chose Quit while the pictures were still being checked: the toy gives the keyboard, Win+L and the
-    /// screen's sleep back at once and saves the world, and the check (and the drawing of things with no photo)
+    /// screen's sleep back at once and saves the world (the Sticky Keys shortcuts stay off until the toy closes), and the check (and the drawing of things with no photo)
     /// carries on. The task ends when the pictures are done or after <see cref="MaxFinishing"/>; the caller then
     /// closes the toy. The director's model is not loaded again afterwards.
     /// </summary>
@@ -438,7 +439,7 @@ public sealed class ToyHost : IDisposable
         Mode = HostMode.Parent;
         Log.Safely("world", "saving the world", SaveWorld);
         Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
-        Log.Safely("app", "putting the accessibility shortcuts back", _shortcuts.Dispose);
+        // The Sticky Keys shortcuts stay off until the process ends (Dispose): the child may still be at the keyboard.
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
         return _checking is { IsCompleted: false } checking ? Task.WhenAny(checking, Task.Delay(MaxFinishing)) : Task.CompletedTask;
