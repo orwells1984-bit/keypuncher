@@ -488,6 +488,7 @@ public sealed class ToyHost : IDisposable
     public static readonly TimeSpan MaxFinishing = TimeSpan.FromMinutes(15);
 
     private volatile bool _finishing;
+    private volatile bool _handedBack;
     private volatile string _pictureWork = "";
 
     /// <summary>What the picture check is doing now, in a few words, for the window shown after Quit.</summary>
@@ -502,10 +503,12 @@ public sealed class ToyHost : IDisposable
     public Task FinishPicturesAfterQuit()
     {
         _finishing = true;
+        _handedBack = true;
         Story("a grown-up chose Quit with the picture check under way; it carries on behind a small window");
         Mode = HostMode.Parent;
         Log.Safely("world", "saving the world", SaveWorld);
         Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
+        Log.Safely("windows", "releasing keys left held", () => HeldKeys.ReleaseModifiers(_handedBack ? "as the toy closes" : "as the keyboard is given back"));
         // The Sticky Keys shortcuts stay off until the process ends (Dispose): the child may still be at the keyboard.
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
@@ -792,6 +795,7 @@ public sealed class ToyHost : IDisposable
         // A picture check under way stops at once; the process ending does not wait for it.
         Log.Safely("pictures", "stopping the picture check", _stopChecks.Cancel);
         Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
+        Log.Safely("windows", "releasing keys left held", () => HeldKeys.ReleaseModifiers(_handedBack ? "as the toy closes" : "as the keyboard is given back"));
         Log.Safely("app", "putting the accessibility shortcuts back", _shortcuts.Dispose);
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);

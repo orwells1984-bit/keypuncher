@@ -18,6 +18,10 @@ public sealed class FinishingPage : ContentPage
     private readonly DateTime _since = DateTime.Now;
     private Task? _work;
     private bool _closing;
+    private bool _waitingForQuiet;
+
+    /// <summary>How long the keyboard and mouse must be still before the window closes by itself.</summary>
+    public static readonly TimeSpan QuietBeforeClosing = TimeSpan.FromSeconds(10);
 
     public FinishingPage(ToyHost host)
     {
@@ -32,7 +36,7 @@ public sealed class FinishingPage : ContentPage
             Children =
             {
                 new Label { Text = "Finishing the pictures", FontSize = 22, FontAttributes = FontAttributes.Bold },
-                new Label { Text = "The new pictures are being checked so they are ready for next time. The keyboard is back to normal. This window closes by itself.", FontSize = 14 },
+                new Label { Text = "The new pictures are being checked so they are ready for next time. The keyboard is back to normal. This window closes by itself once the keyboard is still.", FontSize = 14 },
                 _status,
                 close,
             },
@@ -65,6 +69,16 @@ public sealed class FinishingPage : ContentPage
     {
         if (_work is null or { IsCompleted: true })
         {
+            // Closing gives the Sticky Keys shortcuts back to Windows, so it waits for a child still at the keyboard
+            // to stop: on 2026-11-26 the window closed by itself 70 s after Quit and the keyboard was dead until a
+            // restart. "Close now" does not wait.
+            if (_work is not null && Platform.Windows.HeldKeys.SinceLastInput() is { } still && still < QuietBeforeClosing)
+            {
+                if (!_waitingForQuiet) Log.Info("app", "the pictures are done; waiting for the keyboard and mouse to be still before closing");
+                _waitingForQuiet = true;
+                _status.Text = "Done. Closing once the keyboard has been still for a few seconds.";
+                return;
+            }
             Close(_host.PictureCheckRunning ? $"the pictures were not finished in {ToyHost.MaxFinishing.TotalMinutes:0} min; the rest wait for next time" : "the pictures are finished");
             return;
         }
