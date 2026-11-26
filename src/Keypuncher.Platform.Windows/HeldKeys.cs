@@ -25,8 +25,9 @@ public static class HeldKeys
         (VK_LWIN, "left Win", true), (VK_RWIN, "right Win", true),
     ];
 
-    /// <summary>Sends a release for each modifier Windows thinks is held, and logs which. Call only once the hook is
-    /// gone (it would swallow the releases). Returns the names released; never throws.</summary>
+    /// <summary>Sends a release for each modifier Windows thinks is held, and logs which. The releases carry
+    /// <see cref="KeyboardHook.OwnInput"/>, so the toy's own hook lets them through if it is still in. Returns the
+    /// names released; never throws.</summary>
     public static IReadOnlyList<string> ReleaseModifiers(string when)
     {
         var released = new List<string>();
@@ -38,7 +39,7 @@ public static class HeldKeys
                 var input = new INPUT
                 {
                     type = INPUT_KEYBOARD,
-                    ki = new KEYBDINPUT { wVk = (ushort)vk, dwFlags = KEYEVENTF_KEYUP | (extended ? KEYEVENTF_EXTENDEDKEY : 0) },
+                    ki = new KEYBDINPUT { wVk = (ushort)vk, dwFlags = KEYEVENTF_KEYUP | (extended ? KEYEVENTF_EXTENDEDKEY : 0), dwExtraInfo = (IntPtr)(nint)KeyboardHook.OwnInput },
                 };
                 if (SendInput(1, [input], Marshal.SizeOf<INPUT>()) == 1) released.Add(name);
                 else Log.Warn("windows", $"could not release {name} {when} (error {Marshal.GetLastWin32Error()})");

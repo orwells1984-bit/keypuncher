@@ -6,8 +6,8 @@ namespace Keypuncher.App.Pages;
 
 /// <summary>
 /// Shown after Quit while new pictures are still being checked (and things with no photo drawn): the toy's window
-/// shrinks to a corner of the screen, says what it is doing, and closes the toy when the work is done. The keyboard
-/// and Win+L are already back to normal. "Close now" stops at once; what was not finished waits for the next time.
+/// shrinks to a corner of the screen, says what it is doing, and closes the toy when the work is done. Typing and
+/// Win+L are already back to normal; the Win key and the other system shortcuts stay off until the toy closes. "Close now" stops at once; what was not finished waits for the next time.
 /// Before this page Quit waited 15 s and stopped the check, so most new pictures were never looked at.
 /// </summary>
 public sealed class FinishingPage : ContentPage
@@ -36,7 +36,7 @@ public sealed class FinishingPage : ContentPage
             Children =
             {
                 new Label { Text = "Finishing the pictures", FontSize = 22, FontAttributes = FontAttributes.Bold },
-                new Label { Text = "The new pictures are being checked so they are ready for next time. The keyboard is back to normal. This window closes by itself once the keyboard is still.", FontSize = 14 },
+                new Label { Text = "The new pictures are being checked so they are ready for next time. Typing works again, but the Windows key and other system shortcuts stay off until this window closes. It closes by itself once the keyboard is still.", FontSize = 14 },
                 _status,
                 close,
             },
@@ -69,7 +69,7 @@ public sealed class FinishingPage : ContentPage
     {
         if (_work is null or { IsCompleted: true })
         {
-            // Closing gives the Sticky Keys shortcuts back to Windows, so it waits for a child still at the keyboard
+            // Closing gives the Sticky Keys shortcuts and the system shortcuts back to Windows, so it waits for a child still at the keyboard
             // to stop: on 2026-11-26 the window closed by itself 70 s after Quit and the keyboard was dead until a
             // restart. "Close now" does not wait.
             if (_work is not null && Platform.Windows.HeldKeys.SinceLastInput() is { } still && still < QuietBeforeClosing)

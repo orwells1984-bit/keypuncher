@@ -35,8 +35,9 @@ a pterodactyl, a plesiosaur and an oak.*
   how they are drawn: thick dark outlines, few saturated colours and large bodies for the youngest, held
   by tests that also fail any patch of screen that flashes more than three times a second. Photos are
   introduced over separate plays, shape to silhouette to flat colours to photo.
-- **Locked down for a child, easy for a grown-up.** A low-level keyboard hook keeps Win, Alt+Tab and
-  friends from Windows during play. Grown-ups get out with a key chord or a held key and a typed word,
+- **Locked down for a child, easy for a grown-up.** A low-level keyboard hook keeps every key from Windows
+  during play, even if another window gets in front, and keeps Win, Alt+Tab, Game Bar and friends from
+  Windows for as long as the toy runs; touch swipes in from the screen edges are off too. Grown-ups get out with a key chord or a held key and a typed word,
   or on a touch screen with a two-corner hold and a sequence a child cannot copy.
 
 ## Tech
