@@ -199,15 +199,29 @@ public sealed class ParentPage : ContentPage
         // Choices made with the console tool while this page was open are picked up before play goes on.
         _host.Choices.Reload();
         _host.Words.Reload();
-        _host.SaveSettings(new ToySettings(
-            _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
-            _upper.IsToggled, (float)_volume.Value, _words.IsToggled,
-            CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level, SessionChoices[Math.Max(0, _session.SelectedIndex)],
-            _noises.IsToggled, _director.IsToggled, _directorTest.IsToggled, _recordPlay.IsToggled, _pictures.IsToggled, _thingWords.IsToggled,
-            // The models are saved the moment they are chosen; carried over here.
-            _host.Engine.Settings.DirectorModel, _host.Engine.Settings.PictureCheckModel, _recordCamera.IsToggled,
-            ChosenCamera()?.Id ?? _host.Engine.Settings.Camera, ChosenCamera()?.Name ?? _host.Engine.Settings.CameraName,
-            ChosenMic(_host.Engine.Settings.Microphone)));
+        // Built from the settings as they are, so anything this page does not show (the models, saved the moment
+        // they are chosen; PauseWhileRunning, set by hand in settings.json) is carried over. Building a new record
+        // here wiped PauseWhileRunning on 2026-11-25, so the next morning's play did not pause the tournament.
+        var s = _host.Engine.Settings;
+        _host.SaveSettings(s with
+        {
+            LanguageWeights = _weights.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value.Value, 2)),
+            UpperCase = _upper.IsToggled,
+            Volume = (float)_volume.Value,
+            SayWords = _words.IsToggled,
+            Calm = CalmChoices[Math.Max(0, _calm.SelectedIndex)].Level,
+            SessionMinutes = SessionChoices[Math.Max(0, _session.SelectedIndex)],
+            AnimalNoises = _noises.IsToggled,
+            Director = _director.IsToggled,
+            DirectorTest = _directorTest.IsToggled,
+            RecordPlay = _recordPlay.IsToggled,
+            Pictures = _pictures.IsToggled,
+            SayThingWords = _thingWords.IsToggled,
+            RecordCamera = _recordCamera.IsToggled,
+            Camera = ChosenCamera()?.Id ?? s.Camera,
+            CameraName = ChosenCamera()?.Name ?? s.CameraName,
+            Microphone = ChosenMic(s.Microphone),
+        });
         base.OnDisappearing();
     }
 
