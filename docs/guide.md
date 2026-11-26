@@ -188,9 +188,27 @@ holds each drawing out of play until the picture checker has passed it. It looks
 `KEYPUNCHER_SD`, then `sd` in the data folder, then a `keypuncher-sd` folder beside the program or any folder above it.
 Nothing is drawn while another job's model is on the card, or for a name the encyclopedia has no article for.
 
+What the keyboard can and cannot do while the toy runs:
+
+- In play every key is kept from Windows, also while another window has come in front (the toy then asks for its
+  window back and writes which window it was in keypuncher.log). If play stops taking keys for 3 s (the toy hangs),
+  ordinary typing goes to the window in front again.
+- On the grown-ups' pages and in the small window after Quit, typing works, but the keys Windows itself acts on stay
+  off: the Win key and every Win shortcut (Start, Game Bar Win+G, the Xbox full screen experience Win+F11, Win+Tab,
+  Win+D, Narrator, Magnifier, the Copilot key), Alt+Tab, Alt+Esc, Alt+F4, Alt+Space, Alt+Shift (input language),
+  Ctrl+Esc, Ctrl+Shift+Esc, the menu key, Print Screen, and the volume, media, browser, mail and sleep keys.
+- The Sticky, Filter, Toggle and Mouse Keys and High Contrast shortcuts are off from start-up until the toy closes,
+  and put back by the next start if the toy was killed. Touch swipes in from the screen edges are off over the toy's
+  window while it is full screen.
+- No program can stop Ctrl+Alt+Del, the power and sleep buttons on the case, keys a keyboard handles itself (Fn
+  combinations on laptops), or a key that reaches Windows while the toy is held up for over a second (Windows then
+  passes keys on by itself; keypuncher.log notes a key that reached the hook late). Win+L is turned off by a setting
+  that needs a one-time admin permission (grown-ups' page).
+
 Quit does not cut this work short. If pictures are still being checked when a grown-up chooses Quit, the toy's window
-shrinks to a corner of the screen, the keyboard and Win+L go back to normal at once (the Sticky, Filter and Toggle
-Keys shortcuts stay off until the toy closes, in case the child is still at the keyboard), and the check and the drawing
+shrinks to a corner of the screen, typing and Win+L go back to normal at once (the Win key, the other system
+shortcuts and the Sticky, Filter and Toggle Keys shortcuts stay off until the toy closes, in case the child is still at
+the keyboard), and the check and the drawing
 carry on for up to 15 minutes; then the toy closes by itself. "Close now" in that window stops at once, and what was
 not finished waits for the next time.
 

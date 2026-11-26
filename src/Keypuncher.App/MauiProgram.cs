@@ -17,6 +17,9 @@ public static class MauiProgram
                 // Borderless full screen: no title bar or taskbar for small hands to find.
                 window.AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
                 ToyHost.WindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+                // Touch swipes in from the edges would open Windows' own panels over play.
+                if (Keypuncher.Platform.Windows.EdgeSwipes.TurnOff(ToyHost.WindowHandle))
+                    Keypuncher.Core.Log.Info("windows", "touch swipes in from the screen edges turned off over the toy's window while it is full screen");
             })));
         return builder.Build();
     }

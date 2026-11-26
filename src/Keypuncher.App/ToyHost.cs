@@ -85,7 +85,7 @@ public sealed class ToyHost : IDisposable
         var settings = _settingsStore.Load();
         Log.Info("settings", $"loaded: {settings}");
         Engine = new ToyEngine(World, Mixer, Speech, settings, clock: () => DateTime.Now);
-        Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { ShouldSwallow = ShouldSwallow };
+        Keyboard = new KeyboardHook(OnKey, () => WindowHandle) { Blocking = Blocking };
         _shortcuts = new AccessibilityShortcuts();
         Log.Info("windows", _shortcuts.Summary);
         _lock = new LockShortcut();
@@ -495,8 +495,9 @@ public sealed class ToyHost : IDisposable
     public string PictureWork => _pictureWork;
 
     /// <summary>
-    /// A grown-up chose Quit while the pictures were still being checked: the toy gives the keyboard, Win+L and the
-    /// screen's sleep back at once and saves the world (the Sticky Keys shortcuts stay off until the toy closes), and the check (and the drawing of things with no photo)
+    /// A grown-up chose Quit while the pictures were still being checked: the toy gives ordinary typing, Win+L and the
+    /// screen's sleep back at once and saves the world (the Win key, the other system shortcuts and the Sticky Keys
+    /// shortcuts stay off until the toy closes), and the check (and the drawing of things with no photo)
     /// carries on. The task ends when the pictures are done or after <see cref="MaxFinishing"/>; the caller then
     /// closes the toy. The director's model is not loaded again afterwards.
     /// </summary>
@@ -507,9 +508,10 @@ public sealed class ToyHost : IDisposable
         Story("a grown-up chose Quit with the picture check under way; it carries on behind a small window");
         Mode = HostMode.Parent;
         Log.Safely("world", "saving the world", SaveWorld);
-        Log.Safely("app", "removing the keyboard hook", Keyboard.Dispose);
-        Log.Safely("windows", "releasing keys left held", () => HeldKeys.ReleaseModifiers(_handedBack ? "as the toy closes" : "as the keyboard is given back"));
-        // The Sticky Keys shortcuts stay off until the process ends (Dispose): the child may still be at the keyboard.
+        // The hook stays in until the process ends (Dispose), letting ordinary typing through but still keeping the
+        // Win key and the other system shortcuts from Windows: the child may still be at the keyboard. So do the
+        // Sticky Keys shortcuts.
+        Log.Safely("windows", "releasing keys left held", () => HeldKeys.ReleaseModifiers("as the keyboard is given back"));
         Log.Safely("app", "putting Win+L back", _lock.Dispose);
         Log.Safely("app", "letting the screen sleep again", _keepAwake.Dispose);
         return _checking is { IsCompleted: false } checking ? Task.WhenAny(checking, Task.Delay(MaxFinishing)) : Task.CompletedTask;
@@ -777,6 +779,7 @@ public sealed class ToyHost : IDisposable
     /// <summary>Takes the keys that arrived since the last frame (play mode only).</summary>
     public IEnumerable<KeyPress> DrainKeys()
     {
+        Volatile.Write(ref _lastDrain, Environment.TickCount64);
         while (_keys.TryDequeue(out var k)) yield return k;
     }
 
@@ -908,26 +911,72 @@ public sealed class ToyHost : IDisposable
 
     public static bool IsRecordingShortcut(KeyPress k) => k.ScanCode is 0x39 or 0xE04B or 0xE04D or 0x1C;
 
-    /// <summary>Called on the hook thread.</summary>
-    private void OnKey(KeyPress press)
+    /// <summary>Called on the hook thread, for every key, with whether the toy's window is in front. In play the
+    /// keys are the child's wherever the focus has gone; the recording shortcuts only work with the toy in front.</summary>
+    private void OnKey(KeyPress press, bool inFront)
     {
         switch (_mode)
         {
             case HostMode.Play:
                 _keys.Enqueue(press);
                 break;
-            case HostMode.Recording when IsRecordingShortcut(press):
+            case HostMode.Recording when inFront && IsRecordingShortcut(press):
                 MainThread.BeginInvokeOnMainThread(() => RecordingKey?.Invoke(press));
                 break;
         }
     }
 
-    /// <summary>Called on the hook thread: everything in play, only the shortcuts while recording, nothing
-    /// on the parent screen.</summary>
-    private bool ShouldSwallow(KeyPress press) => _mode switch
+    /// <summary>How long play may go without taking its keys before the hook stops keeping ordinary keys from
+    /// windows other than the toy's: if the toy hangs behind another window, typing there still works (the system
+    /// shortcuts stay off, and Ctrl+Alt+Del always works).</summary>
+    private const long PlayAliveMilliseconds = 3000;
+    private long _lastDrain;
+    private long _lastFrontTry;
+    private volatile bool _awayFromFront;
+
+    /// <summary>Called on the hook thread: what the hook keeps from Windows. In play, every key, also when another
+    /// window has come in front (then the toy asks for its window back); with the recording page in front, its
+    /// shortcuts; everywhere else, as long as the toy runs, the keys Windows itself acts on. On 2026-11-26 a child's
+    /// keys in play reached Windows and started its Xbox mode.</summary>
+    private KeyBlock Blocking(KeyPress press, bool inFront)
     {
-        HostMode.Play => true,
-        HostMode.Recording => IsRecordingShortcut(press),
-        _ => false,
-    };
+        switch (_mode)
+        {
+            case HostMode.Play when inFront:
+                if (_awayFromFront)
+                {
+                    _awayFromFront = false;
+                    Log.Info("windows", "the toy's window is in front again");
+                }
+                return KeyBlock.All;
+            case HostMode.Play:
+                if (_handedBack) return KeyBlock.SystemOnly;
+                NoteAwayFromFront();
+                return Environment.TickCount64 - Volatile.Read(ref _lastDrain) < PlayAliveMilliseconds ? KeyBlock.All : KeyBlock.SystemOnly;
+            case HostMode.Recording when inFront && IsRecordingShortcut(press):
+                return KeyBlock.All;
+            default:
+                return KeyBlock.SystemOnly;
+        }
+    }
+
+    /// <summary>Another window is in front during play: logged once, and the toy's window asked back at most every
+    /// two seconds while keys keep coming.</summary>
+    private void NoteAwayFromFront()
+    {
+        var now = Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastFrontTry) < 2000) return;
+        Interlocked.Exchange(ref _lastFrontTry, now);
+        var first = !_awayFromFront;
+        _awayFromFront = true;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (_mode != HostMode.Play || _handedBack) return;
+            var what = first ? Foreground.Describe() : null;
+            var back = Foreground.TryBringToFront(WindowHandle);
+            if (first)
+                Log.Warn("windows", $"in play another window came in front: {what}; the keys stay with the toy, which "
+                    + (back ? "has its window back" : "could not get its window back yet and keeps asking"));
+        });
+    }
 }
